@@ -1,0 +1,8 @@
+FROM node:20-alpine
+RUN corepack enable && corepack prepare yarn@stable --activate
+WORKDIR /app
+COPY package.json yarn.lock ./
+RUN yarn install --frozen-lockfile
+COPY . .
+EXPOSE 5174
+CMD ["yarn", "dev", "--host"]

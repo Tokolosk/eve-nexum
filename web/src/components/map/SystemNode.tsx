@@ -1,0 +1,129 @@
+import { memo } from 'react';
+import { Handle, Position, useConnection } from '@xyflow/react';
+import type { NodeProps } from '@xyflow/react';
+import type { MapSystem } from '../../types';
+import { CLASS_COLORS, CLASS_LABELS, EFFECT_ICONS, EFFECT_LABELS, EFFECT_MODIFIERS, WORMHOLE_DESTINATIONS } from '../../data/wormholes';
+import { useMapStore } from '../../store/mapStore';
+import { useSovData } from '../../hooks/useSovData';
+import { useEsiSystem } from '../../hooks/useEsiSystem';
+import { truesecColor } from '../../utils/truesec';
+
+type SystemNodeData = MapSystem & { selected: boolean };
+
+export const SystemNode = memo(({ data, selected }: NodeProps) => {
+  const sys = data as SystemNodeData;
+  const color = CLASS_COLORS[sys.systemClass];
+  const selectSystem    = useMapStore((s) => s.selectSystem);
+  const compactMode     = useMapStore((s) => s.compactMode);
+  const easyConnect     = useMapStore((s) => s.easyConnect);
+  const currentSystemId = useMapStore((s) => s.currentSystemId);
+  const isCurrent       = sys.id === currentSystemId;
+  const sov             = useSovData(sys.eveSystemId);
+  const esiSys          = useEsiSystem(sys.eveSystemId);
+  const connection      = useConnection();
+  const isTarget        = connection.inProgress && connection.fromNode?.id !== sys.id;
+
+  return (
+    <div
+      className={`system-node${sys.locked ? ' nopan' : ''}${isTarget ? ' system-node--connect-target' : ''}`}
+      style={{ '--class-color': color } as React.CSSProperties}
+      data-selected={selected}
+      data-status={sys.status}
+      data-home={sys.isHome}
+      data-current={isCurrent}
+      onClick={() => selectSystem(sys.id)}
+    >
+      {/* Always present so existing edge handle references stay valid across mode toggles */}
+      <Handle type="source" position={Position.Top}    id="top"    className={easyConnect ? 'system-handle system-handle--ghost' : 'system-handle'} />
+      <Handle type="source" position={Position.Right}  id="right"  className={easyConnect ? 'system-handle system-handle--ghost' : 'system-handle'} />
+      <Handle type="source" position={Position.Bottom} id="bottom" className={easyConnect ? 'system-handle system-handle--ghost' : 'system-handle'} />
+      <Handle type="source" position={Position.Left}   id="left"   className={easyConnect ? 'system-handle system-handle--ghost' : 'system-handle'} />
+
+      {easyConnect && (
+        <>
+          {/* Full-node source handle — drag from anywhere on the node to start a connection */}
+          <Handle type="source" position={Position.Right} id="easy-source" className="system-node__easy-handle" />
+          {/* Full-node target handle — isConnectableStart=false so it only receives, not starts */}
+          <Handle type="target" position={Position.Left}  id="easy-target" className="system-node__easy-handle" isConnectableStart={false} />
+          {/* Separate drag grip so nodes can still be moved */}
+          <div className="system-node__drag-handle drag-handle" />
+        </>
+      )}
+
+      <div className="system-node__header">
+        <span className="system-node__class-badge">{CLASS_LABELS[sys.systemClass]}</span>
+        {esiSys?.securityStatus != null && (
+          <span className="system-node__truesec" style={{ color: truesecColor(esiSys.securityStatus) }}>
+            {esiSys.securityStatus.toFixed(1)}
+          </span>
+        )}
+        <div className="system-node__icons">
+          {sys.locked && <span className="system-node__lock-icon">🔒</span>}
+          {sys.isHome && <span className="system-node__home-icon">⌂</span>}
+          {sys.effect !== 'none' && (
+            <span
+              className="system-node__effect-icon"
+              style={{ color: EFFECT_ICONS[sys.effect].color }}
+            >
+              {EFFECT_ICONS[sys.effect].symbol}
+              <span className="system-node__effect-tooltip">
+                <span className="system-node__effect-tooltip__title">{EFFECT_LABELS[sys.effect]}</span>
+                {EFFECT_MODIFIERS[sys.effect].map(({ label, good }) => (
+                  <span key={label} className={good ? 'system-node__effect-tooltip__good' : 'system-node__effect-tooltip__bad'}>
+                    {good ? '▲' : '▼'} {label}
+                  </span>
+                ))}
+              </span>
+            </span>
+          )}
+        </div>
+      </div>
+
+      <div className="system-node__name">
+        {isCurrent && <span className="system-node__current-dot" />}
+        {sys.name || 'Unknown'}
+      </div>
+
+      {!compactMode && sys.regionName && (
+        <div className="system-node__npc-type">
+          {sys.regionName}{sys.npcType ? ` - ${sys.npcType}` : ''}
+        </div>
+      )}
+
+      {!compactMode && sys.statics.length > 0 && (
+        <div className="system-node__statics">
+          <div className="title">Statics</div>
+          {sys.statics.map((s) => {
+            const dest = WORMHOLE_DESTINATIONS[s];
+            return (
+              <span key={s} className="system-node__static-tag">
+                {s}
+                {dest && (
+                  <span
+                    className="system-node__static-dest"
+                    style={{ color: CLASS_COLORS[dest] }}
+                  >
+                    {dest}
+                  </span>
+                )}
+              </span>
+            );
+          })}
+        </div>
+      )}
+
+      {!compactMode && sov?.logoUrl && (
+        <div className="system-node__sov-logo-wrap">
+          <img className="system-node__sov-logo" src={sov.logoUrl} alt={sov.controller} />
+          <span className="system-node__sov-tooltip">
+            {sov.controller}
+            {sov.ticker && <span className="system-node__sov-tooltip__ticker">[{sov.ticker}]</span>}
+          </span>
+        </div>
+      )}
+
+    </div>
+  );
+});
+
+SystemNode.displayName = 'SystemNode';

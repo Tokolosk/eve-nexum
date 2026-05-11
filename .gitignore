@@ -1,0 +1,40 @@
+# Dependencies
+node_modules/
+web/node_modules/
+server/node_modules/
+
+# npm — project uses yarn
+package-lock.json
+
+# Build output
+web/dist/
+server/dist/
+
+# Environment files (.env.example files are intentionally committed)
+.env
+.env.local
+**/.env
+
+# Vite cache
+web/.vite/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Pathfinder reference codebase
+pathfinder/vendor/
+pathfinder/node_modules/
+pathfinder/public/js/
+pathfinder/logs/
+pathfinder/tmp/
+pathfinder/composer-dev.lock
+
+pathfinder/
+
+# SDE download cache and local zip (too large for git)
+.sde-cache/
+server/data/*.zip

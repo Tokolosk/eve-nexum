@@ -1,0 +1,585 @@
+import { create } from 'zustand';
+import { v4 as uuid } from 'uuid';
+import { api } from '../api/client';
+import type { WormholeMap, MapSystem, MapConnection, SystemClass, WormholeEffect } from '../types';
+
+// Debounce position saves — fires max once per 500 ms per system
+const moveTimers = new Map<string, ReturnType<typeof setTimeout>>();
+// Debounce map name saves
+let nameTimer: ReturnType<typeof setTimeout> | null = null;
+
+function syncMove(mapId: string, systemId: string, position: { x: number; y: number }) {
+  const key = `${mapId}:${systemId}`;
+  clearTimeout(moveTimers.get(key));
+  moveTimers.set(key, setTimeout(() => {
+    api(`/api/maps/${mapId}/systems/${systemId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ position }),
+    }).catch(console.error);
+    moveTimers.delete(key);
+  }, 500));
+}
+
+const emptyMap = (): WormholeMap => ({
+  id: '', name: '', systems: [], connections: [],
+  createdAt: '', updatedAt: '',
+});
+
+export interface MapListItem {
+  id: string;
+  name: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type UndoCommand =
+  | { type: 'add_system';       systemId: string }
+  | { type: 'remove_system';    system: MapSystem; connections: MapConnection[] }
+  | { type: 'move_system';      systemId: string; prevPosition: { x: number; y: number } }
+  | { type: 'update_system';    systemId: string; prev: Partial<MapSystem> }
+  | { type: 'add_connection';   connectionId: string }
+  | { type: 'remove_connection'; connection: MapConnection }
+  | { type: 'update_connection'; connectionId: string; prev: Partial<MapConnection> }
+  | { type: 'batch';            commands: UndoCommand[] };
+
+const MAX_UNDO = 50;
+
+interface MapStore {
+  // Maps list
+  maps: MapListItem[];
+  maxMaps: number;
+  activeMapId: string | null;
+
+  // Current map
+  map: WormholeMap;
+  selectedSystemId: string | null;
+  selectedConnectionId: string | null;
+  currentSystemId: string | null;
+  snapToGrid: boolean;
+  compactMode: boolean;
+  showMinimap: boolean;
+  easyConnect: boolean;
+  mapOptionsOpen: boolean;
+  edgeStyle: 'bezier' | 'straight' | 'smoothstep';
+  autoLayoutPending: boolean;
+  requestAutoLayout: () => void;
+  clearAutoLayoutPending: () => void;
+
+  // Undo
+  undoStack: UndoCommand[];
+  pushUndo: (cmd: UndoCommand) => void;
+  undo: () => Promise<void>;
+
+  panelOrder: string[];
+  applyPreferences: (prefs: { compactMode: boolean; snapToGrid: boolean; showMinimap: boolean; panelOrder: string[] }) => void;
+  setPanelOrder: (order: string[]) => void;
+  setShowMinimap: (v: boolean) => void;
+  setEasyConnect: (v: boolean) => void;
+  setMapOptionsOpen: (v: boolean) => void;
+  setEdgeStyle: (v: MapStore['edgeStyle']) => void;
+  setCurrentSystem: (id: string | null) => void;
+
+  // Maps management
+  loadMaps: () => Promise<void>;
+  switchMap: (id: string) => Promise<void>;
+  createMap: (name?: string) => Promise<void>;
+  deleteMap: (id: string) => Promise<void>;
+
+  // Map metadata
+  setMapName: (name: string) => void;
+  setSnapToGrid: (v: boolean) => void;
+  setCompactMode: (v: boolean) => void;
+
+  // Systems
+  addSystem: (
+    name: string,
+    systemClass: SystemClass,
+    position: { x: number; y: number },
+    opts?: { eveSystemId?: number | null; effect?: WormholeEffect; statics?: string[]; regionName?: string | null; npcType?: string | null },
+  ) => string;
+  updateSystem: (id: string, updates: Partial<Omit<MapSystem, 'id'>>, opts?: { skipUndo?: boolean }) => void;
+  removeSystem: (id: string) => void;
+  lockSystem: (id: string) => void;
+  moveSystem: (id: string, position: { x: number; y: number }, opts?: { skipUndo?: boolean }) => void;
+
+  // Connections
+  addConnection: (sourceId: string, targetId: string, sourceHandle?: string | null, targetHandle?: string | null) => string;
+  updateConnection: (id: string, updates: Partial<Omit<MapConnection, 'id'>>) => void;
+  removeConnection: (id: string) => void;
+
+  // Selection
+  selectSystem: (id: string | null) => void;
+  selectConnection: (id: string | null) => void;
+}
+
+export const useMapStore = create<MapStore>()((set, get) => {
+
+  async function applyUndo(cmd: UndoCommand): Promise<void> {
+    const { activeMapId } = get();
+    if (!activeMapId) return;
+
+    switch (cmd.type) {
+      case 'add_system': {
+        set((s) => ({
+          selectedSystemId: s.selectedSystemId === cmd.systemId ? null : s.selectedSystemId,
+          map: {
+            ...s.map,
+            systems: s.map.systems.filter((sys) => sys.id !== cmd.systemId),
+            connections: s.map.connections.filter(
+              (c) => c.sourceId !== cmd.systemId && c.targetId !== cmd.systemId,
+            ),
+          },
+        }));
+        await api(`/api/maps/${activeMapId}/systems/${cmd.systemId}`, { method: 'DELETE' }).catch(console.error);
+        break;
+      }
+
+      case 'remove_system': {
+        set((s) => {
+          const restoredIds = new Set([...s.map.systems.map((sys) => sys.id), cmd.system.id]);
+          const validConns = cmd.connections.filter(
+            (c) =>
+              restoredIds.has(c.sourceId) &&
+              restoredIds.has(c.targetId) &&
+              !s.map.connections.some((e) => e.id === c.id),
+          );
+          return {
+            map: {
+              ...s.map,
+              systems: [...s.map.systems, cmd.system],
+              connections: [...s.map.connections, ...validConns],
+            },
+          };
+        });
+        await api(`/api/maps/${activeMapId}/systems`, {
+          method: 'POST',
+          body: JSON.stringify({ ...cmd.system }),
+        }).catch(console.error);
+        for (const conn of cmd.connections) {
+          await api(`/api/maps/${activeMapId}/connections`, {
+            method: 'POST',
+            body: JSON.stringify({ ...conn }),
+          }).catch(console.error);
+        }
+        break;
+      }
+
+      case 'move_system': {
+        set((s) => ({
+          map: {
+            ...s.map,
+            systems: s.map.systems.map((sys) =>
+              sys.id === cmd.systemId ? { ...sys, position: cmd.prevPosition } : sys,
+            ),
+          },
+        }));
+        await api(`/api/maps/${activeMapId}/systems/${cmd.systemId}`, {
+          method: 'PATCH',
+          body: JSON.stringify({ position: cmd.prevPosition }),
+        }).catch(console.error);
+        break;
+      }
+
+      case 'update_system': {
+        set((s) => ({
+          map: {
+            ...s.map,
+            systems: s.map.systems.map((sys) =>
+              sys.id === cmd.systemId ? { ...sys, ...cmd.prev } : sys,
+            ),
+          },
+        }));
+        await api(`/api/maps/${activeMapId}/systems/${cmd.systemId}`, {
+          method: 'PATCH',
+          body: JSON.stringify(cmd.prev),
+        }).catch(console.error);
+        break;
+      }
+
+      case 'add_connection': {
+        set((s) => ({
+          selectedConnectionId: s.selectedConnectionId === cmd.connectionId ? null : s.selectedConnectionId,
+          map: {
+            ...s.map,
+            connections: s.map.connections.filter((c) => c.id !== cmd.connectionId),
+          },
+        }));
+        await api(`/api/maps/${activeMapId}/connections/${cmd.connectionId}`, { method: 'DELETE' }).catch(console.error);
+        break;
+      }
+
+      case 'remove_connection': {
+        set((s) => ({
+          map: {
+            ...s.map,
+            connections: [...s.map.connections, cmd.connection],
+          },
+        }));
+        await api(`/api/maps/${activeMapId}/connections`, {
+          method: 'POST',
+          body: JSON.stringify({ ...cmd.connection }),
+        }).catch(console.error);
+        break;
+      }
+
+      case 'update_connection': {
+        set((s) => ({
+          map: {
+            ...s.map,
+            connections: s.map.connections.map((c) =>
+              c.id === cmd.connectionId ? { ...c, ...cmd.prev } : c,
+            ),
+          },
+        }));
+        await api(`/api/maps/${activeMapId}/connections/${cmd.connectionId}`, {
+          method: 'PATCH',
+          body: JSON.stringify(cmd.prev),
+        }).catch(console.error);
+        break;
+      }
+
+      case 'batch': {
+        for (const subCmd of [...cmd.commands].reverse()) {
+          await applyUndo(subCmd);
+        }
+        break;
+      }
+    }
+  }
+
+  return {
+    maps: [],
+    maxMaps: 10,
+    activeMapId: null,
+    map: emptyMap(),
+    selectedSystemId: null,
+    selectedConnectionId: null,
+    currentSystemId: null,
+    snapToGrid: false,
+    compactMode: false,
+    showMinimap: true,
+    easyConnect: false,
+    mapOptionsOpen: false,
+    edgeStyle: 'bezier',
+    autoLayoutPending: false,
+    panelOrder: ['activity', 'killboard', 'notes', 'signatures', 'structures', 'npcStations'],
+    undoStack: [],
+
+    pushUndo: (cmd) =>
+      set((s) => ({ undoStack: [...s.undoStack.slice(-(MAX_UNDO - 1)), cmd] })),
+
+    undo: async () => {
+      const { undoStack } = get();
+      if (undoStack.length === 0) return;
+      const cmd = undoStack[undoStack.length - 1];
+      set((s) => ({ undoStack: s.undoStack.slice(0, -1) }));
+      await applyUndo(cmd);
+    },
+
+    applyPreferences: ({ compactMode, snapToGrid, showMinimap, panelOrder }) => {
+      const all = ['activity', 'killboard', 'notes', 'signatures', 'structures', 'npcStations'];
+      const merged = [
+        ...panelOrder.filter((p) => all.includes(p)),
+        ...all.filter((p) => !panelOrder.includes(p)),
+      ];
+      set({ compactMode, snapToGrid, showMinimap, panelOrder: merged });
+    },
+
+    setPanelOrder: (order) => {
+      set({ panelOrder: order });
+      api('/auth/preferences', { method: 'PATCH', body: JSON.stringify({ panelOrder: order }) }).catch(console.error);
+    },
+
+    // ── Maps management ───────────────────────────────────────────────────────
+
+    loadMaps: async () => {
+      const { maps, maxMaps } = await api<{ maps: MapListItem[]; maxMaps: number }>('/api/maps');
+      set({ maps, maxMaps });
+      if (maps.length > 0 && !get().activeMapId) {
+        const savedId = localStorage.getItem('nexum.lastMapId');
+        const target = savedId && maps.find((m) => m.id === savedId) ? savedId : maps[0].id;
+        await get().switchMap(target);
+      }
+    },
+
+    switchMap: async (id) => {
+      const map = await api<WormholeMap>(`/api/maps/${id}`);
+      localStorage.setItem('nexum.lastMapId', id);
+      set({ map, activeMapId: id, selectedSystemId: null, selectedConnectionId: null, currentSystemId: null, undoStack: [] });
+    },
+
+    createMap: async (name = 'New Map') => {
+      const { id } = await api<{ id: string }>('/api/maps', {
+        method: 'POST',
+        body: JSON.stringify({ name }),
+      });
+      await get().loadMaps();
+      await get().switchMap(id);
+    },
+
+    deleteMap: async (id) => {
+      await api(`/api/maps/${id}`, { method: 'DELETE' });
+      const remaining = get().maps.filter((m) => m.id !== id);
+      set({ maps: remaining });
+      if (get().activeMapId === id) {
+        if (remaining.length > 0) {
+          await get().switchMap(remaining[0].id);
+        } else {
+          set({ map: emptyMap(), activeMapId: null });
+        }
+      }
+    },
+
+    // ── Map metadata ──────────────────────────────────────────────────────────
+
+    setMapName: (name) => {
+      const { activeMapId } = get();
+      set((s) => ({ map: { ...s.map, name } }));
+      if (!activeMapId) return;
+      if (nameTimer) clearTimeout(nameTimer);
+      nameTimer = setTimeout(() => {
+        api(`/api/maps/${activeMapId}`, { method: 'PATCH', body: JSON.stringify({ name }) }).catch(console.error);
+      }, 800);
+    },
+
+    setSnapToGrid: (v) => {
+      set({ snapToGrid: v });
+      api('/auth/preferences', { method: 'PATCH', body: JSON.stringify({ snapToGrid: v }) }).catch(console.error);
+    },
+
+    setCompactMode: (v) => {
+      set({ compactMode: v });
+      api('/auth/preferences', { method: 'PATCH', body: JSON.stringify({ compactMode: v }) }).catch(console.error);
+    },
+
+    setShowMinimap: (v) => {
+      set({ showMinimap: v });
+      api('/auth/preferences', { method: 'PATCH', body: JSON.stringify({ showMinimap: v }) }).catch(console.error);
+    },
+
+    setEasyConnect: (v) => set({ easyConnect: v }),
+    setMapOptionsOpen: (v) => set({ mapOptionsOpen: v }),
+    setEdgeStyle: (v) => set({ edgeStyle: v }),
+    requestAutoLayout: () => set({ autoLayoutPending: true }),
+    clearAutoLayoutPending: () => set({ autoLayoutPending: false }),
+
+    // ── Systems ───────────────────────────────────────────────────────────────
+
+    addSystem: (name, systemClass, position, opts = {}) => {
+      const { eveSystemId = null, effect = 'none', statics = [], regionName = null, npcType = null } = opts;
+      const { activeMapId } = get();
+      const id = uuid();
+
+      set((s) => {
+        const duplicate = s.map.systems.some(
+          (sys) =>
+            (eveSystemId !== null && sys.eveSystemId === eveSystemId) ||
+            sys.name.toLowerCase() === name.toLowerCase(),
+        );
+        if (duplicate) return {};
+        return {
+          map: {
+            ...s.map,
+            updatedAt: new Date().toISOString(),
+            systems: [
+              ...s.map.systems,
+              { id, eveSystemId, name, systemClass, effect, statics, regionName, npcType,
+                position, status: 'unknown', isHome: s.map.systems.length === 0, locked: false, notes: '' },
+            ],
+          },
+        };
+      });
+
+      const added = get().map.systems.find((s) => s.id === id);
+      if (added) {
+        get().pushUndo({ type: 'add_system', systemId: id });
+        if (activeMapId) {
+          api(`/api/maps/${activeMapId}/systems`, {
+            method: 'POST',
+            body: JSON.stringify({ ...added }),
+          }).catch(console.error);
+        }
+      }
+
+      return id;
+    },
+
+    updateSystem: (id, updates, opts) => {
+      const { activeMapId, map } = get();
+      if (!opts?.skipUndo) {
+        const sys = map.systems.find((s) => s.id === id);
+        if (sys) {
+          const prev: Partial<MapSystem> = {};
+          for (const key of Object.keys(updates) as Array<keyof typeof updates>) {
+            (prev as Record<string, unknown>)[key] = sys[key as keyof MapSystem];
+          }
+          get().pushUndo({ type: 'update_system', systemId: id, prev });
+        }
+      }
+      set((s) => ({
+        map: {
+          ...s.map,
+          updatedAt: new Date().toISOString(),
+          systems: s.map.systems.map((sys) => (sys.id === id ? { ...sys, ...updates } : sys)),
+        },
+      }));
+      if (activeMapId) {
+        api(`/api/maps/${activeMapId}/systems/${id}`, {
+          method: 'PATCH',
+          body: JSON.stringify(updates),
+        }).catch(console.error);
+      }
+    },
+
+    lockSystem: (id) => {
+      const { map } = get();
+      const sys = map.systems.find((s) => s.id === id);
+      if (sys) get().pushUndo({ type: 'update_system', systemId: id, prev: { locked: sys.locked } });
+
+      set((s) => ({
+        map: {
+          ...s.map,
+          updatedAt: new Date().toISOString(),
+          systems: s.map.systems.map((sys) =>
+            sys.id === id ? { ...sys, locked: !sys.locked } : sys,
+          ),
+        },
+      }));
+      const { activeMapId, map: updated } = get();
+      if (activeMapId) {
+        const updatedSys = updated.systems.find((s) => s.id === id);
+        if (updatedSys) {
+          api(`/api/maps/${activeMapId}/systems/${id}`, {
+            method: 'PATCH',
+            body: JSON.stringify({ locked: updatedSys.locked }),
+          }).catch(console.error);
+        }
+      }
+    },
+
+    removeSystem: (id) => {
+      const { activeMapId, map } = get();
+      const sys = map.systems.find((s) => s.id === id);
+      const affectedConns = map.connections.filter((c) => c.sourceId === id || c.targetId === id);
+      if (sys) get().pushUndo({ type: 'remove_system', system: sys, connections: affectedConns });
+
+      set((s) => ({
+        selectedSystemId: s.selectedSystemId === id ? null : s.selectedSystemId,
+        map: {
+          ...s.map,
+          updatedAt: new Date().toISOString(),
+          systems: s.map.systems.filter((sys) => sys.id !== id),
+          connections: s.map.connections.filter((c) => c.sourceId !== id && c.targetId !== id),
+        },
+      }));
+      if (activeMapId) {
+        api(`/api/maps/${activeMapId}/systems/${id}`, { method: 'DELETE' }).catch(console.error);
+      }
+    },
+
+    moveSystem: (id, position, opts) => {
+      const { activeMapId, map } = get();
+      if (!opts?.skipUndo) {
+        const sys = map.systems.find((s) => s.id === id);
+        if (sys) get().pushUndo({ type: 'move_system', systemId: id, prevPosition: sys.position });
+      }
+
+      set((s) => ({
+        map: {
+          ...s.map,
+          systems: s.map.systems.map((sys) => (sys.id === id ? { ...sys, position } : sys)),
+        },
+      }));
+      if (activeMapId) syncMove(activeMapId, id, position);
+    },
+
+    // ── Connections ───────────────────────────────────────────────────────────
+
+    addConnection: (sourceId, targetId, sourceHandle = null, targetHandle = null) => {
+      const { activeMapId } = get();
+      const id = uuid();
+
+      set((s) => {
+        const already = s.map.connections.some(
+          (c) =>
+            (c.sourceId === sourceId && c.targetId === targetId) ||
+            (c.sourceId === targetId && c.targetId === sourceId),
+        );
+        if (already) return {};
+        return {
+          map: {
+            ...s.map,
+            updatedAt: new Date().toISOString(),
+            connections: [
+              ...s.map.connections,
+              { id, sourceId, targetId, sourceHandle, targetHandle,
+                type: null, connectionType: 'standard',
+                massStatus: null, timeStatus: null, size: 'large',
+                createdAt: new Date().toISOString() },
+            ],
+          },
+        };
+      });
+
+      const conn = get().map.connections.find((c) => c.id === id);
+      if (conn) {
+        get().pushUndo({ type: 'add_connection', connectionId: id });
+        if (activeMapId) {
+          api(`/api/maps/${activeMapId}/connections`, {
+            method: 'POST',
+            body: JSON.stringify({ ...conn }),
+          }).catch(console.error);
+        }
+      }
+
+      return id;
+    },
+
+    updateConnection: (id, updates) => {
+      const { activeMapId, map } = get();
+      const conn = map.connections.find((c) => c.id === id);
+      if (conn) {
+        const prev: Partial<MapConnection> = {};
+        for (const key of Object.keys(updates) as Array<keyof typeof updates>) {
+          (prev as Record<string, unknown>)[key] = conn[key as keyof MapConnection];
+        }
+        get().pushUndo({ type: 'update_connection', connectionId: id, prev });
+      }
+      set((s) => ({
+        map: {
+          ...s.map,
+          updatedAt: new Date().toISOString(),
+          connections: s.map.connections.map((c) => (c.id === id ? { ...c, ...updates } : c)),
+        },
+      }));
+      if (activeMapId) {
+        api(`/api/maps/${activeMapId}/connections/${id}`, {
+          method: 'PATCH',
+          body: JSON.stringify(updates),
+        }).catch(console.error);
+      }
+    },
+
+    removeConnection: (id) => {
+      const { activeMapId, map } = get();
+      const conn = map.connections.find((c) => c.id === id);
+      if (conn) get().pushUndo({ type: 'remove_connection', connection: conn });
+
+      set((s) => ({
+        selectedConnectionId: s.selectedConnectionId === id ? null : s.selectedConnectionId,
+        map: {
+          ...s.map,
+          updatedAt: new Date().toISOString(),
+          connections: s.map.connections.filter((c) => c.id !== id),
+        },
+      }));
+      if (activeMapId) {
+        api(`/api/maps/${activeMapId}/connections/${id}`, { method: 'DELETE' }).catch(console.error);
+      }
+    },
+
+    selectSystem: (id) => set({ selectedSystemId: id, selectedConnectionId: null }),
+    selectConnection: (id) => set({ selectedConnectionId: id, selectedSystemId: null }),
+    setCurrentSystem: (id) => set({ currentSystemId: id }),
+  };
+});

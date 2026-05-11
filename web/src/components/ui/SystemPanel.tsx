@@ -1,0 +1,240 @@
+import { useRef, useState } from 'react';
+import { useSovData } from '../../hooks/useSovData';
+import { useEsiSystem } from '../../hooks/useEsiSystem';
+import { DndContext, closestCenter, PointerSensor, useSensor, useSensors } from '@dnd-kit/core';
+import type { DragEndEvent } from '@dnd-kit/core';
+import { SortableContext, verticalListSortingStrategy, arrayMove } from '@dnd-kit/sortable';
+import { useMapStore } from '../../store/mapStore';
+import { CLASS_COLORS, CLASS_LABELS, EFFECT_LABELS, EFFECT_MODIFIERS, WORMHOLE_DESTINATIONS } from '../../data/wormholes';
+import { DraggableCard } from './DraggableCard';
+import { SignaturePane } from './SignaturePane';
+import { StructuresPane } from './StructuresPane';
+import { NpcStationsPane } from './NpcStationsPane';
+import { NotesEditor } from './NotesEditor';
+import { KillboardPane } from './KillboardPane';
+import { ActivityPane } from './ActivityPane';
+import { truesecColor } from '../../utils/truesec';
+
+const PANEL_TITLES: Record<string, string> = {
+  notes:       'Notes',
+  signatures:  'Signatures',
+  structures:  'Structures',
+  npcStations: 'NPC Stations',
+  killboard:   'zKillboard',
+  activity:    'Activity',
+};
+
+const HEIGHT_KEY = 'nexum.panelHeight';
+const MIN_H      = 80;
+const DEFAULT_H  = 300;
+
+function clamp(v: number) {
+  return Math.min(Math.floor(window.innerHeight * 0.85), Math.max(MIN_H, v));
+}
+
+
+export function SystemPanel() {
+  const { map, selectedSystemId, panelOrder, updateSystem, selectSystem, setPanelOrder } = useMapStore();
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
+
+  const [height, setHeight] = useState(() => {
+    const v = localStorage.getItem(HEIGHT_KEY);
+    return v ? clamp(parseInt(v, 10)) : DEFAULT_H;
+  });
+  const heightRef = useRef(height);
+
+  const sys    = map.systems.find((s) => s.id === selectedSystemId);
+  const sov    = useSovData(sys?.eveSystemId ?? null);
+  const esiSys = useEsiSystem(sys?.eveSystemId ?? null);
+  if (!sys) return null;
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    const next = arrayMove(panelOrder, panelOrder.indexOf(String(active.id)), panelOrder.indexOf(String(over.id)));
+    setPanelOrder(next);
+  };
+
+  const onResizeMouseDown = (e: React.MouseEvent) => {
+    e.preventDefault();
+    const startY = e.clientY;
+    const startH = heightRef.current;
+
+    const onMove = (ev: MouseEvent) => {
+      const next = clamp(startH + (startY - ev.clientY));
+      heightRef.current = next;
+      setHeight(next);
+    };
+
+    const onUp = () => {
+      localStorage.setItem(HEIGHT_KEY, String(heightRef.current));
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+    };
+
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  };
+
+  const cards: Record<string, React.ReactNode> = {
+    notes: (
+      <NotesEditor
+        value={sys.notes}
+        onChange={(v) => updateSystem(sys.id, { notes: v }, { skipUndo: true })}
+      />
+    ),
+    signatures:  <SignaturePane systemId={sys.id} />,
+    structures:  <StructuresPane systemId={sys.id} />,
+    npcStations: <NpcStationsPane eveSystemId={sys.eveSystemId} />,
+    killboard:   <KillboardPane eveSystemId={sys.eveSystemId} />,
+    activity:    <ActivityPane eveSystemId={sys.eveSystemId} />,
+  };
+
+  return (
+    <aside className="system-panel" style={{ height }}>
+      <div className="system-panel__resize-handle" onMouseDown={onResizeMouseDown} />
+
+      <div className="system-panel__left">
+        <div className="system-panel__header">
+          <h2 className="system-panel__title">{sys.name || 'Unknown System'}</h2>
+          <button className="icon-btn" onClick={() => selectSystem(null)} title="Close">✕</button>
+        </div>
+
+        <div className="sys-info">
+          <div className="sys-info__row">
+            <span className="sys-info__badge" style={{ color: CLASS_COLORS[sys.systemClass] }}>
+              {CLASS_LABELS[sys.systemClass]}
+            </span>
+            {esiSys?.securityStatus != null && (
+              <span className="sys-info__truesec" style={{ color: truesecColor(esiSys.securityStatus) }}>
+                {esiSys.securityStatus.toFixed(1)}
+              </span>
+            )}
+            {sys.effect !== 'none' && (
+              <span className="sys-info__effect">{EFFECT_LABELS[sys.effect]}</span>
+            )}
+          </div>
+
+          {sys.effect !== 'none' && EFFECT_MODIFIERS[sys.effect].length > 0 && (
+            <div>
+            <div className="sys-info__row sys-info__effect-mod">System Effects</div>
+            <div className="sys-info__row sys-info__effect-mods">
+              {EFFECT_MODIFIERS[sys.effect].map(({ label, good }) => (
+                <span key={label} className={`sys-info__effect-mod${good ? ' sys-info__effect-mod--good' : ' sys-info__effect-mod--bad'}`}>
+                  {good ? '▲' : '▼'} {label}
+                </span>
+              ))}
+            </div>
+            </div>
+          )}
+
+          {sys.statics.length > 0 && (
+            <div>
+            <div className="sys-info__row sys-info__effect-mod">Statics</div>
+            <div className="sys-info__row">
+              {sys.statics.map((s) => {
+                const dest = WORMHOLE_DESTINATIONS[s];
+                return (
+                  <span key={s} className="sys-info__static">
+                    {s}
+                    {dest && (
+                      <span className="sys-info__static-dest" style={{ color: CLASS_COLORS[dest] }}>
+                        {dest}
+                      </span>
+                    )}
+                  </span>
+                );
+              })}
+            </div>
+            </div>
+          )}
+
+          {sys.regionName && (
+            <div className="sys-info__row sys-info__row--muted">
+              Region: {sys.regionName}
+              {esiSys?.constellationName && <> <br/>Constellation: {esiSys.constellationName}</>}
+            </div>
+          )}
+          {sys.npcType && (
+            <div className="sys-info__row sys-info__row--muted">
+              NPC: {sys.npcType}
+            </div>
+          )}
+
+          {esiSys && (esiSys.planetCount > 0 || esiSys.moonCount > 0 || esiSys.stargateCount > 0) && (
+            <div><div className="sys-info__row sys-info__effect-mod$">System Info:</div>
+            <div className="sys-info__celestials">
+              {esiSys.planetCount > 0 && (
+                <div className="sys-info__celestial">
+                  <span className="sys-info__celestial-icon">◎</span>
+                  {esiSys.planetCount} planet{esiSys.planetCount !== 1 ? 's' : ''}
+                </div>
+              )}
+              {esiSys.moonCount > 0 && (
+                <div className="sys-info__celestial">
+                  <span className="sys-info__celestial-icon">○</span>
+                  {esiSys.moonCount} moon{esiSys.moonCount !== 1 ? 's' : ''}
+                </div>
+              )}
+              {esiSys.stargateCount > 0 && (
+                <div className="sys-info__celestial">
+                  <span className="sys-info__celestial-icon">⬡</span>
+                  {esiSys.stargateCount} gate{esiSys.stargateCount !== 1 ? 's' : ''}
+                </div>
+              )}
+            </div>
+            </div>
+          )}
+
+          {sov && (sov.alliance || sov.corp || sov.faction) && (
+            <div><div className="sys-info__row sys-info__effect-mod$">Sov Info:</div>
+            <div className="sys-info__sov-block">
+              {sov.alliance && (
+                <div className="sys-info__row sys-info__sov">
+                  <img className="sys-info__sov-logo" src={sov.alliance.logoUrl} alt={sov.alliance.name} />
+                  <div className="sys-info__sov-text">
+                    <span className="sys-info__sov-label">Alliance</span>
+                    <span className="sys-info__sov-name">{sov.alliance.name}</span>
+                    <span className="sys-info__sov-ticker">[{sov.alliance.ticker}]</span>
+                  </div>
+                </div>
+              )}
+              {sov.corp && (
+                <div className="sys-info__row sys-info__sov">
+                  <img className="sys-info__sov-logo" src={sov.corp.logoUrl} alt={sov.corp.name} />
+                  <div className="sys-info__sov-text">
+                    <span className="sys-info__sov-label">Corp</span>
+                    <span className="sys-info__sov-name">{sov.corp.name}</span>
+                    <span className="sys-info__sov-ticker">[{sov.corp.ticker}]</span>
+                  </div>
+                </div>
+              )}
+              {sov.faction && (
+                <div className="sys-info__row sys-info__sov">
+                  <img className="sys-info__sov-logo" src={sov.faction.logoUrl} alt={sov.faction.name} />
+                  <div className="sys-info__sov-text">
+                    <span className="sys-info__sov-label">Faction</span>
+                    <span className="sys-info__sov-name">{sov.faction.name}</span>
+                  </div>
+                </div>
+              )}
+            </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+        <SortableContext items={panelOrder} strategy={verticalListSortingStrategy}>
+          <div className="panel-stack">
+            {panelOrder.map((id) => (
+              <DraggableCard key={id} id={id} title={PANEL_TITLES[id] ?? id}>
+                {cards[id]}
+              </DraggableCard>
+            ))}
+          </div>
+        </SortableContext>
+      </DndContext>
+    </aside>
+  );
+}
