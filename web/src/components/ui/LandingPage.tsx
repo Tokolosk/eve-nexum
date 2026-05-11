@@ -324,6 +324,15 @@ export function LandingPage() {
           <div className="landing__faq-list">
 
             <div className="landing__faq-item">
+              <h3 className="landing__faq-q">Why Nexum?</h3>
+              <p className="landing__faq-a">
+                Nexum is the Latin word for a bond or connection — which felt appropriate for a tool built
+                around mapping the connections between wormhole systems. It also sounds vaguely like
+                something you'd find floating in a C6 magnetar, which was really the deciding factor.
+              </p>
+            </div>
+
+            <div className="landing__faq-item">
               <h3 className="landing__faq-q">Can I use multiple accounts?</h3>
               <p className="landing__faq-a">
                 Yes — each EVE character gets their own set of maps. Just log in with a different character
@@ -384,6 +393,14 @@ export function LandingPage() {
                 audit it. Nexum has no interest in your scouting routes, your corp's killboard shame, or
                 whatever you've got parked in that C5. The worst thing a Goon has ever done in a wormhole
                 is get evicted from one, and I'd like to help you avoid that fate.
+              </p>
+            </div>
+
+            <div className="landing__faq-item">
+              <h3 className="landing__faq-q">Do you have a roadmap for new features?</h3>
+              <p className="landing__faq-a">
+                Loosely. Currently the system only works with solo players.  The next logical thing would be to implement this for Corporations and Alliances.  Once I iron out any bugs from this initial launch, I'll start work on that.<br/> This does assume real life work doesn't get in the way!
+                <br/><br/>If you have any pressing feature you want, drop me a message ingame and we can chat.
               </p>
             </div>
 
