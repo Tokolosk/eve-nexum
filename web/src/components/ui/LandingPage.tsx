@@ -408,7 +408,7 @@ export function LandingPage() {
         </section>
 
         <footer className="landing__footer">
-          Nexum is not affiliated with CCP Games or EVE Online.
+          Nexum is not affiliated with Fenris Creations or EVE Online.
         </footer>
       </div>
     </div>
