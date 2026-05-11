@@ -29,6 +29,21 @@ Edit `.env` and fill in the required values:
 | `EVE_CALLBACK_URL` | Must match the callback registered in your EVE app — e.g. `https://yourdomain.com/auth/callback` |
 | `FRONTEND_URL` | Public URL of the app — e.g. `https://yourdomain.com` |
 
+**EVE developer app scopes**
+
+When registering your application at [developers.eveonline.com](https://developers.eveonline.com), enable the following scopes:
+
+| Scope | Purpose |
+|---|---|
+| `esi-location.read_location.v1` | Read character's current solar system |
+| `esi-location.read_ship_type.v1` | Read character's active ship |
+| `esi-location.read_online.v1` | Read character online status |
+| `esi-ui.open_window.v1` | Open windows in the EVE client |
+| `esi-ui.write_waypoint.v1` | Set destinations and add waypoints |
+| `esi-universe.read_structures.v1` | Read player-owned structure info |
+| `esi-corporations.read_corporation_membership.v1` | Read corporation member list |
+| `esi-characters.read_corporation_roles.v1` | Read character's corporation roles |
+
 **2. Build and start**
 
 **Standard (direct ports):**
