@@ -10,6 +10,7 @@ FROM node:20-alpine
 WORKDIR /app
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/data ./data
 COPY package.json ./
 EXPOSE 3001
 CMD ["node", "dist/src/index.js"]

@@ -67,7 +67,7 @@ Application tables (`users`, `maps`, `signatures`, etc.) are created automatical
 The setup script is only required if you want system search and NPC station data (it imports the EVE Static Data Export). This is a one-time operation and takes several minutes:
 
 ```bash
-docker compose exec server node dist/src/scripts/setup-db.js
+docker compose exec server node dist/scripts/setup-db.js
 ```
 
 ---
