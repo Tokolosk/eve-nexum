@@ -20,14 +20,15 @@ cp .env.example .env
 
 Edit `.env` and fill in the required values:
 
-| Variable | Description |
-|---|---|
-| `PG_PASSWORD` | PostgreSQL password |
-| `SESSION_SECRET` | Random secret — run `openssl rand -hex 32` |
-| `EVE_CLIENT_ID` | From your EVE developer app |
-| `EVE_CLIENT_SECRET` | From your EVE developer app |
-| `EVE_CALLBACK_URL` | Must match the callback registered in your EVE app — e.g. `https://yourdomain.com/auth/callback` |
-| `FRONTEND_URL` | Public URL of the app — e.g. `https://yourdomain.com` |
+| Variable | Required | Description |
+|---|---|---|
+| `PG_PASSWORD` | Yes | PostgreSQL password |
+| `SESSION_SECRET` | Yes | Random secret — run `openssl rand -hex 32` |
+| `EVE_CLIENT_ID` | Yes | From your EVE developer app |
+| `EVE_CLIENT_SECRET` | Yes | From your EVE developer app |
+| `EVE_CALLBACK_URL` | Yes | Must match the callback registered in your EVE app — e.g. `https://yourdomain.com/auth/callback` |
+| `FRONTEND_URL` | Yes | Public URL of the app — e.g. `https://yourdomain.com` |
+| `DOMAIN` | Traefik only | Bare hostname for the Traefik router rule — e.g. `nexum.yourdomain.com` |
 
 **EVE developer app scopes**
 
@@ -67,7 +68,11 @@ Application tables (`users`, `maps`, `signatures`, etc.) are created automatical
 The setup script is only required if you want system search and NPC station data (it imports the EVE Static Data Export). This is a one-time operation and takes several minutes:
 
 ```bash
+# Standard
 docker compose exec server node dist/scripts/setup-db.js
+
+# With Traefik overlay
+docker compose -f docker-compose.yml -f docker-compose.traefik.yml exec server node dist/scripts/setup-db.js
 ```
 
 ---
