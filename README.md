@@ -31,11 +31,19 @@ Edit `.env` and fill in the required values:
 
 **2. Build and start**
 
+**Standard (direct ports):**
 ```bash
 docker compose up -d --build
 ```
+The app will be available on port `80`.
 
-The app will be available on port `80`. The API server runs internally on port `3001`.
+**With Traefik reverse proxy:**
+
+Add `DOMAIN=nexum.yourdomain.com` to your `.env`, then:
+```bash
+docker compose -f docker-compose.yml -f docker-compose.traefik.yml up -d --build
+```
+Traefik will handle TLS termination and HTTP→HTTPS redirects. The `docker-compose.traefik.yml` overlay assumes a Traefik network named `traefik-public` and a cert resolver named `letsencrypt`.
 
 **3. Database setup**
 
