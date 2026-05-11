@@ -11,7 +11,7 @@ import { truesecColor } from '../../utils/truesec';
 type SystemNodeData = MapSystem & { selected: boolean };
 
 export const SystemNode = memo(({ data, selected }: NodeProps) => {
-  const sys = data as SystemNodeData;
+  const sys = data as unknown as SystemNodeData;
   const color = CLASS_COLORS[sys.systemClass];
   const selectSystem    = useMapStore((s) => s.selectSystem);
   const compactMode     = useMapStore((s) => s.compactMode);

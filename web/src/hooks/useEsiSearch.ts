@@ -10,6 +10,8 @@ export interface SystemSearchResult {
 export interface SystemDetail extends SystemSearchResult {
   effect: string;
   statics: string[];
+  regionName?: string;
+  npcType?: string;
 }
 
 export async function fetchSystemDetail(id: number): Promise<SystemDetail> {

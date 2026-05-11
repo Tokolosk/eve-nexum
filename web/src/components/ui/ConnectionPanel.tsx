@@ -36,7 +36,7 @@ export function ConnectionPanel() {
       <label className="field">
         <span>Mass status</span>
         <select
-          value={conn.massStatus}
+          value={conn.massStatus ?? ''}
           onChange={(e) => update({ massStatus: e.target.value as MassStatus })}
         >
           <option value="stable">Stable</option>
@@ -48,7 +48,7 @@ export function ConnectionPanel() {
       <label className="field">
         <span>Time status</span>
         <select
-          value={conn.timeStatus}
+          value={conn.timeStatus ?? ''}
           onChange={(e) => update({ timeStatus: e.target.value as TimeStatus })}
         >
           <option value="fresh">Fresh</option>
