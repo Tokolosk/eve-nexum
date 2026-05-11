@@ -55,7 +55,7 @@ export function MapSidebar() {
       return;
     }
     if (!parsed.systems || !parsed.connections) {
-      alert('File does not look like a Pathfinder map export.');
+      alert('File does not look like a Eve-Nexum map export.');
       return;
     }
     try {
