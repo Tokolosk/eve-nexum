@@ -2,7 +2,7 @@ FROM node:20-alpine AS builder
 RUN corepack enable && corepack prepare yarn@stable --activate
 WORKDIR /app
 COPY package.json yarn.lock ./
-RUN yarn install --frozen-lockfile
+RUN yarn install --immutable
 COPY . .
 RUN yarn build
 
