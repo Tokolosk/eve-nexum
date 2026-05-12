@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react';
 import { useSovData } from '../../hooks/useSovData';
 import { useEsiSystem } from '../../hooks/useEsiSystem';
+import { api } from '../../api/client';
 import { DndContext, closestCenter, PointerSensor, useSensor, useSensors } from '@dnd-kit/core';
 import type { DragEndEvent } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy, arrayMove } from '@dnd-kit/sortable';
@@ -43,10 +44,22 @@ export function SystemPanel() {
   });
   const heightRef = useRef(height);
 
+  const [waypointStatus, setWaypointStatus] = useState<'idle' | 'ok' | 'err'>('idle');
+
   const sys    = map.systems.find((s) => s.id === selectedSystemId);
   const sov    = useSovData(sys?.eveSystemId ?? null);
   const esiSys = useEsiSystem(sys?.eveSystemId ?? null);
   if (!sys) return null;
+
+  const setWaypoint = (clearOtherWaypoints: boolean) => {
+    if (!sys.eveSystemId) return;
+    api('/api/character/waypoint', {
+      method: 'POST',
+      body: JSON.stringify({ destinationId: sys.eveSystemId, clearOtherWaypoints }),
+    })
+      .then(() => { setWaypointStatus('ok'); setTimeout(() => setWaypointStatus('idle'), 2000); })
+      .catch(() => { setWaypointStatus('err'); setTimeout(() => setWaypointStatus('idle'), 2000); });
+  };
 
   const handleDragEnd = (event: DragEndEvent) => {
     const { active, over } = event;
@@ -97,7 +110,29 @@ export function SystemPanel() {
       <div className="system-panel__left">
         <div className="system-panel__header">
           <h2 className="system-panel__title">{sys.name || 'Unknown System'}</h2>
-          <button className="icon-btn" onClick={() => selectSystem(null)} title="Close">✕</button>
+          <div className="system-panel__actions">
+            {sys.eveSystemId && (
+              <>
+                <button
+                  type="button"
+                  className={`sys-btn${waypointStatus === 'ok' ? ' sys-btn--ok' : waypointStatus === 'err' ? ' sys-btn--err' : ''}`}
+                  onClick={() => setWaypoint(true)}
+                  title="Set Destination"
+                >
+                  Set Destination
+                </button>
+                <button
+                  type="button"
+                  className={`sys-btn${waypointStatus === 'ok' ? ' sys-btn--ok' : waypointStatus === 'err' ? ' sys-btn--err' : ''}`}
+                  onClick={() => setWaypoint(false)}
+                  title="Add Waypoint"
+                >
+                  + Waypoint
+                </button>
+              </>
+            )}
+            <button type="button" className="icon-btn" onClick={() => selectSystem(null)} title="Close">✕</button>
+          </div>
         </div>
 
         <div className="sys-info">

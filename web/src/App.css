@@ -93,7 +93,7 @@
 .toolbar__stats {
   display: flex;
   gap: 16px;
-  font-size: 12px;
+  font-size: 13px;
   color: #e2e8f8;
 
   span { display: flex; align-items: center; gap: 4px; }
@@ -124,13 +124,13 @@
 }
 
 .toolbar__char-name {
-  font-size: 12px;
+  font-size: 13px;
   color: #c0ccde;
   white-space: nowrap;
 }
 
 .toolbar__checked-at {
-  font-size: 10px;
+  font-size: 13px;
   color: #6a80a0;
   white-space: nowrap;
 }
@@ -178,7 +178,7 @@
     transform: translateX(-50%);
     background: #101828;
     color: #c8d8f0;
-    font-size: 10px;
+    font-size: 13px;
     white-space: nowrap;
     padding: 3px 7px;
     border-radius: 4px;
@@ -194,7 +194,7 @@
 }
 
 .toolbar__server-label {
-  font-size: 10px;
+  font-size: 13px;
   color: #7a90a8;
   font-weight: 600;
   letter-spacing: 0.05em;
@@ -202,7 +202,7 @@
 }
 
 .toolbar__player-count {
-  font-size: 10px;
+  font-size: 13px;
   color: #6a8ab0;
   font-variant-numeric: tabular-nums;
 }
@@ -235,7 +235,7 @@
   &:hover { background: #1a2240; }
 }
 
-.toolbar__caret { font-size: 10px; color: #5a6a8a; flex-shrink: 0; }
+.toolbar__caret { font-size: 13px; color: #5a6a8a; flex-shrink: 0; }
 
 .map-dropdown {
   position: absolute;
@@ -451,7 +451,7 @@
   border: 1px solid #1e2740;
   border-radius: 5px;
   color: #c0ccde;
-  font-size: 12px;
+  font-size: 13px;
   text-align: left;
   cursor: pointer;
   transition: background 0.15s, color 0.15s, border-color 0.15s;
@@ -546,7 +546,7 @@
 }
 
 .system-node__class-badge {
-  font-size: 10px;
+  font-size: 13px;
   font-weight: 700;
   letter-spacing: 0.06em;
   color: var(--class-color);
@@ -554,7 +554,7 @@
 }
 
 .system-node__truesec {
-  font-size: 10px;
+  font-size: 13px;
   font-family: 'JetBrains Mono', 'Fira Code', monospace;
   font-weight: 600;
 }
@@ -566,7 +566,7 @@
 }
 
 .system-node__home-icon {
-  font-size: 12px;
+  font-size: 13px;
   color: #f0c040;
 }
 
@@ -581,7 +581,7 @@
 }
 
 .system-node__lock-icon {
-  font-size: 10px;
+  font-size: 13px;
   opacity: 0.7;
 }
 
@@ -623,12 +623,12 @@
 }
 
 .system-node__effect-tooltip__good {
-  font-size: 10px;
+  font-size: 13px;
   color: #4ade80;
 }
 
 .system-node__effect-tooltip__bad {
-  font-size: 10px;
+  font-size: 13px;
   color: #f87171;
 }
 
@@ -642,13 +642,13 @@
 }
 
 .system-node__effect {
-  font-size: 10px;
+  font-size: 13px;
   color: #c0ccde;
   margin-top: 2px;
 }
 
 .system-node__npc-type {
-  font-size: 10px;
+  font-size: 13px;
   color: #c47a2a;
   margin-top: 2px;
   font-style: italic;
@@ -663,14 +663,14 @@
 }
 
 .system-node__statics .title {
-  font-size: 10px;
+  font-size: 13px;
 }
 
 .system-node__static-tag {
   display: inline-flex;
   align-items: center;
   gap: 3px;
-  font-size: 9px;
+  font-size: 13px;
   font-weight: 700;
   letter-spacing: 0.05em;
   color: #c8d0e0;
@@ -680,7 +680,7 @@
 }
 
 .system-node__static-dest {
-  font-size: 9px;
+  font-size: 13px;
   font-weight: 700;
   opacity: 0.9;
 
@@ -732,7 +732,7 @@
 .system-node__sov-tooltip__ticker {
   color: #5a9af8;
   font-family: 'JetBrains Mono', 'Fira Code', monospace;
-  font-size: 10px;
+  font-size: 13px;
 }
 
 /* Full-node invisible handle for easy connect mode */
@@ -819,7 +819,7 @@ div.system-node__easy-handle {
 }
 
 .connection-label__type {
-  font-size: 9px;
+  font-size: 13px;
   font-weight: 700;
   color: #c8d0e0;
   background: #111827;
@@ -829,7 +829,7 @@ div.system-node__easy-handle {
 }
 
 .connection-label__eol {
-  font-size: 9px;
+  font-size: 13px;
   font-weight: 700;
   color: #f0c040;
   background: #2a2010;
@@ -839,7 +839,7 @@ div.system-node__easy-handle {
 }
 
 .connection-label__crit {
-  font-size: 10px;
+  font-size: 13px;
   font-weight: 900;
   color: #f44336;
   background: #2a1010;
@@ -849,7 +849,7 @@ div.system-node__easy-handle {
 }
 
 .connection-label__mass {
-  font-size: 9px;
+  font-size: 13px;
   font-weight: 700;
   color: #c0ccde;
   background: #111827;
@@ -938,7 +938,39 @@ div.system-node__easy-handle {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  max-width: 200px;
+  flex: 1;
+}
+
+.system-panel__actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.sys-btn {
+  background: #111827;
+  border: 1px solid #2e4a7a;
+  border-radius: 4px;
+  color: #7ab4f0;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  padding: 3px 8px;
+  white-space: nowrap;
+
+  &:hover { background: #1a2a4a; color: #a0ccf8; }
+  &:active { background: #1a3a6a; }
+}
+
+.sys-btn--ok {
+  border-color: #3ddc84;
+  color: #3ddc84;
+}
+
+.sys-btn--err {
+  border-color: #e05a5a;
+  color: #e05a5a;
 }
 
 /* ── System info (read-only) ─────────────────────────────── */
@@ -967,7 +999,7 @@ div.system-node__easy-handle {
 }
 
 .sys-info__section-label {
-  font-size: 10px;
+  font-size: 13px;
   font-weight: 600;
   color: #6a80a0;
   text-transform: uppercase;
@@ -989,13 +1021,13 @@ div.system-node__easy-handle {
 }
 
 .sys-info__kv-key {
-  font-size: 11px;
+  font-size: 13px;
   color: #7a8aa8;
   white-space: nowrap;
 }
 
 .sys-info__kv-val {
-  font-size: 12px;
+  font-size: 13px;
   color: #c0ccde;
 }
 
@@ -1013,18 +1045,18 @@ div.system-node__easy-handle {
   border: 1px solid #1a2535;
   border-radius: 4px;
   padding: 3px 8px;
-  font-size: 12px;
+  font-size: 13px;
   color: #c8d0e0;
 }
 
 .sys-info__celestial-icon {
   color: #7a90a8;
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .sys-info__celestial-label {
   color: #8090a8;
-  font-size: 11px;
+  font-size: 13px;
 }
 
 .sys-info__badge {
@@ -1041,7 +1073,7 @@ div.system-node__easy-handle {
 .sys-info__effect {
   font-style: italic;
   color: #7a8aaa;
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .sys-info__effect-mods {
@@ -1051,7 +1083,7 @@ div.system-node__easy-handle {
 }
 
 .sys-info__effect-mod {
-  font-size: 12px;
+  font-size: 13px;
   padding: 3px 8px;
   border-radius: 4px;
   white-space: nowrap;
@@ -1083,7 +1115,7 @@ div.system-node__easy-handle {
 }
 
 .sys-info__static-dest {
-  font-size: 10px;
+  font-size: 13px;
   font-weight: 700;
 }
 
@@ -1121,7 +1153,7 @@ div.system-node__easy-handle {
 }
 
 .sys-info__sov-label {
-  font-size: 10px;
+  font-size: 13px;
   color: #6a80a0;
   text-transform: uppercase;
   letter-spacing: 0.06em;
@@ -1137,7 +1169,7 @@ div.system-node__easy-handle {
 
 .sys-info__sov-ticker {
   font-family: 'JetBrains Mono', 'Fira Code', monospace;
-  font-size: 11px;
+  font-size: 13px;
   color: #6a8ab0;
 }
 
@@ -1260,7 +1292,7 @@ div.system-node__easy-handle {
 }
 
 .notes-editor__placeholder {
-  font-size: 12px;
+  font-size: 13px;
   color: #6a80a0;
   font-style: italic;
 }
@@ -1304,7 +1336,7 @@ div.system-node__easy-handle {
 
   th {
     color: #7a90a8;
-    font-size: 12px;
+    font-size: 13px;
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.06em;
@@ -1459,7 +1491,7 @@ div.system-node__easy-handle {
 .sig-td--time {
   text-align: right;
   font-variant-numeric: tabular-nums;
-  font-size: 12px;
+  font-size: 13px;
   color: #7a90a8;
   white-space: nowrap;
   padding-right: 8px;
@@ -1541,7 +1573,7 @@ div.system-node__easy-handle {
   justify-content: space-between;
   padding: 7px 12px 3px;
   color: #grey;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.08em;
@@ -1566,10 +1598,10 @@ div.system-node__easy-handle {
 .wh-picker__option--active { background: #1e3555; }
 
 .wh-picker__code { font-family: 'Courier New', monospace; font-weight: 700; font-size: 14px; color: #7ab8f8; min-width: 44px; }
-.wh-picker__arrow { color: #4a6888; font-size: 12px; }
+.wh-picker__arrow { color: #4a6888; font-size: 13px; }
 .wh-picker__dest  { font-size: 14px; font-weight: 600; }
 .wh-picker__placeholder { color: #d8e0f0; font-size: 14px; }
-.wh-picker__inbound { color: #4a6888; font-size: 12px; font-style: italic; margin-left: 4px; }
+.wh-picker__inbound { color: #4a6888; font-size: 13px; font-style: italic; margin-left: 4px; }
 
 /* ── Activity pane ───────────────────────────────────────── */
 .activity-pane {
@@ -1599,7 +1631,7 @@ div.system-node__easy-handle {
 }
 
 .activity-chart__title {
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.06em;
@@ -1615,7 +1647,7 @@ div.system-node__easy-handle {
 }
 
 .activity-chart__empty {
-  font-size: 12px;
+  font-size: 13px;
   color: #6a80a0;
   font-style: italic;
   padding: 12px 0;
@@ -1701,7 +1733,7 @@ div.system-node__easy-handle {
   border: 1px solid #2e4a7a;
   border-radius: 4px;
   color: #c8d0e0;
-  font-size: 11px;
+  font-size: 13px;
   white-space: nowrap;
   padding: 3px 7px;
   pointer-events: none;
@@ -1736,7 +1768,7 @@ div.system-node__easy-handle {
   border: 1px solid #2e4a7a;
   border-radius: 4px;
   color: #c8d0e0;
-  font-size: 11px;
+  font-size: 13px;
   white-space: nowrap;
   padding: 3px 7px;
   pointer-events: none;
@@ -1760,7 +1792,7 @@ div.system-node__easy-handle {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  font-size: 12px;
+  font-size: 13px;
   color: #c0ccde;
 
   &--checkbox {
@@ -1795,7 +1827,7 @@ div.system-node__easy-handle {
   border: none;
   border-radius: 5px;
   cursor: pointer;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
   padding: 7px 14px;
   transition: background 0.15s;
@@ -1904,7 +1936,7 @@ div.system-node__easy-handle {
   color: #5a6a8a;
   cursor: pointer;
   font-family: inherit;
-  font-size: 11px;
+  font-size: 13px;
   padding: 4px 0;
 }
 
@@ -1951,14 +1983,14 @@ div.system-node__easy-handle {
 }
 
 .stats-modal__card-label {
-  font-size: 11px;
+  font-size: 13px;
   color: #7a8aa8;
   text-transform: uppercase;
   letter-spacing: 0.06em;
 }
 
 .stats-modal__section-title {
-  font-size: 11px;
+  font-size: 13px;
   color: #7a8aa8;
   text-transform: uppercase;
   letter-spacing: 0.06em;
@@ -1978,7 +2010,7 @@ div.system-node__easy-handle {
 }
 
 .stats-modal__th {
-  font-size: 10px;
+  font-size: 13px;
   font-weight: 600;
   color: #7a8aa8;
   text-transform: uppercase;
@@ -2005,13 +2037,13 @@ div.system-node__easy-handle {
 }
 
 .stats-modal__row-label {
-  font-size: 12px;
+  font-size: 13px;
   color: #c0ccde;
   width: 90px;
 }
 
 .stats-modal__row-value {
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
   color: #c8d0e0;
   width: 48px;
@@ -2019,7 +2051,7 @@ div.system-node__easy-handle {
 }
 
 .stats-modal__row-pct {
-  font-size: 11px;
+  font-size: 13px;
   color: #7a8aa8;
   width: 36px;
   text-align: right;
@@ -2055,7 +2087,7 @@ div.system-node__easy-handle {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 12px;
+  font-size: 13px;
   color: #6a7a98;
   cursor: pointer;
   user-select: none;
@@ -2063,7 +2095,7 @@ div.system-node__easy-handle {
 
 .field__label {
   display: block;
-  font-size: 12px;
+  font-size: 13px;
   color: #c0ccde;
   margin-bottom: 4px;
 }
@@ -2107,7 +2139,7 @@ div.system-node__easy-handle {
   border: none;
   color: #4a6a5a;
   cursor: pointer;
-  font-size: 12px;
+  font-size: 13px;
   padding: 2px 4px;
   line-height: 1;
   border-radius: 3px;
@@ -2130,14 +2162,14 @@ div.system-node__easy-handle {
 
 .search-field__empty {
   margin: 6px 0 0;
-  font-size: 12px;
+  font-size: 13px;
   color: #4a5a7a;
   padding: 0 2px;
 }
 
 .search-field__duplicate {
   margin: 6px 0 0;
-  font-size: 12px;
+  font-size: 13px;
   color: #c47a2a;
   padding: 0 2px;
 }
@@ -2179,7 +2211,7 @@ div.system-node__easy-handle {
 }
 
 .search-results__class {
-  font-size: 10px;
+  font-size: 13px;
   font-weight: 700;
   color: #5a6a8a;
   letter-spacing: 0.05em;
@@ -2246,7 +2278,7 @@ div.system-node__easy-handle {
 }
 
 .context-menu__icon {
-  font-size: 12px;
+  font-size: 13px;
   width: 14px;
   text-align: center;
   color: #4d9de0;
@@ -2272,7 +2304,7 @@ div.system-node__easy-handle {
 }
 
 .connection-label__jumpgate {
-  font-size: 9px;
+  font-size: 13px;
   font-weight: 700;
   color: #4db8c4;
   background: #0d1f22;
@@ -2447,7 +2479,7 @@ div.system-node__easy-handle {
 }
 
 .landing__screenshot-caption {
-  font-size: 12px;
+  font-size: 13px;
   color: #8090a8;
   text-align: center;
 }
@@ -2549,7 +2581,7 @@ div.system-node__easy-handle {
 }
 
 .landing__returning-label {
-  font-size: 11px;
+  font-size: 13px;
   color: #7a9ab8;
   text-transform: uppercase;
   letter-spacing: 0.08em;
@@ -2645,7 +2677,7 @@ div.system-node__easy-handle {
 }
 
 .landing__footer {
-  font-size: 12px;
+  font-size: 13px;
   color: #7a90a8;
   text-align: center;
 }
@@ -2819,7 +2851,7 @@ div.system-node__easy-handle {
 }
 
 .zkb-kill__badge {
-  font-size: 10px;
+  font-size: 13px;
   font-weight: 600;
   padding: 1px 4px;
   border-radius: 3px;

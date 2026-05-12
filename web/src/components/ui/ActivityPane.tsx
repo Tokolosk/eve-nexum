@@ -53,7 +53,7 @@ function MiniLineChart({ title, values, color }: {
               x1={PAD.left} y1={yOf(v)} x2={PAD.left + IW} y2={yOf(v)}
               stroke="#1a2535" strokeWidth={0.5}
             />
-            <text x={PAD.left - 3} y={yOf(v) + 3.5} textAnchor="end" fontSize={8} fill="#7a90a8">
+            <text x={PAD.left - 3} y={yOf(v) + 3.5} textAnchor="end" fontSize={11} fill="#7a90a8">
               {v >= 1000 ? `${(v / 1000).toFixed(1)}k` : v}
             </text>
           </g>
@@ -92,7 +92,7 @@ function MiniLineChart({ title, values, color }: {
           const slot = SLOTS - 1 - hoursAgo;
           return (
             <text key={hoursAgo} x={xOfSlot(slot)} y={VB_H - 4}
-              textAnchor="middle" fontSize={8} fill="#7a90a8">
+              textAnchor="middle" fontSize={11} fill="#7a90a8">
               {hoursAgo}h
             </text>
           );
