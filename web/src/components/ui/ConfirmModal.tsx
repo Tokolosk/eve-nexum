@@ -11,13 +11,15 @@ interface Props {
   message: string;
   onConfirm: () => void;
   onCancel: () => void;
+  confirmLabel?: string;
+  showDontAskAgain?: boolean;
 }
 
-export function ConfirmModal({ message, onConfirm, onCancel }: Props) {
+export function ConfirmModal({ message, onConfirm, onCancel, confirmLabel = 'Delete', showDontAskAgain = true }: Props) {
   const [dontShowAgain, setDontShowAgain] = useState(false);
 
   const handleConfirm = () => {
-    if (dontShowAgain) localStorage.setItem(SKIP_KEY, 'true');
+    if (showDontAskAgain && dontShowAgain) localStorage.setItem(SKIP_KEY, 'true');
     onConfirm();
   };
 
@@ -29,18 +31,25 @@ export function ConfirmModal({ message, onConfirm, onCancel }: Props) {
         </div>
         <div className="modal__body">
           <p className="confirm-modal__message">{message}</p>
-          <label className="confirm-modal__skip">
-            <input
-              type="checkbox"
-              className="sig-checkbox"
-              checked={dontShowAgain}
-              onChange={(e) => setDontShowAgain(e.target.checked)}
-            />
-            Don't show this again
-          </label>
+          {showDontAskAgain && (
+            <label className="confirm-modal__skip">
+              <input
+                type="checkbox"
+                className="sig-checkbox"
+                checked={dontShowAgain}
+                onChange={(e) => setDontShowAgain(e.target.checked)}
+              />
+              Don't show this again
+            </label>
+          )}
           <div className="modal__actions">
             <button className="btn btn--ghost" onClick={onCancel}>Cancel</button>
-            <button className="btn btn--danger" onClick={handleConfirm}>Delete</button>
+            <button
+              className={confirmLabel === 'Delete' ? 'btn btn--danger' : 'btn btn--primary'}
+              onClick={handleConfirm}
+            >
+              {confirmLabel}
+            </button>
           </div>
         </div>
       </div>

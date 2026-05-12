@@ -95,7 +95,7 @@ export function SignaturePane({ systemId }: { systemId: string }) {
 
   const [sigs, setSigs]               = useState<Signature[]>([]);
   const [selected, setSelected]       = useState<Set<string>>(new Set());
-  const [pendingAction, setPendingAction] = useState<{ message: string; fn: () => void } | null>(null);
+  const [pendingAction, setPendingAction] = useState<{ message: string; fn: () => void; confirmLabel?: string; showDontAskAgain?: boolean } | null>(null);
   const [sortCol, setSortCol]         = useState<SortCol | null>(null);
   const [sortDir, setSortDir]         = useState<'asc' | 'desc'>('asc');
   const [colWidths, setColWidths]     = useState<Record<ColKey, number>>(DEFAULT_WIDTHS);
@@ -176,6 +176,8 @@ export function SignaturePane({ systemId }: { systemId: string }) {
         setPendingAction({
           message: `Your character is currently in ${currentName}, but you are pasting signatures into ${selectedName}. Continue?`,
           fn: () => processPaste(parsed),
+          confirmLabel: 'Ok',
+          showDontAskAgain: false,
         });
         return;
       }
@@ -300,6 +302,8 @@ export function SignaturePane({ systemId }: { systemId: string }) {
         message={pendingAction.message}
         onConfirm={() => { pendingAction.fn(); setPendingAction(null); }}
         onCancel={() => setPendingAction(null)}
+        confirmLabel={pendingAction.confirmLabel}
+        showDontAskAgain={pendingAction.showDontAskAgain}
       />
     )}
     <div className="sig-pane">
