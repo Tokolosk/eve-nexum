@@ -149,6 +149,8 @@ export function SignaturePane({ systemId }: { systemId: string }) {
         setSigs((prev) => [...prev, sig]);
       } catch { /* ignore individual failures */ }
     }
+
+    setSigs((prev) => [...prev].sort((a, b) => a.sigId.localeCompare(b.sigId)));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeMapId, systemId]);
 
