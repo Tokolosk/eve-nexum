@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { api } from '../api/client';
 import { useMapStore } from '../store/mapStore';
+import { flushQueue } from '../store/pendingQueue';
 import type { SystemClass, WormholeEffect } from '../types';
 
-const POLL_MS = 5_000;
+const POLL_MS = 10_000;
 
 interface LocationResponse {
   online: boolean;
@@ -27,6 +28,7 @@ export function useLocationTracking(enabled: boolean) {
     if (!enabled) return;
     try {
       const { online, system } = await api<LocationResponse>('/api/character/location');
+      flushQueue();
       const { map, addSystem, addConnection, selectSystem, setCurrentSystem } = useMapStore.getState();
 
       // Reset refs when the active map changes

@@ -2,9 +2,10 @@ import { Router } from 'express';
 
 const router = Router();
 
-const ZKB_AGENT = 'Eve-Nexum/1.0 (https://github.com/area404/eve-nexum; gq@area404.org)';
-const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
-const MAX_KILLS     = 25;
+const ZKB_AGENT    = 'Eve-Nexum/1.0 (https://github.com/area404/eve-nexum; gq@area404.org)';
+const CACHE_TTL_MS = 5 * 60 * 1000;
+const MAX_KILLS    = 25;
+const FETCH_TIMEOUT_MS = 8_000;
 
 interface ZkbEntry {
   killmail_id: number;
@@ -67,11 +68,15 @@ setInterval(() => {
   }
 }, 15 * 60 * 1000);
 
+function withTimeout(ms: number): AbortSignal {
+  return AbortSignal.timeout(ms);
+}
+
 async function fetchEsi(killmailId: number, hash: string): Promise<EsiKillmail | null> {
   try {
     const res = await fetch(
       `https://esi.evetech.net/latest/killmails/${killmailId}/${hash}/`,
-      { headers: { 'User-Agent': ZKB_AGENT, Accept: 'application/json' } },
+      { headers: { 'User-Agent': ZKB_AGENT, Accept: 'application/json' }, signal: withTimeout(FETCH_TIMEOUT_MS) },
     );
     if (!res.ok) return null;
     return (await res.json()) as EsiKillmail;
@@ -98,7 +103,7 @@ router.get('/:systemId(\\d+)', async (req, res) => {
   if (cached?.etag) zkbHeaders['If-None-Match'] = cached.etag;
 
   try {
-    const zkbRes = await fetch(zkbUrl, { headers: zkbHeaders });
+    const zkbRes = await fetch(zkbUrl, { headers: zkbHeaders, signal: withTimeout(FETCH_TIMEOUT_MS) });
 
     // zKillboard says nothing changed — bump TTL and return cached data
     if (zkbRes.status === 304 && cached) {
@@ -108,15 +113,16 @@ router.get('/:systemId(\\d+)', async (req, res) => {
 
     if (!zkbRes.ok) {
       if (cached) return res.json(cached.data);
-      return res.status(zkbRes.status).json({ error: 'zKillboard API error' });
+      console.warn(`[killboard] zKillboard returned ${zkbRes.status} for system ${systemId}`);
+      return res.json([]);
     }
 
     const zkbBody = (await zkbRes.json()) as ZkbEntry[];
 
-    // Gracefully handle unexpected responses (e.g. error objects)
     if (!Array.isArray(zkbBody)) {
       if (cached) return res.json(cached.data);
-      return res.status(502).json({ error: 'Unexpected response from zKillboard' });
+      console.warn(`[killboard] Unexpected response from zKillboard for system ${systemId}`);
+      return res.json([]);
     }
 
     const limited = zkbBody.slice(0, MAX_KILLS);
@@ -150,9 +156,10 @@ router.get('/:systemId(\\d+)', async (req, res) => {
 
     cache.set(systemId, { data: kills, fetchedAt: now, etag });
     return res.json(kills);
-  } catch {
+  } catch (err) {
+    console.warn(`[killboard] Failed to reach zKillboard for system ${systemId}:`, (err as Error).message);
     if (cached) return res.json(cached.data);
-    return res.status(502).json({ error: 'Failed to reach zKillboard' });
+    return res.json([]);
   }
 });
 

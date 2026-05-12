@@ -6,6 +6,9 @@ import { getValidToken } from '../utils/eveToken.js';
 export const characterRouter = Router();
 characterRouter.use(requireAuth);
 
+// userId → last recorded eve system id — used to detect jumps
+const lastSeenSystem = new Map<number, number>();
+
 // GET /api/character/location
 // Returns the character's current system if online, or { online: false }
 characterRouter.get('/location', async (req, res) => {
@@ -28,7 +31,10 @@ characterRouter.get('/location', async (req, res) => {
       res.json({ online: false }); return;
     }
     const { online } = await onlineRes.json() as { online: boolean };
-    if (!online) { res.json({ online: false }); return; }
+    if (!online) {
+      lastSeenSystem.delete(req.session.userId!);
+      res.json({ online: false }); return;
+    }
 
     // Fetch current location
     const locRes = await fetch(
@@ -38,6 +44,17 @@ characterRouter.get('/location', async (req, res) => {
     if (!locRes.ok) { res.json({ online: true, system: null }); return; }
 
     const loc = await locRes.json() as { solar_system_id: number };
+
+    // Record a jump when the system changes
+    const userId  = req.session.userId!;
+    const prevSys = lastSeenSystem.get(userId);
+    if (prevSys !== undefined && prevSys !== loc.solar_system_id) {
+      db.query(
+        `INSERT INTO user_events (user_id, event_type) VALUES ($1, 'jump')`,
+        [userId],
+      ).catch(console.error);
+    }
+    lastSeenSystem.set(userId, loc.solar_system_id);
 
     // Look up system details in our DB
     const { rows } = await db.query(

@@ -101,7 +101,7 @@ export function SystemPanel() {
         </div>
 
         <div className="sys-info">
-          <div className="sys-info__row">
+          <div className="sys-info__headline">
             <span className="sys-info__badge" style={{ color: CLASS_COLORS[sys.systemClass] }}>
               {CLASS_LABELS[sys.systemClass]}
             </span>
@@ -116,78 +116,82 @@ export function SystemPanel() {
           </div>
 
           {sys.effect !== 'none' && EFFECT_MODIFIERS[sys.effect].length > 0 && (
-            <div>
-            <div className="sys-info__row sys-info__effect-mod">System Effects</div>
-            <div className="sys-info__row sys-info__effect-mods">
-              {EFFECT_MODIFIERS[sys.effect].map(({ label, good }) => (
-                <span key={label} className={`sys-info__effect-mod${good ? ' sys-info__effect-mod--good' : ' sys-info__effect-mod--bad'}`}>
-                  {good ? '▲' : '▼'} {label}
-                </span>
-              ))}
-            </div>
+            <div className="sys-info__section">
+              <div className="sys-info__section-label">System Effects</div>
+              <div className="sys-info__effect-mods">
+                {EFFECT_MODIFIERS[sys.effect].map(({ label, good }) => (
+                  <span key={label} className={`sys-info__effect-mod${good ? ' sys-info__effect-mod--good' : ' sys-info__effect-mod--bad'}`}>
+                    {good ? '▲' : '▼'} {label}
+                  </span>
+                ))}
+              </div>
             </div>
           )}
 
           {sys.statics.length > 0 && (
-            <div>
-            <div className="sys-info__row sys-info__effect-mod">Statics</div>
-            <div className="sys-info__row">
-              {sys.statics.map((s) => {
-                const dest = WORMHOLE_DESTINATIONS[s];
-                return (
-                  <span key={s} className="sys-info__static">
-                    {s}
-                    {dest && (
-                      <span className="sys-info__static-dest" style={{ color: CLASS_COLORS[dest] }}>
-                        {dest}
-                      </span>
-                    )}
-                  </span>
-                );
-              })}
-            </div>
+            <div className="sys-info__section">
+              <div className="sys-info__section-label">Statics</div>
+              <div className="sys-info__row">
+                {sys.statics.map((s) => {
+                  const dest = WORMHOLE_DESTINATIONS[s];
+                  return (
+                    <span key={s} className="sys-info__static">
+                      {s}
+                      {dest && (
+                        <span className="sys-info__static-dest" style={{ color: CLASS_COLORS[dest] }}>
+                          {dest}
+                        </span>
+                      )}
+                    </span>
+                  );
+                })}
+              </div>
             </div>
           )}
 
-          {sys.regionName && (
-            <div className="sys-info__row sys-info__row--muted">
-              Region: {sys.regionName}
-              {esiSys?.constellationName && <> <br/>Constellation: {esiSys.constellationName}</>}
-            </div>
-          )}
-          {sys.npcType && (
-            <div className="sys-info__row sys-info__row--muted">
-              NPC: {sys.npcType}
+          {(sys.regionName || sys.npcType) && (
+            <div className="sys-info__section">
+              <div className="sys-info__section-label">Location</div>
+              <div className="sys-info__kv-grid">
+                {sys.regionName    && <><span className="sys-info__kv-key">Region</span><span className="sys-info__kv-val">{sys.regionName}</span></>}
+                {esiSys?.constellationName && <><span className="sys-info__kv-key">Constellation</span><span className="sys-info__kv-val">{esiSys.constellationName}</span></>}
+                {sys.npcType       && <><span className="sys-info__kv-key">NPC</span><span className="sys-info__kv-val">{sys.npcType}</span></>}
+              </div>
             </div>
           )}
 
           {esiSys && (esiSys.planetCount > 0 || esiSys.moonCount > 0 || esiSys.stargateCount > 0) && (
-            <div><div className="sys-info__row sys-info__effect-mod$">System Info:</div>
-            <div className="sys-info__celestials">
-              {esiSys.planetCount > 0 && (
-                <div className="sys-info__celestial">
-                  <span className="sys-info__celestial-icon">◎</span>
-                  {esiSys.planetCount} planet{esiSys.planetCount !== 1 ? 's' : ''}
-                </div>
-              )}
-              {esiSys.moonCount > 0 && (
-                <div className="sys-info__celestial">
-                  <span className="sys-info__celestial-icon">○</span>
-                  {esiSys.moonCount} moon{esiSys.moonCount !== 1 ? 's' : ''}
-                </div>
-              )}
-              {esiSys.stargateCount > 0 && (
-                <div className="sys-info__celestial">
-                  <span className="sys-info__celestial-icon">⬡</span>
-                  {esiSys.stargateCount} gate{esiSys.stargateCount !== 1 ? 's' : ''}
-                </div>
-              )}
-            </div>
+            <div className="sys-info__section">
+              <div className="sys-info__section-label">Celestials</div>
+              <div className="sys-info__celestials">
+                {esiSys.planetCount > 0 && (
+                  <div className="sys-info__celestial">
+                    <span className="sys-info__celestial-icon">◎</span>
+                    <span>{esiSys.planetCount}</span>
+                    <span className="sys-info__celestial-label">planet{esiSys.planetCount !== 1 ? 's' : ''}</span>
+                  </div>
+                )}
+                {esiSys.moonCount > 0 && (
+                  <div className="sys-info__celestial">
+                    <span className="sys-info__celestial-icon">○</span>
+                    <span>{esiSys.moonCount}</span>
+                    <span className="sys-info__celestial-label">moon{esiSys.moonCount !== 1 ? 's' : ''}</span>
+                  </div>
+                )}
+                {esiSys.stargateCount > 0 && (
+                  <div className="sys-info__celestial">
+                    <span className="sys-info__celestial-icon">⬡</span>
+                    <span>{esiSys.stargateCount}</span>
+                    <span className="sys-info__celestial-label">gate{esiSys.stargateCount !== 1 ? 's' : ''}</span>
+                  </div>
+                )}
+              </div>
             </div>
           )}
 
           {sov && (sov.alliance || sov.corp || sov.faction) && (
-            <div><div className="sys-info__row sys-info__effect-mod$">Sov Info:</div>
+            <div className="sys-info__section">
+              <div className="sys-info__section-label">Sovereignty</div>
             <div className="sys-info__sov-block">
               {sov.alliance && (
                 <div className="sys-info__row sys-info__sov">
@@ -221,6 +225,7 @@ export function SystemPanel() {
             </div>
             </div>
           )}
+
         </div>
       </div>
 

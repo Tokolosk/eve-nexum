@@ -327,6 +327,10 @@ mapsRouter.post('/:mapId/systems/:systemId/signatures', async (req, res) => {
      RETURNING id, sig_id AS "sigId", sig_type AS "sigType", name, notes, wh_type AS "whType", wh_leads_to AS "whLeadsTo", created_at AS "createdAt"`,
     [systemId, sigId, sigType, name, notes, whType, whLeadsTo],
   );
+  db.query(
+    `INSERT INTO user_events (user_id, event_type, sig_type) VALUES ($1, 'signature', $2)`,
+    [req.session.userId, sigType],
+  ).catch(console.error);
   res.status(201).json(rows[0]);
 });
 

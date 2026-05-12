@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useMapStore } from '../../store/mapStore';
 import { useAuth } from '../../context/AuthContext';
 import { useOnlineStatus } from '../../hooks/useOnlineStatus';
+import { UserStatsModal } from './UserStatsModal';
 
 interface EveStatus {
   players:    number;
@@ -67,7 +68,8 @@ export function Toolbar() {
   const { online, checkedAt } = useOnlineStatus(!!user);
   const eveStatus = useEveServerStatus();
   useNow();
-  const [showMaps, setShowMaps] = useState(false);
+  const [showMaps, setShowMaps]   = useState(false);
+  const [showStats, setShowStats] = useState(false);
 
   async function handleNewMap() {
     const name = prompt('Map name:', 'New Map');
@@ -82,6 +84,7 @@ export function Toolbar() {
   }
 
   return (
+    <>
     <header className="toolbar">
       <div className="toolbar__brand">
         <span className="toolbar__logo">◈</span>
@@ -152,6 +155,13 @@ export function Toolbar() {
       <div className="toolbar__spacer" />
 
       <button
+        className="toolbar__toggle"
+        onClick={() => setShowStats(true)}
+      >
+        User Stats
+      </button>
+
+      <button
         className={`toolbar__toggle${mapOptionsOpen ? ' toolbar__toggle--on' : ''}`}
         onClick={() => setMapOptionsOpen(!mapOptionsOpen)}
         aria-pressed={mapOptionsOpen}
@@ -216,5 +226,8 @@ export function Toolbar() {
         </div>
       )}
     </header>
+
+    {showStats && <UserStatsModal onClose={() => setShowStats(false)} />}
+    </>
   );
 }

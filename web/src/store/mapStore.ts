@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { v4 as uuid } from 'uuid';
 import { api } from '../api/client';
+import { enqueue } from './pendingQueue';
 import type { WormholeMap, MapSystem, MapConnection, SystemClass, WormholeEffect } from '../types';
 
 // Debounce position saves — fires max once per 500 ms per system
@@ -394,10 +395,11 @@ export const useMapStore = create<MapStore>()((set, get) => {
       if (added) {
         get().pushUndo({ type: 'add_system', systemId: id });
         if (activeMapId) {
-          api(`/api/maps/${activeMapId}/systems`, {
-            method: 'POST',
-            body: JSON.stringify({ ...added }),
-          }).catch(console.error);
+          const url  = `/api/maps/${activeMapId}/systems`;
+          const body = JSON.stringify({ ...added });
+          api(url, { method: 'POST', body }).catch(() =>
+            enqueue(`addSystem:${added.name}`, url, 'POST', body),
+          );
         }
       }
 
@@ -424,10 +426,11 @@ export const useMapStore = create<MapStore>()((set, get) => {
         },
       }));
       if (activeMapId) {
-        api(`/api/maps/${activeMapId}/systems/${id}`, {
-          method: 'PATCH',
-          body: JSON.stringify(updates),
-        }).catch(console.error);
+        const url  = `/api/maps/${activeMapId}/systems/${id}`;
+        const body = JSON.stringify(updates);
+        api(url, { method: 'PATCH', body }).catch(() =>
+          enqueue(`updateSystem:${id}`, url, 'PATCH', body),
+        );
       }
     },
 
@@ -449,10 +452,11 @@ export const useMapStore = create<MapStore>()((set, get) => {
       if (activeMapId) {
         const updatedSys = updated.systems.find((s) => s.id === id);
         if (updatedSys) {
-          api(`/api/maps/${activeMapId}/systems/${id}`, {
-            method: 'PATCH',
-            body: JSON.stringify({ locked: updatedSys.locked }),
-          }).catch(console.error);
+          const url  = `/api/maps/${activeMapId}/systems/${id}`;
+          const body = JSON.stringify({ locked: updatedSys.locked });
+          api(url, { method: 'PATCH', body }).catch(() =>
+            enqueue(`lockSystem:${id}`, url, 'PATCH', body),
+          );
         }
       }
     },
@@ -473,7 +477,10 @@ export const useMapStore = create<MapStore>()((set, get) => {
         },
       }));
       if (activeMapId) {
-        api(`/api/maps/${activeMapId}/systems/${id}`, { method: 'DELETE' }).catch(console.error);
+        const url = `/api/maps/${activeMapId}/systems/${id}`;
+        api(url, { method: 'DELETE' }).catch(() =>
+          enqueue(`removeSystem:${id}`, url, 'DELETE', ''),
+        );
       }
     },
 
@@ -525,10 +532,11 @@ export const useMapStore = create<MapStore>()((set, get) => {
       if (conn) {
         get().pushUndo({ type: 'add_connection', connectionId: id });
         if (activeMapId) {
-          api(`/api/maps/${activeMapId}/connections`, {
-            method: 'POST',
-            body: JSON.stringify({ ...conn }),
-          }).catch(console.error);
+          const url  = `/api/maps/${activeMapId}/connections`;
+          const body = JSON.stringify({ ...conn });
+          api(url, { method: 'POST', body }).catch(() =>
+            enqueue(`addConnection:${id}`, url, 'POST', body),
+          );
         }
       }
 
@@ -553,10 +561,11 @@ export const useMapStore = create<MapStore>()((set, get) => {
         },
       }));
       if (activeMapId) {
-        api(`/api/maps/${activeMapId}/connections/${id}`, {
-          method: 'PATCH',
-          body: JSON.stringify(updates),
-        }).catch(console.error);
+        const url  = `/api/maps/${activeMapId}/connections/${id}`;
+        const body = JSON.stringify(updates);
+        api(url, { method: 'PATCH', body }).catch(() =>
+          enqueue(`updateConnection:${id}`, url, 'PATCH', body),
+        );
       }
     },
 
@@ -574,7 +583,10 @@ export const useMapStore = create<MapStore>()((set, get) => {
         },
       }));
       if (activeMapId) {
-        api(`/api/maps/${activeMapId}/connections/${id}`, { method: 'DELETE' }).catch(console.error);
+        const url = `/api/maps/${activeMapId}/connections/${id}`;
+        api(url, { method: 'DELETE' }).catch(() =>
+          enqueue(`removeConnection:${id}`, url, 'DELETE', ''),
+        );
       }
     },
 

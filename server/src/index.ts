@@ -11,6 +11,7 @@ import { mapsRouter } from './routes/maps.js';
 import { characterRouter } from './routes/character.js';
 import killboardRouter from './routes/killboard.js';
 import activityRouter  from './routes/activity.js';
+import statsRouter     from './routes/stats.js';
 
 const PgStore = connectPgSimple(session);
 const app = express();
@@ -42,6 +43,7 @@ app.use('/api/maps', mapsRouter);
 app.use('/api/character', characterRouter);
 app.use('/api/killboard', killboardRouter);
 app.use('/api/activity', activityRouter);
+app.use('/api/stats',    statsRouter);
 
 app.get('/health', (_req, res) => res.json({ ok: true }));
 
