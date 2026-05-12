@@ -15,6 +15,7 @@ import { NotesEditor } from './NotesEditor';
 import { KillboardPane } from './KillboardPane';
 import { ActivityPane } from './ActivityPane';
 import { truesecColor } from '../../utils/truesec';
+import { useIncursions, findIncursion } from '../../hooks/useIncursions';
 
 const PANEL_TITLES: Record<string, string> = {
   notes:       'Notes',
@@ -46,10 +47,12 @@ export function SystemPanel() {
 
   const [waypointStatus, setWaypointStatus] = useState<'idle' | 'ok' | 'err'>('idle');
 
-  const sys    = map.systems.find((s) => s.id === selectedSystemId);
-  const sov    = useSovData(sys?.eveSystemId ?? null);
-  const esiSys = useEsiSystem(sys?.eveSystemId ?? null);
+  const sys       = map.systems.find((s) => s.id === selectedSystemId);
+  const sov       = useSovData(sys?.eveSystemId ?? null);
+  const esiSys    = useEsiSystem(sys?.eveSystemId ?? null);
+  const incursions = useIncursions();
   if (!sys) return null;
+  const incursion = findIncursion(incursions, sys.eveSystemId);
 
   const setWaypoint = (clearOtherWaypoints: boolean) => {
     if (!sys.eveSystemId) return;
@@ -149,6 +152,33 @@ export function SystemPanel() {
               <span className="sys-info__effect">{EFFECT_LABELS[sys.effect]}</span>
             )}
           </div>
+
+          {incursion && (
+            <div className="sys-info__section sys-info__incursion">
+              <div className="sys-info__section-label">Incursion</div>
+              <div className="sys-info__incursion-card">
+                {incursion.factionLogoUrl && (
+                  <img className="sys-info__incursion-logo" src={incursion.factionLogoUrl} alt={incursion.factionName} />
+                )}
+                <div className="sys-info__incursion-detail">
+                  <span className="sys-info__incursion-faction">{incursion.factionName}</span>
+                  <div className="sys-info__incursion-meta">
+                    <span className={`sys-info__incursion-state sys-info__incursion-state--${incursion.state}`}>
+                      {incursion.state.charAt(0).toUpperCase() + incursion.state.slice(1)}
+                    </span>
+                    {incursion.isStaging && <span className="sys-info__incursion-staging">Staging</span>}
+                    {incursion.hasBoss && <span className="sys-info__incursion-boss">Boss Present</span>}
+                  </div>
+                  <div className="sys-info__incursion-influence">
+                    <div className="sys-info__incursion-bar-track">
+                      <div className="sys-info__incursion-bar" style={{ width: `${Math.round(incursion.influence * 100)}%` }} />
+                    </div>
+                    <span className="sys-info__incursion-pct">{Math.round(incursion.influence * 100)}% influence</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
 
           {sys.effect !== 'none' && EFFECT_MODIFIERS[sys.effect].length > 0 && (
             <div className="sys-info__section">

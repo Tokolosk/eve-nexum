@@ -6,6 +6,7 @@ import { CLASS_COLORS, CLASS_LABELS, EFFECT_ICONS, EFFECT_LABELS, EFFECT_MODIFIE
 import { useMapStore } from '../../store/mapStore';
 import { useSovData } from '../../hooks/useSovData';
 import { useEsiSystem } from '../../hooks/useEsiSystem';
+import { useIncursions, findIncursion } from '../../hooks/useIncursions';
 import { truesecColor } from '../../utils/truesec';
 
 type SystemNodeData = MapSystem & { selected: boolean };
@@ -20,6 +21,8 @@ export const SystemNode = memo(({ data, selected }: NodeProps) => {
   const isCurrent       = sys.id === currentSystemId;
   const sov             = useSovData(sys.eveSystemId);
   const esiSys          = useEsiSystem(sys.eveSystemId);
+  const incursions      = useIncursions();
+  const incursion       = findIncursion(incursions, sys.eveSystemId);
   const connection      = useConnection();
   const isTarget        = connection.inProgress && connection.fromNode?.id !== sys.id;
 
@@ -60,6 +63,12 @@ export const SystemNode = memo(({ data, selected }: NodeProps) => {
         <div className="system-node__icons">
           {sys.locked && <span className="system-node__lock-icon">🔒</span>}
           {sys.isHome && <span className="system-node__home-icon">⌂</span>}
+          {incursion && (
+            <span className="system-node__incursion-icon">
+              ⚠
+              <span className="system-node__incursion-tooltip">Incursion System</span>
+            </span>
+          )}
           {sys.effect !== 'none' && (
             <span
               className="system-node__effect-icon"
@@ -118,6 +127,18 @@ export const SystemNode = memo(({ data, selected }: NodeProps) => {
           <span className="system-node__sov-tooltip">
             {sov.controller}
             {sov.ticker && <span className="system-node__sov-tooltip__ticker">[{sov.ticker}]</span>}
+          </span>
+        </div>
+      )}
+
+      {!compactMode && incursion && (
+        <div className="system-node__incursion-badge">
+          {incursion.factionLogoUrl && (
+            <img className="system-node__incursion-logo" src={incursion.factionLogoUrl} alt={incursion.factionName} />
+          )}
+          <span className="system-node__incursion-label">
+            {incursion.isStaging ? 'Staging' : 'Incursion'}
+            <span className="system-node__incursion-badge-tooltip">{incursion.factionName}</span>
           </span>
         </div>
       )}

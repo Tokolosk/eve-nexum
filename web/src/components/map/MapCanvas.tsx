@@ -148,9 +148,15 @@ export function MapCanvas() {
         setTimeout(() => setNodes((ns) => ns.map((n) => ({ ...n, selected: ids.includes(n.id) }))), 0);
       }
     };
+    const onBlur = () => { shiftHeld.current = false; };
     window.addEventListener('keydown', onKeyDown);
     window.addEventListener('keyup',   onKeyUp);
-    return () => { window.removeEventListener('keydown', onKeyDown); window.removeEventListener('keyup', onKeyUp); };
+    window.addEventListener('blur',    onBlur);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('keyup',   onKeyUp);
+      window.removeEventListener('blur',    onBlur);
+    };
   }, [nodes, selectedSystemId, map.systems, removeSystem, undo, setNodes]);
 
   const onSelectionChange = useCallback(({ nodes: sel }: { nodes: Node[] }) => {
@@ -273,8 +279,28 @@ export function MapCanvas() {
   const onNodeDragStop = useCallback(
     (_: React.MouseEvent, _node: Node, movedNodes: Node[]) => {
       movedNodes.forEach((n) => moveSystem(n.id, n.position));
+
+      const movedIds = new Set(movedNodes.map((n) => n.id));
+      // Build position map from store, then override with the just-dragged positions
+      // (store hasn't updated yet when this fires)
+      const posMap = new Map(map.systems.map((s) => [s.id, s.position]));
+      movedNodes.forEach((n) => posMap.set(n.id, n.position));
+
+      for (const conn of map.connections) {
+        if (!movedIds.has(conn.sourceId) && !movedIds.has(conn.targetId)) continue;
+        const src = posMap.get(conn.sourceId);
+        const tgt = posMap.get(conn.targetId);
+        if (!src || !tgt) continue;
+        const dx = tgt.x - src.x;
+        const dy = tgt.y - src.y;
+        const sourceHandle = Math.abs(dx) >= Math.abs(dy) ? (dx >= 0 ? 'right' : 'left') : (dy >= 0 ? 'bottom' : 'top');
+        const targetHandle = Math.abs(dx) >= Math.abs(dy) ? (dx >= 0 ? 'left' : 'right') : (dy >= 0 ? 'top' : 'bottom');
+        if (conn.sourceHandle !== sourceHandle || conn.targetHandle !== targetHandle) {
+          updateConnection(conn.id, { sourceHandle, targetHandle });
+        }
+      }
     },
-    [moveSystem],
+    [moveSystem, map.systems, map.connections, updateConnection],
   );
 
   const nodeCtxFired = useRef(false);
