@@ -12,7 +12,8 @@ import { characterRouter } from './routes/character.js';
 import killboardRouter from './routes/killboard.js';
 import activityRouter  from './routes/activity.js';
 import statsRouter      from './routes/stats.js';
-import incursionsRouter from './routes/incursions.js';
+import incursionsRouter  from './routes/incursions.js';
+import insurgencyRouter  from './routes/insurgency.js';
 
 const PgStore = connectPgSimple(session);
 const app = express();
@@ -45,7 +46,8 @@ app.use('/api/character', characterRouter);
 app.use('/api/killboard', killboardRouter);
 app.use('/api/activity', activityRouter);
 app.use('/api/stats',      statsRouter);
-app.use('/api/incursions', incursionsRouter);
+app.use('/api/incursions',  incursionsRouter);
+app.use('/api/insurgency',  insurgencyRouter);
 
 app.get('/health', (_req, res) => res.json({ ok: true }));
 

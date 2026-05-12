@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useSovData } from '../../hooks/useSovData';
 import { useEsiSystem } from '../../hooks/useEsiSystem';
 import { api } from '../../api/client';
@@ -16,6 +16,20 @@ import { KillboardPane } from './KillboardPane';
 import { ActivityPane } from './ActivityPane';
 import { truesecColor } from '../../utils/truesec';
 import { useIncursions, findIncursion } from '../../hooks/useIncursions';
+import { useInsurgency, findInsurgency } from '../../hooks/useInsurgency';
+
+function FlashingSkull({ color }: { color: string }) {
+  const [dim, setDim] = useState(false);
+  useEffect(() => {
+    const id = setInterval(() => setDim((v) => !v), 700);
+    return () => clearInterval(id);
+  }, []);
+  return (
+    <text x="27" y="31" textAnchor="middle" fontSize="14" fill={color} opacity={dim ? 0.15 : 1}>
+      ☠
+    </text>
+  );
+}
 
 const PANEL_TITLES: Record<string, string> = {
   notes:       'Notes',
@@ -50,9 +64,11 @@ export function SystemPanel() {
   const sys       = map.systems.find((s) => s.id === selectedSystemId);
   const sov       = useSovData(sys?.eveSystemId ?? null);
   const esiSys    = useEsiSystem(sys?.eveSystemId ?? null);
-  const incursions = useIncursions();
+  const incursions   = useIncursions();
+  const insurgencies = useInsurgency();
   if (!sys) return null;
-  const incursion = findIncursion(incursions, sys.eveSystemId);
+  const incursion  = findIncursion(incursions, sys.eveSystemId);
+  const insurgency = findInsurgency(insurgencies, sys.eveSystemId);
 
   const setWaypoint = (clearOtherWaypoints: boolean) => {
     if (!sys.eveSystemId) return;
@@ -176,6 +192,51 @@ export function SystemPanel() {
                     <span className="sys-info__incursion-pct">{Math.round(incursion.influence * 100)}% influence</span>
                   </div>
                 </div>
+              </div>
+            </div>
+          )}
+
+          {insurgency && (
+            <div className="sys-info__section">
+              <div className="sys-info__section-label">Insurgency — {insurgency.factionName}</div>
+              <div className="sys-info__insurgency-rings">
+                {[
+                  { label: 'Corruption',  pct: insurgency.corruptionPct,  stage: insurgency.corruptionState,  color: '#4ade80', icon: '☣' },
+                  { label: 'Suppression', pct: insurgency.suppressionPct, stage: insurgency.suppressionState, color: '#c8d0e0', icon: '⊕' },
+                ].map(({ label, pct, stage, color, icon }) => {
+                  const R = 22;
+                  const circ = 2 * Math.PI * R;
+                  const fill = (pct / 100) * circ;
+                  return (
+                    <div key={label} className="sys-info__insurgency-ring-cell">
+                      <svg className="sys-info__insurgency-svg" viewBox="0 0 54 54">
+                        <circle cx="27" cy="27" r={R} fill="#0d1421" stroke="#1a2535" strokeWidth="4" />
+                        <circle
+                          cx="27" cy="27" r={R}
+                          fill="none"
+                          stroke={color}
+                          strokeWidth="4"
+                          strokeDasharray={`${fill} ${circ - fill}`}
+                          strokeDashoffset={circ / 4}
+                          strokeLinecap="round"
+                          style={{ transition: 'stroke-dasharray 0.4s ease' }}
+                        />
+                        {icon === '☠' ? (
+                          <FlashingSkull color={color} />
+                        ) : (
+                          <text x="27" y="31" textAnchor="middle" fontSize="14" fill={color}>
+                            {icon}
+                          </text>
+                        )}
+                      </svg>
+                      <div className="sys-info__insurgency-ring-info">
+                        <span className="sys-info__insurgency-ring-label">{label}</span>
+                        <span className="sys-info__insurgency-ring-stage" style={{ color }}>Stage {stage}</span>
+                        <span className="sys-info__insurgency-ring-pct">{Math.round(pct)}%</span>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           )}

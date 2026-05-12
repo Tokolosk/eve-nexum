@@ -7,6 +7,7 @@ import { useMapStore } from '../../store/mapStore';
 import { useSovData } from '../../hooks/useSovData';
 import { useEsiSystem } from '../../hooks/useEsiSystem';
 import { useIncursions, findIncursion } from '../../hooks/useIncursions';
+import { useInsurgency, findInsurgency } from '../../hooks/useInsurgency';
 import { truesecColor } from '../../utils/truesec';
 
 type SystemNodeData = MapSystem & { selected: boolean };
@@ -23,6 +24,8 @@ export const SystemNode = memo(({ data, selected }: NodeProps) => {
   const esiSys          = useEsiSystem(sys.eveSystemId);
   const incursions      = useIncursions();
   const incursion       = findIncursion(incursions, sys.eveSystemId);
+  const insurgencies    = useInsurgency();
+  const insurgency      = findInsurgency(insurgencies, sys.eveSystemId);
   const connection      = useConnection();
   const isTarget        = connection.inProgress && connection.fromNode?.id !== sys.id;
 
@@ -67,6 +70,12 @@ export const SystemNode = memo(({ data, selected }: NodeProps) => {
             <span className="system-node__incursion-icon">
               ⚠
               <span className="system-node__incursion-tooltip">Incursion System</span>
+            </span>
+          )}
+          {insurgency && (
+            <span className="system-node__insurgency-icon">
+              ☠
+              <span className="system-node__insurgency-tooltip">Insurgency System</span>
             </span>
           )}
           {sys.effect !== 'none' && (
@@ -139,6 +148,18 @@ export const SystemNode = memo(({ data, selected }: NodeProps) => {
           <span className="system-node__incursion-label">
             {incursion.isStaging ? 'Staging' : 'Incursion'}
             <span className="system-node__incursion-badge-tooltip">{incursion.factionName}</span>
+          </span>
+        </div>
+      )}
+
+      {!compactMode && insurgency && (
+        <div className="system-node__insurgency-badge">
+          {insurgency.factionLogoUrl && (
+            <img className="system-node__insurgency-logo" src={insurgency.factionLogoUrl} alt={insurgency.factionName} />
+          )}
+          <span className="system-node__insurgency-label">
+            {insurgency.corruptionState > 0 ? 'Corrupted' : 'Suppressed'}
+            <span className="system-node__insurgency-badge-tooltip">{insurgency.factionName}</span>
           </span>
         </div>
       )}

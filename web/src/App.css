@@ -736,12 +736,106 @@
   font-size: 13px;
 }
 
+@keyframes skull-flash {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.15; }
+}
+
+.system-node__insurgency-icon {
+  color: #f0a030;
+  font-size: 13px;
+  cursor: default;
+  filter: drop-shadow(0 0 3px #f0a03088);
+  position: relative;
+  animation: skull-flash 1.4s ease-in-out infinite;
+}
+
+.system-node__insurgency-tooltip {
+  display: none;
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: #111827;
+  border: 1px solid #2e3f60;
+  border-radius: 6px;
+  padding: 4px 10px;
+  white-space: nowrap;
+  font-size: 13px;
+  color: #f0c060;
+  font-weight: 600;
+  pointer-events: none;
+  z-index: 9999;
+}
+
+.system-node__insurgency-icon:hover .system-node__insurgency-tooltip {
+  display: block;
+}
+
+.react-flow__node:has(.system-node__insurgency-icon:hover) {
+  z-index: 9999 !important;
+}
+
+.system-node__insurgency-badge {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  background: rgba(240, 160, 48, 0.12);
+  border: 1px solid rgba(240, 160, 48, 0.35);
+  border-radius: 4px;
+  padding: 2px 6px;
+  margin: 2px 6px 4px;
+}
+
+.system-node__insurgency-logo {
+  width: 16px;
+  height: 16px;
+  border-radius: 2px;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.system-node__insurgency-label {
+  font-size: 13px;
+  color: #f0a030;
+  font-weight: 600;
+  white-space: nowrap;
+  position: relative;
+}
+
+.system-node__insurgency-badge-tooltip {
+  display: none;
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: #111827;
+  border: 1px solid #2e3f60;
+  border-radius: 6px;
+  padding: 4px 10px;
+  white-space: nowrap;
+  font-size: 13px;
+  color: #f0c060;
+  font-weight: 500;
+  pointer-events: none;
+  z-index: 9999;
+}
+
+.system-node__insurgency-label:hover .system-node__insurgency-badge-tooltip {
+  display: block;
+}
+
+.react-flow__node:has(.system-node__insurgency-label:hover) {
+  z-index: 9999 !important;
+}
+
 .system-node__incursion-icon {
   color: #e05a5a;
   font-size: 13px;
   cursor: default;
   filter: drop-shadow(0 0 3px #e05a5a88);
   position: relative;
+  animation: skull-flash 1.4s ease-in-out infinite;
 }
 
 .system-node__incursion-tooltip {
@@ -1259,6 +1353,51 @@ div.system-node__easy-handle {
   font-family: 'JetBrains Mono', 'Fira Code', monospace;
   font-size: 13px;
   color: #6a8ab0;
+}
+
+
+.sys-info__insurgency-rings {
+  display: flex;
+  gap: 12px;
+}
+
+.sys-info__insurgency-ring-cell {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  background: #0d1421;
+  border: 1px solid #1a2535;
+  border-radius: 6px;
+  padding: 8px 10px;
+}
+
+.sys-info__insurgency-svg {
+  width: 54px;
+  height: 54px;
+  flex-shrink: 0;
+}
+
+.sys-info__insurgency-ring-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.sys-info__insurgency-ring-label {
+  font-size: 13px;
+  color: #7a90a8;
+  font-weight: 500;
+}
+
+.sys-info__insurgency-ring-stage {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.sys-info__insurgency-ring-pct {
+  font-size: 13px;
+  color: #7a90a8;
 }
 
 .sys-info__incursion-card {
