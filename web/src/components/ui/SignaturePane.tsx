@@ -120,9 +120,34 @@ export function SignaturePane({ systemId }: { systemId: string }) {
       .catch(() => {});
   }, [activeMapId, systemId]);
 
+  const updateSig = (id: string, updates: Partial<Signature>) => {
+    const withTs = { ...updates, updatedAt: new Date().toISOString() };
+    setSigs((prev) => prev.map((s) => s.id === id ? { ...s, ...withTs } : s));
+    pendingUpdates.current.set(id, { ...(pendingUpdates.current.get(id) ?? {}), ...updates });
+    clearTimeout(debounceTimers.current.get(id));
+    debounceTimers.current.set(id, setTimeout(async () => {
+      const payload = pendingUpdates.current.get(id);
+      if (!payload || !activeMapId) return;
+      pendingUpdates.current.delete(id);
+      api(`/api/maps/${activeMapId}/systems/${systemId}/signatures/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(payload),
+      }).catch(console.error);
+    }, 500));
+  };
+
+  const deleteSig = (id: string) => {
+    if (!activeMapId) return;
+    setSigs((prev) => prev.filter((s) => s.id !== id));
+    setSelected((prev) => { const next = new Set(prev); next.delete(id); return next; });
+    api(`/api/maps/${activeMapId}/systems/${systemId}/signatures/${id}`, { method: 'DELETE' })
+      .catch(console.error);
+  };
+
   const processPaste = useCallback(async (parsed: ParsedSig[]) => {
     if (!activeMapId) return;
     const existing = sigsRef.current;
+    const pastedIds = new Set(parsed.map((p) => p.sigId));
     const toUpdate: { id: string; updates: Partial<Signature> }[] = [];
     const toCreate: ParsedSig[] = [];
 
@@ -136,6 +161,11 @@ export function SignaturePane({ systemId }: { systemId: string }) {
       } else {
         toCreate.push(p);
       }
+    }
+
+    // Remove sigs no longer present in the scanner paste
+    for (const sig of existing) {
+      if (!pastedIds.has(sig.sigId)) deleteSig(sig.id);
     }
 
     for (const { id, updates } of toUpdate) updateSig(id, updates);
@@ -198,30 +228,6 @@ export function SignaturePane({ systemId }: { systemId: string }) {
       { method: 'POST', body: JSON.stringify({}) },
     );
     setSigs((prev) => [...prev, sig]);
-  };
-
-  const updateSig = (id: string, updates: Partial<Signature>) => {
-    const withTs = { ...updates, updatedAt: new Date().toISOString() };
-    setSigs((prev) => prev.map((s) => s.id === id ? { ...s, ...withTs } : s));
-    pendingUpdates.current.set(id, { ...(pendingUpdates.current.get(id) ?? {}), ...updates });
-    clearTimeout(debounceTimers.current.get(id));
-    debounceTimers.current.set(id, setTimeout(async () => {
-      const payload = pendingUpdates.current.get(id);
-      if (!payload || !activeMapId) return;
-      pendingUpdates.current.delete(id);
-      api(`/api/maps/${activeMapId}/systems/${systemId}/signatures/${id}`, {
-        method: 'PATCH',
-        body: JSON.stringify(payload),
-      }).catch(console.error);
-    }, 500));
-  };
-
-  const deleteSig = (id: string) => {
-    if (!activeMapId) return;
-    setSigs((prev) => prev.filter((s) => s.id !== id));
-    setSelected((prev) => { const next = new Set(prev); next.delete(id); return next; });
-    api(`/api/maps/${activeMapId}/systems/${systemId}/signatures/${id}`, { method: 'DELETE' })
-      .catch(console.error);
   };
 
   const confirm = (message: string, action: () => void) => {
