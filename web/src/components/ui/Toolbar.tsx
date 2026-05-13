@@ -61,9 +61,10 @@ function useNow() {
 }
 
 export function Toolbar() {
-  const { map, maps, maxMaps, activeMapId, setMapName, switchMap, createMap, deleteMap,
+  const { map, maps, maxMaps, maxCorpMaps, corpMapCount, activeMapId, setMapName, switchMap, createMap, deleteMap,
           mapOptionsOpen, setMapOptionsOpen } = useMapStore();
-  const atMapLimit = maps.length >= maxMaps;
+  const atMapLimit      = maps.filter((m) => !m.isCorpMap).length >= maxMaps;
+  const atCorpMapLimit  = corpMapCount >= maxCorpMaps;
   const { user, logout } = useAuth();
   const { online, checkedAt } = useOnlineStatus(!!user);
   const eveStatus = useEveServerStatus();
@@ -71,9 +72,10 @@ export function Toolbar() {
   const [showMaps, setShowMaps]   = useState(false);
   const [showStats, setShowStats] = useState(false);
 
-  async function handleNewMap() {
-    const name = prompt('Map name:', 'New Map');
-    if (name) await createMap(name);
+  async function handleNewMap(isCorpMap: boolean) {
+    const label = isCorpMap ? 'Corp map name:' : 'Map name:';
+    const name = prompt(label, 'New Map');
+    if (name) await createMap(name, isCorpMap);
   }
 
   async function handleDeleteMap() {
@@ -97,32 +99,60 @@ export function Toolbar() {
           onClick={() => setShowMaps((v) => !v)}
           title="Switch map"
         >
+          {user?.corpMode && (() => {
+            const active = maps.find((m) => m.id === activeMapId);
+            if (!active) return null;
+            return active.isCorpMap
+              ? <span className="toolbar__map-type toolbar__map-type--corp">Corp</span>
+              : <span className="toolbar__map-type toolbar__map-type--solo">Solo</span>;
+          })()}
           {map.name || 'No Map'}
           <span className="toolbar__caret">▾</span>
         </button>
 
         {showMaps && (
           <div className="map-dropdown" onMouseLeave={() => setShowMaps(false)}>
-            {maps.map((m) => (
+            {[...maps].sort((a, b) => {
+              if (a.isCorpMap !== b.isCorpMap) return a.isCorpMap ? 1 : -1;
+              return a.name.localeCompare(b.name);
+            }).map((m) => (
               <button
                 key={m.id}
                 className={`map-dropdown__item${m.id === activeMapId ? ' map-dropdown__item--active' : ''}`}
                 onClick={() => { switchMap(m.id); setShowMaps(false); }}
               >
+                {user?.corpMode && !m.isCorpMap && <span className="map-dropdown__badge map-dropdown__badge--solo">Solo</span>}
+                {m.isCorpMap && <span className="map-dropdown__badge map-dropdown__badge--corp">Corp</span>}
+                {m.locked    && <span className="map-dropdown__badge map-dropdown__badge--lock">🔒</span>}
                 {m.name}
               </button>
             ))}
             <div className="map-dropdown__divider" />
             <span
               className={`map-dropdown__new-wrap${atMapLimit ? ' map-dropdown__new-wrap--disabled' : ''}`}
+              data-disabled-reason={atMapLimit ? `Personal map limit reached (${maxMaps})` : undefined}
             >
               <button
                 className="map-dropdown__item map-dropdown__item--action"
-                onClick={() => { setShowMaps(false); handleNewMap(); }}
+                onClick={() => { setShowMaps(false); handleNewMap(false); }}
                 disabled={atMapLimit}
               >
-                + New Map
+                + Personal Map
               </button>
+              {user?.corpMode && user.role === 'admin' && (
+                <span
+                  className={`map-dropdown__new-wrap${atCorpMapLimit ? ' map-dropdown__new-wrap--disabled' : ''}`}
+                  data-disabled-reason={atCorpMapLimit ? `Corp map limit reached (${maxCorpMaps})` : undefined}
+                >
+                  <button
+                    className="map-dropdown__item map-dropdown__item--action"
+                    onClick={() => { setShowMaps(false); handleNewMap(true); }}
+                    disabled={atCorpMapLimit}
+                  >
+                    + Corp Map
+                  </button>
+                </span>
+              )}
             </span>
             {maps.length > 1 && (
               <button className="map-dropdown__item map-dropdown__item--danger" onClick={() => { setShowMaps(false); handleDeleteMap(); }}>

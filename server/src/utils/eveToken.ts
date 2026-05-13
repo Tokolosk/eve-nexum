@@ -1,4 +1,5 @@
 import { db } from '../db.js';
+import { decryptToken, encryptToken } from './tokenCrypto.js';
 
 const CLIENT_ID     = process.env.EVE_CLIENT_ID!;
 const CLIENT_SECRET = process.env.EVE_CLIENT_SECRET!;
@@ -23,7 +24,7 @@ export async function getValidToken(userId: number): Promise<string> {
 
   // Return existing token if still valid (with 60s buffer)
   if (new Date(row.token_expires_at).getTime() - Date.now() > 60_000) {
-    return row.access_token;
+    return decryptToken(row.access_token);
   }
 
   // Refresh the token
@@ -35,7 +36,7 @@ export async function getValidToken(userId: number): Promise<string> {
     },
     body: new URLSearchParams({
       grant_type:    'refresh_token',
-      refresh_token: row.refresh_token,
+      refresh_token: decryptToken(row.refresh_token),
     }),
   });
 
@@ -47,7 +48,7 @@ export async function getValidToken(userId: number): Promise<string> {
   await db.query(
     `UPDATE users SET access_token = $1, refresh_token = $2, token_expires_at = $3, updated_at = NOW()
      WHERE id = $4`,
-    [tokens.access_token, tokens.refresh_token, expiresAt, userId],
+    [encryptToken(tokens.access_token), encryptToken(tokens.refresh_token), expiresAt, userId],
   );
 
   return tokens.access_token;

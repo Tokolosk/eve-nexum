@@ -158,11 +158,19 @@ function useShaderCanvas(canvasRef: React.RefObject<HTMLCanvasElement | null>) {
   }, [canvasRef]);
 }
 
+const LOGIN_ERRORS: Record<string, string> = {
+  not_in_corp:       'Your character is not a member of the corporation that runs this Nexum instance. Access is restricted to corp members only.',
+  corp_check_failed: 'Could not verify your corporation membership due to an ESI error. Please try again in a moment.',
+};
+
 export function LandingPage() {
   const [lastChar, setLastChar] = useState<LastCharacter | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useShaderCanvas(canvasRef);
+
+  const errorParam = new URLSearchParams(window.location.search).get('error');
+  const errorMessage = errorParam ? (LOGIN_ERRORS[errorParam] ?? 'An unknown error occurred. Please try again.') : null;
 
   useEffect(() => {
     try {
@@ -206,6 +214,12 @@ export function LandingPage() {
         </div>
 
         <div className="landing__cta">
+          {errorMessage && (
+            <div className="landing__error">
+              <span className="landing__error-icon">⚠</span>
+              {errorMessage}
+            </div>
+          )}
           {lastChar ? (
             <>
               <a href={apiUrl('/auth/login')} className="landing__returning">

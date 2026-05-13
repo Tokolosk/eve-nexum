@@ -1,9 +1,11 @@
 import 'dotenv/config';
+import './config.js'; // validates env vars at startup
 import express from 'express';
 import cors from 'cors';
 import session from 'express-session';
 import connectPgSimple from 'connect-pg-simple';
 import { db } from './db.js';
+import { config } from './config.js';
 import { migrate } from './migrate.js';
 import { systemsRouter } from './routes/systems.js';
 import { authRouter } from './routes/auth.js';
@@ -14,6 +16,8 @@ import activityRouter  from './routes/activity.js';
 import statsRouter      from './routes/stats.js';
 import incursionsRouter  from './routes/incursions.js';
 import insurgencyRouter  from './routes/insurgency.js';
+import { adminRouter }   from './routes/admin.js';
+import { authLimiter, esiLimiter, publicLimiter } from './middleware/rateLimits.js';
 
 const PgStore = connectPgSimple(session);
 const app = express();
@@ -25,32 +29,48 @@ app.use(cors({
   origin: process.env.FRONTEND_URL ?? 'http://localhost:5174',
   credentials: true,
 }));
-app.use(express.json());
+app.use(express.json({ limit: '2mb' }));
 
 app.use(session({
   store: new PgStore({ pool: db, tableName: 'sessions', createTableIfMissing: true }),
-  secret: process.env.SESSION_SECRET ?? 'dev-secret-change-me',
+  secret: config.sessionSecret,
   resave: false,
   saveUninitialized: false,
   cookie: {
     httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
+    secure: config.isProd,
+    sameSite: 'lax',
     maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
   },
 }));
 
-app.use('/auth', authRouter);
-app.use('/api/systems', systemsRouter);
+app.use('/auth', authLimiter, authRouter);
+app.use('/api/systems', publicLimiter, systemsRouter);
 app.use('/api/maps', mapsRouter);
-app.use('/api/character', characterRouter);
-app.use('/api/killboard', killboardRouter);
-app.use('/api/activity', activityRouter);
+app.use('/api/character', esiLimiter, characterRouter);
+app.use('/api/killboard', esiLimiter, killboardRouter);
+app.use('/api/activity',  esiLimiter, activityRouter);
 app.use('/api/stats',      statsRouter);
-app.use('/api/incursions',  incursionsRouter);
-app.use('/api/insurgency',  insurgencyRouter);
+app.use('/api/incursions',  esiLimiter, incursionsRouter);
+app.use('/api/insurgency',  esiLimiter, insurgencyRouter);
+app.use('/api/admin',       adminRouter);
 
 app.get('/health', (_req, res) => res.json({ ok: true }));
 
+async function expireMaps() {
+  if (!config.corpMode) return;
+  const cutoff = new Date(Date.now() - config.corpMapExpireDays * 24 * 60 * 60 * 1000);
+  const { rowCount } = await db.query(
+    `DELETE FROM maps WHERE last_active_at < $1`,
+    [cutoff],
+  );
+  if (rowCount) console.log(`Expired ${rowCount} inactive map(s)`);
+}
+
 migrate()
-  .then(() => app.listen(PORT, () => console.log(`Server running on http://localhost:${PORT}`)))
+  .then(async () => {
+    await expireMaps();
+    setInterval(expireMaps, 60 * 60 * 1000); // re-check hourly
+    app.listen(PORT, () => console.log(`Server running on http://localhost:${PORT}`));
+  })
   .catch((err) => { console.error('Migration failed:', err); process.exit(1); });

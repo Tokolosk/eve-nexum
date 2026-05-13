@@ -29,6 +29,8 @@ const emptyMap = (): WormholeMap => ({
 export interface MapListItem {
   id: string;
   name: string;
+  isCorpMap: boolean;
+  locked: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -49,6 +51,8 @@ interface MapStore {
   // Maps list
   maps: MapListItem[];
   maxMaps: number;
+  maxCorpMaps: number;
+  corpMapCount: number;
   activeMapId: string | null;
 
   // Current map
@@ -83,7 +87,7 @@ interface MapStore {
   // Maps management
   loadMaps: () => Promise<void>;
   switchMap: (id: string) => Promise<void>;
-  createMap: (name?: string) => Promise<void>;
+  createMap: (name?: string, isCorpMap?: boolean) => Promise<void>;
   deleteMap: (id: string) => Promise<void>;
 
   // Map metadata
@@ -251,6 +255,8 @@ export const useMapStore = create<MapStore>()((set, get) => {
   return {
     maps: [],
     maxMaps: 10,
+    maxCorpMaps: 5,
+    corpMapCount: 0,
     activeMapId: null,
     map: emptyMap(),
     selectedSystemId: null,
@@ -294,8 +300,8 @@ export const useMapStore = create<MapStore>()((set, get) => {
     // ── Maps management ───────────────────────────────────────────────────────
 
     loadMaps: async () => {
-      const { maps, maxMaps } = await api<{ maps: MapListItem[]; maxMaps: number }>('/api/maps');
-      set({ maps, maxMaps });
+      const { maps, maxMaps, maxCorpMaps, corpMapCount } = await api<{ maps: MapListItem[]; maxMaps: number; maxCorpMaps: number; corpMapCount: number }>('/api/maps');
+      set({ maps, maxMaps, maxCorpMaps, corpMapCount });
       if (maps.length > 0 && !get().activeMapId) {
         const savedId = localStorage.getItem('nexum.lastMapId');
         const target = savedId && maps.find((m) => m.id === savedId) ? savedId : maps[0].id;
@@ -309,10 +315,10 @@ export const useMapStore = create<MapStore>()((set, get) => {
       set({ map, activeMapId: id, selectedSystemId: null, selectedConnectionId: null, currentSystemId: null, undoStack: [] });
     },
 
-    createMap: async (name = 'New Map') => {
+    createMap: async (name = 'New Map', isCorpMap = false) => {
       const { id } = await api<{ id: string }>('/api/maps', {
         method: 'POST',
-        body: JSON.stringify({ name }),
+        body: JSON.stringify({ name, isCorpMap }),
       });
       await get().loadMaps();
       await get().switchMap(id);

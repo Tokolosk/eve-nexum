@@ -5,6 +5,7 @@ declare module 'express-session' {
     userId: number;
     characterId: number;
     characterName: string;
+    role: 'admin' | 'member' | 'readonly';
     oauthState: string;
   }
 }

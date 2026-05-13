@@ -78,9 +78,16 @@ characterRouter.get('/location', async (req, res) => {
 // POST /api/character/waypoint
 characterRouter.post('/waypoint', async (req, res) => {
   const { destinationId, addToBeginning = false, clearOtherWaypoints = false } =
-    req.body as { destinationId: number; addToBeginning?: boolean; clearOtherWaypoints?: boolean };
+    req.body as { destinationId?: unknown; addToBeginning?: boolean; clearOtherWaypoints?: boolean };
 
-  if (!destinationId) { res.status(400).json({ error: 'destinationId required' }); return; }
+  // EVE destination IDs are positive 32-bit integers (solar systems, stations,
+  // structures). Coerce + range-check to keep arbitrary strings out of the ESI
+  // URL.
+  const destNum = typeof destinationId === 'number' ? destinationId : Number(destinationId);
+  if (!Number.isInteger(destNum) || destNum <= 0 || destNum > 2_147_483_647) {
+    res.status(400).json({ error: 'destinationId must be a positive integer' });
+    return;
+  }
 
   const { rows } = await db.query<{ character_id: number }>(
     `SELECT character_id FROM users WHERE id = $1`,
@@ -93,7 +100,7 @@ characterRouter.post('/waypoint', async (req, res) => {
     const params = new URLSearchParams({
       add_to_beginning:     String(addToBeginning),
       clear_other_waypoints: String(clearOtherWaypoints),
-      destination_id:       String(destinationId),
+      destination_id:       String(destNum),
     });
     const esiRes = await fetch(
       `https://esi.evetech.net/latest/ui/autopilot/waypoint/?${params}`,

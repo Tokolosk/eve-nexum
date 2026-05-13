@@ -1,5 +1,8 @@
 import { Router } from 'express';
+import { randomBytes } from 'node:crypto';
 import { db } from '../db.js';
+import { config } from '../config.js';
+import { encryptToken } from '../utils/tokenCrypto.js';
 
 export const authRouter = Router();
 
@@ -13,7 +16,7 @@ const EVE_TOKEN_URL = 'https://login.eveonline.com/v2/oauth/token';
 
 // GET /auth/login  — redirect to EVE SSO
 authRouter.get('/login', (req, res) => {
-  const state = Math.random().toString(36).slice(2);
+  const state = randomBytes(32).toString('hex');
   req.session.oauthState = state;
 
   const params = new URLSearchParams({
@@ -43,8 +46,9 @@ authRouter.get('/login', (req, res) => {
 authRouter.get('/callback', async (req, res) => {
   const { code, state } = req.query as Record<string, string>;
 
-  if (!code || state !== req.session.oauthState) {
-    res.status(400).send('Invalid OAuth state');
+  const expectedState = req.session.oauthState;
+  if (!code || !state || !expectedState || state !== expectedState) {
+    res.status(400).json({ error: 'Invalid OAuth state' });
     return;
   }
   delete req.session.oauthState;
@@ -89,27 +93,49 @@ authRouter.get('/callback', async (req, res) => {
       return;
     }
 
-    const character = { CharacterID: characterId, CharacterName: jwtPayload.name };
+    // In corp mode, verify the character belongs to the corp — fail-closed
+    if (config.corpMode) {
+      try {
+        const esiChar = await fetch(`https://esi.evetech.net/v4/characters/${characterId}/`);
+        if (!esiChar.ok) {
+          res.redirect(`${FRONTEND_URL}?error=corp_check_failed`);
+          return;
+        }
+        const charData = await esiChar.json() as { corporation_id: number };
+        if (charData.corporation_id !== config.corpId) {
+          res.redirect(`${FRONTEND_URL}?error=not_in_corp`);
+          return;
+        }
+      } catch {
+        res.redirect(`${FRONTEND_URL}?error=corp_check_failed`);
+        return;
+      }
+    }
 
     const expiresAt = new Date(Date.now() + tokens.expires_in * 1000);
 
-    // Upsert user
-    const { rows } = await db.query<{ id: number }>(
-      `INSERT INTO users (character_id, character_name, access_token, refresh_token, token_expires_at)
-       VALUES ($1, $2, $3, $4, $5)
+    // Determine role: ADMIN_CHAR_ID always gets admin; others keep existing role or default to standard
+    const isAdminChar = characterId === config.adminCharId;
+
+    const { rows } = await db.query<{ id: number; role: string }>(
+      `INSERT INTO users (character_id, character_name, access_token, refresh_token, token_expires_at, role)
+       VALUES ($1, $2, $3, $4, $5, $6)
        ON CONFLICT (character_id) DO UPDATE SET
          character_name   = EXCLUDED.character_name,
          access_token     = EXCLUDED.access_token,
          refresh_token    = EXCLUDED.refresh_token,
          token_expires_at = EXCLUDED.token_expires_at,
+         role             = CASE WHEN $7::int IS NOT NULL AND users.character_id = $7::int THEN 'admin' ELSE users.role END,
          updated_at       = NOW()
-       RETURNING id`,
-      [character.CharacterID, character.CharacterName, tokens.access_token, tokens.refresh_token, expiresAt],
+       RETURNING id, role`,
+      [characterId, jwtPayload.name, encryptToken(tokens.access_token), encryptToken(tokens.refresh_token), expiresAt,
+       isAdminChar ? 'admin' : 'readonly', config.adminCharId],
     );
 
     const userId = rows[0].id;
+    const role   = rows[0].role as 'admin' | 'member' | 'readonly';
 
-    // Create a default map if this is a new user
+    // Create a default personal map if this is a new user
     await db.query(
       `INSERT INTO maps (user_id, name)
        SELECT $1, 'My Map'
@@ -117,9 +143,20 @@ authRouter.get('/callback', async (req, res) => {
       [userId],
     );
 
+    // Regenerate to a fresh session ID before assigning credentials — defends
+    // against session fixation (a pre-login session ID lingering post-auth).
+    await new Promise<void>((resolve, reject) => {
+      req.session.regenerate((err) => err ? reject(err) : resolve());
+    });
+
     req.session.userId        = userId;
-    req.session.characterId   = character.CharacterID;
-    req.session.characterName = character.CharacterName;
+    req.session.characterId   = characterId;
+    req.session.characterName = jwtPayload.name;
+    req.session.role          = role;
+
+    await new Promise<void>((resolve, reject) => {
+      req.session.save((err) => err ? reject(err) : resolve());
+    });
 
     res.redirect(FRONTEND_URL);
   } catch (err) {
@@ -141,16 +178,20 @@ authRouter.get('/me', async (req, res) => {
     res.json({ user: null });
     return;
   }
-  const { rows } = await db.query<{ compact_mode: boolean; snap_to_grid: boolean; show_minimap: boolean; panel_order: string[] }>(
-    `SELECT compact_mode, snap_to_grid, show_minimap, panel_order FROM users WHERE id = $1`,
+  const { rows } = await db.query<{ compact_mode: boolean; snap_to_grid: boolean; show_minimap: boolean; panel_order: string[]; role: string }>(
+    `SELECT compact_mode, snap_to_grid, show_minimap, panel_order, role FROM users WHERE id = $1`,
     [req.session.userId],
   );
-  const prefs = rows[0] ?? { compact_mode: false, snap_to_grid: false, show_minimap: true, panel_order: ['notes', 'signatures'] };
+  const prefs = rows[0] ?? { compact_mode: false, snap_to_grid: false, show_minimap: true, panel_order: ['notes', 'signatures'], role: 'readonly' };
+  // Keep session role in sync with DB
+  req.session.role = prefs.role as 'admin' | 'member' | 'readonly';
   res.json({
     user: {
       id:            req.session.userId,
       characterId:   req.session.characterId,
       characterName: req.session.characterName,
+      role:          prefs.role,
+      corpMode:      config.corpMode,
       compactMode:   prefs.compact_mode,
       snapToGrid:    prefs.snap_to_grid,
       showMinimap:   prefs.show_minimap,
@@ -160,16 +201,26 @@ authRouter.get('/me', async (req, res) => {
 });
 
 // PATCH /auth/preferences
+const MAX_PANELS = 16;
+const MAX_PANEL_KEY_LEN = 64;
+
 authRouter.patch('/preferences', async (req, res) => {
   if (!req.session.userId) { res.status(401).json({ error: 'Not authenticated' }); return; }
-  const { compactMode, snapToGrid, showMinimap, panelOrder } = req.body as { compactMode?: boolean; snapToGrid?: boolean; showMinimap?: boolean; panelOrder?: string[] };
+  const { compactMode, snapToGrid, showMinimap, panelOrder } = req.body as { compactMode?: boolean; snapToGrid?: boolean; showMinimap?: boolean; panelOrder?: unknown };
 
   const sets: string[] = [];
   const vals: unknown[] = [];
-  if (compactMode  !== undefined) { sets.push(`compact_mode = $${vals.length + 1}`); vals.push(compactMode); }
-  if (snapToGrid   !== undefined) { sets.push(`snap_to_grid = $${vals.length + 1}`); vals.push(snapToGrid); }
-  if (showMinimap  !== undefined) { sets.push(`show_minimap = $${vals.length + 1}`); vals.push(showMinimap); }
-  if (panelOrder   !== undefined) { sets.push(`panel_order  = $${vals.length + 1}`); vals.push(panelOrder); }
+  if (typeof compactMode === 'boolean') { sets.push(`compact_mode = $${vals.length + 1}`); vals.push(compactMode); }
+  if (typeof snapToGrid  === 'boolean') { sets.push(`snap_to_grid = $${vals.length + 1}`); vals.push(snapToGrid); }
+  if (typeof showMinimap === 'boolean') { sets.push(`show_minimap = $${vals.length + 1}`); vals.push(showMinimap); }
+  if (panelOrder !== undefined) {
+    if (!Array.isArray(panelOrder) || panelOrder.length > MAX_PANELS ||
+        !panelOrder.every((p) => typeof p === 'string' && p.length > 0 && p.length <= MAX_PANEL_KEY_LEN)) {
+      res.status(400).json({ error: 'panelOrder must be an array of short strings' });
+      return;
+    }
+    sets.push(`panel_order = $${vals.length + 1}`); vals.push(panelOrder);
+  }
   if (!sets.length) { res.status(400).json({ error: 'Nothing to update' }); return; }
 
   await db.query(
