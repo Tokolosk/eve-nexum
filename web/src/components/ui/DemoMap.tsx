@@ -407,7 +407,7 @@ function DemoMapInner() {
           <Controls showInteractive={false} />
           <Panel position="top-right">
             <div className="demo-map-actions">
-              <button type="button" className="map-sidebar__action" onClick={spreadNodes} disabled={nodes.length < 2}>
+              <button type="button" className="map-sidebar__action" onClick={spreadNodes} disabled={nodes.length < 2} data-tooltip="Adjust system nodes to stop overlap">
                 ⊞ Spread Nodes
               </button>
               <span className={`demo-map-actions__count${atLimit ? ' demo-map-actions__count--limit' : ''}`}>

@@ -154,6 +154,7 @@ export function MapSidebar() {
             className="map-sidebar__action"
             onClick={requestAutoLayout}
             disabled={systemCount < 2}
+            data-tooltip="Adjust system nodes to stop overlapping"
           >
             ⊞ Spread Nodes
           </button>
