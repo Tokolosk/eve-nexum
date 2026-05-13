@@ -24,6 +24,7 @@ Edit `.env` and fill in the required values:
 |---|---|---|
 | `PG_PASSWORD` | Yes | PostgreSQL password |
 | `SESSION_SECRET` | Yes | Random secret — run `openssl rand -hex 32` |
+| `TOKEN_ENCRYPTION_KEY` | Yes (production) | 64 hex chars used to encrypt stored EVE OAuth tokens at rest — run `openssl rand -hex 32`. **Do not change after first boot** — rotating this key makes existing stored tokens unreadable and forces every user to re-login. In development the key is auto-derived from `SESSION_SECRET` if unset. |
 | `EVE_CLIENT_ID` | Yes | From your EVE developer app |
 | `EVE_CLIENT_SECRET` | Yes | From your EVE developer app |
 | `EVE_CALLBACK_URL` | Yes | Must match the callback registered in your EVE app — e.g. `https://yourdomain.com/auth/callback` |
