@@ -7,6 +7,7 @@ import { ConnectionPanel } from './components/ui/ConnectionPanel';
 import { Toolbar } from './components/ui/Toolbar';
 import { MapSidebar } from './components/ui/MapSidebar';
 import { Sidebar } from './components/ui/Sidebar';
+import { ProximityOptInModal } from './components/ui/ProximityOptInModal';
 import { LandingPage } from './components/ui/LandingPage';
 import { Toaster } from './components/ui/Toaster';
 import { useMapStore } from './store/mapStore';
@@ -47,6 +48,7 @@ function MapApp() {
           </div>
         </div>
       </div>
+      <ProximityOptInModal />
     </ReactFlowProvider>
   );
 }

@@ -686,6 +686,13 @@
   &:focus { border-color: #2e4a7a; outline: none; }
 }
 
+.map-sidebar__hint {
+  font-size: 12px;
+  color: #8a9ab8;
+  line-height: 1.4;
+  padding: 4px 0 0;
+}
+
 .map-sidebar__shortcut {
   display: flex;
   align-items: center;
@@ -2544,6 +2551,19 @@ div.system-node__easy-handle {
 }
 
 /* ── Form fields ─────────────────────────────────────────── */
+/* ── Proximity opt-in modal body ─────────────────────────── */
+.proximity-optin__body p {
+  font-size: 14px;
+  color: #c0ccde;
+  line-height: 1.45;
+  margin: 0 0 10px;
+}
+
+.proximity-optin__sub {
+  font-size: 13px !important;
+  color: #8a9ab8 !important;
+}
+
 /* ── Wormhole type info popover ──────────────────────────── */
 .wh-type-info {
   display: inline-flex;

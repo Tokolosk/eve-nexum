@@ -1,4 +1,5 @@
-import { useRef, useState } from 'react';
+import { useRef } from 'react';
+import { useNotificationPermission, notifyPermissionChanged } from '../../hooks/useNotificationPermission';
 import { useMapStore } from '../../store/mapStore';
 import { api } from '../../api/client';
 import { toast } from './Toaster';
@@ -12,13 +13,11 @@ export function MapSidebar() {
   const importInputRef = useRef<HTMLInputElement>(null);
   const [threshold, setThreshold] = useProximityThreshold();
   const [staleHours, setStaleHours] = useStaleThreshold();
-  const [notifPermission, setNotifPermission] = useState<NotificationPermission>(
-    typeof Notification !== 'undefined' ? Notification.permission : 'denied',
-  );
+  const notifPermission = useNotificationPermission();
 
   function requestNotifPermission() {
     if (typeof Notification === 'undefined') return;
-    Notification.requestPermission().then((p) => setNotifPermission(p));
+    Notification.requestPermission().finally(() => notifyPermissionChanged());
   }
 
   async function handleExportPng() {
@@ -210,7 +209,12 @@ export function MapSidebar() {
             {notifPermission === 'granted' ? (
               <span className="map-sidebar__status map-sidebar__status--ok">Enabled</span>
             ) : notifPermission === 'denied' ? (
-              <span className="map-sidebar__status map-sidebar__status--err">Blocked</span>
+              <span
+                className="map-sidebar__status map-sidebar__status--err"
+                data-tooltip="Click the lock / site-info icon in your address bar → Notifications → Allow, then reload."
+              >
+                Blocked
+              </span>
             ) : (
               <button
                 type="button"
@@ -221,6 +225,12 @@ export function MapSidebar() {
               </button>
             )}
           </div>
+          {notifPermission === 'denied' && (
+            <div className="map-sidebar__hint">
+              Browser is blocking notifications for this site. Click the lock icon in
+              your address bar → Notifications → Allow → reload the page.
+            </div>
+          )}
         </div>
 
         <div className="map-sidebar__divider" />
@@ -333,6 +343,10 @@ export function MapSidebar() {
           <div className="map-sidebar__shortcut">
             <kbd>Shift + click</kbd>
             <span>Multi-select systems</span>
+          </div>
+          <div className="map-sidebar__shortcut">
+            <kbd>Shift + drag</kbd>
+            <span>Rubber-band select systems</span>
           </div>
         </div>
       </div>
