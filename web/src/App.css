@@ -295,6 +295,41 @@
 
 .toolbar__spacer { flex: 1; }
 
+.toolbar__proximity {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border: 1px solid #2a3a5a;
+  border-radius: 4px;
+  font-size: 13px;
+  color: #c0ccde;
+  background: #0d1117;
+  white-space: nowrap;
+  position: relative;
+}
+
+.toolbar__proximity--alert {
+  border-color: #e05a5a;
+  color: #ffb0b0;
+  background: rgba(224, 90, 90, 0.12);
+  animation: proximity-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes proximity-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(224, 90, 90, 0); }
+  50%      { box-shadow: 0 0 0 4px rgba(224, 90, 90, 0.25); }
+}
+
+.toolbar__proximity-icon {
+  font-size: 14px;
+}
+
+.toolbar__proximity-text {
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
 .toolbar__user {
   display: flex;
   align-items: center;
@@ -630,6 +665,57 @@
   overflow-y: auto;
 }
 
+.map-sidebar__section-title {
+  font-size: 13px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #5a6a8a;
+  margin-bottom: 6px;
+}
+
+.map-sidebar__select {
+  background: #111827;
+  border: 1px solid #1e2740;
+  color: #c8d0e0;
+  font-size: 13px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+
+  &:focus { border-color: #2e4a7a; outline: none; }
+}
+
+.map-sidebar__shortcut {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: #c0ccde;
+  padding: 2px 0;
+
+  kbd {
+    font-family: inherit;
+    font-size: 11px;
+    background: #141c2e;
+    border: 1px solid #2e3f60;
+    border-radius: 3px;
+    padding: 1px 6px;
+    color: #c0ccde;
+    flex-shrink: 0;
+  }
+}
+
+.map-sidebar__status {
+  font-size: 13px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  border: 1px solid;
+
+  &--ok  { color: #3ddc84; border-color: #3ddc84; }
+  &--err { color: #e05a5a; border-color: #e05a5a; }
+}
+
 .map-sidebar__title {
   font-size: 16px;
   font-weight: 600;
@@ -745,6 +831,16 @@
 }
 
 /* ── System node ─────────────────────────────────────────── */
+.system-node--stale {
+  opacity: 0.45;
+  filter: saturate(0.5);
+}
+
+.system-node--stale:hover {
+  opacity: 0.85;
+  filter: none;
+}
+
 .system-node {
   min-width: 150px;
   background: #111827;
@@ -752,7 +848,7 @@
   border-radius: 8px;
   padding: 8px 12px 10px;
   cursor: pointer;
-  transition: border-color 0.15s, box-shadow 0.15s;
+  transition: border-color 0.15s, box-shadow 0.15s, opacity 0.2s, filter 0.2s;
   position: relative;
 
   &:hover {
@@ -1175,6 +1271,40 @@
   z-index: 9999 !important;
 }
 
+.system-node__kill-icon {
+  color: #ff6060;
+  font-size: 13px;
+  cursor: default;
+  filter: drop-shadow(0 0 3px #ff606088);
+  position: relative;
+}
+
+.system-node__kill-tooltip {
+  display: none;
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: #111827;
+  border: 1px solid #2e3f60;
+  border-radius: 6px;
+  padding: 4px 10px;
+  white-space: nowrap;
+  font-size: 13px;
+  color: #ff6060;
+  font-weight: 600;
+  pointer-events: none;
+  z-index: 9999;
+}
+
+.system-node__kill-icon:hover .system-node__kill-tooltip {
+  display: block;
+}
+
+.react-flow__node:has(.system-node__kill-icon:hover) {
+  z-index: 9999 !important;
+}
+
 .system-node__incursion-badge {
   display: flex;
   align-items: center;
@@ -1307,8 +1437,20 @@ div.system-node__easy-handle {
   position: absolute;
   pointer-events: all;
   display: flex;
+  flex-direction: column;
+  align-items: center;
   gap: 3px;
   cursor: pointer;
+}
+
+.connection-label__row {
+  display: flex;
+  gap: 3px;
+  align-items: center;
+}
+
+.connection-label__row--top {
+  margin-bottom: 1px;
 }
 
 .connection-label__type {
@@ -2402,6 +2544,139 @@ div.system-node__easy-handle {
 }
 
 /* ── Form fields ─────────────────────────────────────────── */
+/* ── Wormhole type info popover ──────────────────────────── */
+.wh-type-info {
+  display: inline-flex;
+  position: relative;
+  margin-left: 4px;
+}
+
+.wh-type-info__btn {
+  background: transparent;
+  border: none;
+  color: #6a7898;
+  cursor: pointer;
+  font-size: 14px;
+  padding: 0;
+  line-height: 1;
+  transition: color 0.15s;
+
+  &:hover { color: #7ab4f0; }
+}
+
+.wh-type-info__popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  min-width: 180px;
+  background: #0d1117;
+  border: 1px solid #2e4a7a;
+  border-radius: 6px;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  z-index: 9999;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.5);
+}
+
+.wh-type-info__header {
+  font-family: monospace;
+  font-weight: 700;
+  font-size: 13px;
+  color: #c8d0e0;
+  padding-bottom: 4px;
+  border-bottom: 1px solid #1e2740;
+  margin-bottom: 2px;
+}
+
+.wh-type-info__row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 13px;
+  gap: 12px;
+}
+
+.wh-type-info__label { color: #6a7898; }
+.wh-type-info__value { color: #c0ccde; font-weight: 500; }
+
+/* ── Mass tracker ────────────────────────────────────────── */
+.mass-tracker {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  border: 1px solid #1e2740;
+  border-radius: 6px;
+  background: #0d1117;
+}
+
+.mass-tracker__header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.mass-tracker__label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #c0ccde;
+}
+
+.mass-tracker__values {
+  font-size: 13px;
+  color: #8a9ab8;
+  font-family: monospace;
+}
+
+.mass-tracker__bar {
+  height: 8px;
+  background: #141c2e;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.mass-tracker__fill {
+  height: 100%;
+  transition: width 0.2s ease, background 0.2s ease;
+}
+
+.mass-tracker__fill--stable       { background: #3ddc84; }
+.mass-tracker__fill--destabilized { background: #f0a030; }
+.mass-tracker__fill--critical     { background: #e05a5a; }
+
+.mass-tracker__remaining {
+  font-size: 13px;
+  color: #6a7898;
+}
+
+.mass-tracker__buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 2px;
+}
+
+.mass-tracker__btn {
+  font-size: 13px;
+}
+
+.mass-tracker__reset {
+  margin-left: auto;
+  border-color: #4a3030;
+  color: #d8a8a8;
+}
+
+.mass-tracker__hint {
+  padding: 8px 10px;
+  font-size: 13px;
+  color: #6a7898;
+  font-style: italic;
+  border: 1px dashed #1e2740;
+  border-radius: 6px;
+}
+
 .field {
   display: flex;
   flex-direction: column;

@@ -1,0 +1,93 @@
+import { useEffect, useRef, useState } from 'react';
+import { useWormholeTypes } from '../../hooks/useWormholeTypes';
+import { CLASS_COLORS, CLASS_LABELS } from '../../data/wormholes';
+import type { SystemClass } from '../../types';
+
+interface Props { code: string | null | undefined }
+
+function formatMass(kg: number): string {
+  if (kg >= 1_000_000_000) return `${(kg / 1_000_000_000).toFixed(2)} B kg`;
+  if (kg >= 1_000_000)     return `${(kg / 1_000_000).toFixed(0)} M kg`;
+  if (kg > 0)              return `${kg.toLocaleString()} kg`;
+  return '—';
+}
+
+function classKey(raw: string): SystemClass | null {
+  const up = raw.toUpperCase();
+  if (/^C\d+$/.test(up))                                    return up as SystemClass;
+  if (up === 'HS' || up === 'LS' || up === 'NS')            return up as SystemClass;
+  if (up === 'POCHVEN')                                     return 'Pochven' as SystemClass;
+  if (up === 'THERA')                                       return 'Thera'   as SystemClass;
+  if (up === 'DRIFTER')                                     return 'Drifter' as SystemClass;
+  return null;
+}
+
+/**
+ * Click the `ⓘ` button to pop a small card showing the spec for a wormhole
+ * code (lead-to class, lifetime, total mass, max jump mass). Used wherever
+ * a WH code appears so you don't have to leave the app to look it up.
+ */
+export function WHTypeInfo({ code }: Props) {
+  const types = useWormholeTypes();
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLSpanElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onClick = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
+    window.addEventListener('mousedown', onClick);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('mousedown', onClick);
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
+
+  if (!code) return null;
+  const spec = types[code.toUpperCase()];
+  if (!spec) return null;
+  const dest = classKey(spec.dest);
+
+  return (
+    <span className="wh-type-info" ref={ref}>
+      <button
+        type="button"
+        className="wh-type-info__btn"
+        onClick={(e) => { e.stopPropagation(); setOpen((o) => !o); }}
+        aria-label={`${code} info`}
+        data-tooltip={`${code} spec`}
+      >
+        ⓘ
+      </button>
+      {open && (
+        <div className="wh-type-info__popover" role="dialog">
+          <div className="wh-type-info__header">{code.toUpperCase()}</div>
+          <div className="wh-type-info__row">
+            <span className="wh-type-info__label">Leads to</span>
+            <span
+              className="wh-type-info__value"
+              style={dest ? { color: CLASS_COLORS[dest] } : undefined}
+            >
+              {dest ? CLASS_LABELS[dest] : spec.dest.toUpperCase()}
+            </span>
+          </div>
+          <div className="wh-type-info__row">
+            <span className="wh-type-info__label">Lifetime</span>
+            <span className="wh-type-info__value">{spec.lifetimeHours}h</span>
+          </div>
+          <div className="wh-type-info__row">
+            <span className="wh-type-info__label">Total mass</span>
+            <span className="wh-type-info__value">{formatMass(spec.totalMass)}</span>
+          </div>
+          <div className="wh-type-info__row">
+            <span className="wh-type-info__label">Max jump</span>
+            <span className="wh-type-info__value">{formatMass(spec.maxJumpMass)}</span>
+          </div>
+        </div>
+      )}
+    </span>
+  );
+}

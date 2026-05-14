@@ -548,6 +548,7 @@ export const useMapStore = create<MapStore>()((set, get) => {
               { id, sourceId, targetId, sourceHandle, targetHandle,
                 type: null, connectionType: 'standard',
                 massStatus: null, timeStatus: null, size: 'large',
+                massUsed: 0, eolAt: null,
                 createdAt: new Date().toISOString() },
             ],
           },

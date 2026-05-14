@@ -20,6 +20,7 @@
     "@dnd-kit/utilities": "^3.2.2",
     "@uiw/react-md-editor": "^4.1.0",
     "@xyflow/react": "^12.10.2",
+    "html-to-image": "^1.11.13",
     "react": "^19.2.5",
     "react-dom": "^19.2.5",
     "rehype-sanitize": "^6.0.0",

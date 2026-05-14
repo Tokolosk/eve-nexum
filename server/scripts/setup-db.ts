@@ -229,6 +229,7 @@ async function createTables() {
       is_home       BOOLEAN     NOT NULL DEFAULT FALSE,
       locked        BOOLEAN     NOT NULL DEFAULT FALSE,
       notes         TEXT        NOT NULL DEFAULT '',
+      last_activity_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
 
@@ -243,6 +244,9 @@ async function createTables() {
       mass_status     TEXT,
       time_status     TEXT,
       size            TEXT        NOT NULL DEFAULT 'large',
+      wh_type         TEXT,
+      mass_used       BIGINT      NOT NULL DEFAULT 0,
+      eol_at          TIMESTAMPTZ,
       created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
 

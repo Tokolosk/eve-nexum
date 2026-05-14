@@ -87,6 +87,10 @@ export async function migrate() {
       size            TEXT        NOT NULL DEFAULT 'large',
       created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
+    ALTER TABLE map_connections ADD COLUMN IF NOT EXISTS wh_type   TEXT;
+    ALTER TABLE map_connections ADD COLUMN IF NOT EXISTS mass_used BIGINT NOT NULL DEFAULT 0;
+    ALTER TABLE map_connections ADD COLUMN IF NOT EXISTS eol_at    TIMESTAMPTZ;
+    ALTER TABLE map_systems     ADD COLUMN IF NOT EXISTS last_activity_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
 
     CREATE TABLE IF NOT EXISTS map_signatures (
       id          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),

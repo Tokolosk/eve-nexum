@@ -8,6 +8,7 @@ import { NotesEditor } from './NotesEditor';
 import { WormholeTypePicker } from './WormholeTypePicker';
 import { LeadsToDropdown } from './LeadsToDropdown';
 import { toast } from './Toaster';
+import { reevaluateConnectionsForSystem } from '../../utils/whAutoDetect';
 
 const SIG_TYPE_LABELS: Record<SigType, string> = {
   unknown:  'Unknown',
@@ -152,6 +153,16 @@ export function SignaturePane({ systemId }: { systemId: string }) {
   const updateSig = (id: string, updates: Partial<Signature>) => {
     const withTs = { ...updates, updatedAt: new Date().toISOString() };
     setSigs((prev) => prev.map((s) => s.id === id ? { ...s, ...withTs } : s));
+
+    // Re-evaluate connections whenever whType or whLeadsTo changes — either
+    // to fill / upgrade the connection, or to clear it if this edit removed
+    // the only backing sig.
+    if ('whType' in updates || 'whLeadsTo' in updates) {
+      const existing = sigsRef.current.find((s) => s.id === id);
+      const nextSigs = sigsRef.current.map((s) => (s.id === id ? { ...s, ...updates } : s));
+      reevaluateConnectionsForSystem(systemId, nextSigs, existing);
+    }
+
     pendingUpdates.current.set(id, { ...(pendingUpdates.current.get(id) ?? {}), ...updates });
     clearTimeout(debounceTimers.current.get(id));
     debounceTimers.current.set(id, setTimeout(async () => {
@@ -167,8 +178,17 @@ export function SignaturePane({ systemId }: { systemId: string }) {
 
   const deleteSig = (id: string) => {
     if (!activeMapId) return;
+    const deleted = sigsRef.current.find((s) => s.id === id);
     setSigs((prev) => prev.filter((s) => s.id !== id));
     setSelected((prev) => { const next = new Set(prev); next.delete(id); return next; });
+
+    // If the deleted sig was backing a connection, re-evaluate so we can clear
+    // the now-orphaned connection type.
+    if (deleted && deleted.whType && deleted.whLeadsTo) {
+      const nextSigs = sigsRef.current.filter((s) => s.id !== id);
+      reevaluateConnectionsForSystem(systemId, nextSigs, deleted);
+    }
+
     api(`/api/maps/${activeMapId}/systems/${systemId}/signatures/${id}`, { method: 'DELETE' })
       .catch(() => toast.error('Failed to delete signature'));
   };

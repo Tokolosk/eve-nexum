@@ -8,7 +8,7 @@ export type WormholeEffect =
   | 'magnetar' | 'red_giant' | 'wolf_rayet';
 
 export type MassStatus = 'stable' | 'destabilized' | 'critical';
-export type TimeStatus = 'fresh' | 'lessThan24h' | 'lessThan4h' | 'lessThan1h' | 'expired';
+export type TimeStatus = 'fresh' | 'eol' | 'lessThan24h' | 'lessThan4h' | 'lessThan1h' | 'expired';
 export type ConnectionSize = 'xl' | 'large' | 'medium' | 'small';
 export type SystemStatus = 'unknown' | 'visited' | 'cleared';
 
@@ -26,6 +26,7 @@ export interface MapSystem {
   isHome: boolean;
   locked: boolean;
   notes: string;
+  lastActivityAt: string; // ISO timestamp, updated when system or its sigs are touched
 }
 
 export type SigType = 'unknown' | 'wormhole' | 'data' | 'relic' | 'combat' | 'gas' | 'ore';
@@ -78,6 +79,8 @@ export interface MapConnection {
   massStatus: MassStatus | null;
   timeStatus: TimeStatus | null;
   size: ConnectionSize;
+  massUsed: number; // kg — total mass jumped through this connection
+  eolAt: string | null; // ISO timestamp when EOL was marked (null = fresh)
   createdAt: string;
 }
 

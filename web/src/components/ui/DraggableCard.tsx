@@ -35,12 +35,24 @@ export function DraggableCard({ id, title, children }: Props) {
         zIndex: isDragging ? 10 : undefined,
       }}
     >
-      <div className="info-card__header">
-        <button type="button" className="info-card__collapse-btn" onClick={toggle} title={collapsed ? 'Expand' : 'Collapse'}>
+      <div className="info-card__header" onClick={toggle}>
+        <button
+          type="button"
+          className="info-card__collapse-btn"
+          onClick={(e) => { e.stopPropagation(); toggle(); }}
+          title={collapsed ? 'Expand' : 'Collapse'}
+        >
           <span className={`info-card__chevron${collapsed ? ' info-card__chevron--collapsed' : ''}`}>▾</span>
         </button>
         <span className="info-card__title">{title}</span>
-        <button type="button" className="info-card__drag-handle" {...listeners} {...attributes} title="Drag to reorder">
+        <button
+          type="button"
+          className="info-card__drag-handle"
+          {...listeners}
+          {...attributes}
+          onClick={(e) => e.stopPropagation()}
+          title="Drag to reorder"
+        >
           ⠿
         </button>
       </div>

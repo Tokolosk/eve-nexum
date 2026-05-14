@@ -6,6 +6,7 @@ import { useCanEdit } from '../../hooks/useCanEdit';
 import { UserStatsModal } from './UserStatsModal';
 import { ConfirmModal } from './ConfirmModal';
 import { PromptModal } from './PromptModal';
+import { useProximityAlerts } from '../../hooks/useProximityAlerts';
 
 interface EveStatus {
   players:    number;
@@ -13,13 +14,44 @@ interface EveStatus {
   esiOnline:  boolean; // fetch reached ESI at all
 }
 
+// Cross-tab cache: when one tab polls ESI, the result is written to localStorage
+// and all other tabs receive it via the `storage` event. Each tab still ticks
+// every minute, but skips the network call if another tab has already populated
+// a fresh value — so steady-state polling is one ESI call per minute total,
+// not one per tab.
+const STATUS_KEY = 'nexum.eveStatus';
+const POLL_MS    = 60_000;
+
+interface CachedStatus { value: EveStatus; at: number }
+
+function readCache(): CachedStatus | null {
+  try {
+    const raw = localStorage.getItem(STATUS_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as CachedStatus;
+    if (!parsed.value || typeof parsed.at !== 'number') return null;
+    return parsed;
+  } catch { return null; }
+}
+
+function writeCache(value: EveStatus) {
+  try {
+    localStorage.setItem(STATUS_KEY, JSON.stringify({ value, at: Date.now() } as CachedStatus));
+  } catch { /* quota / private mode — ignore */ }
+}
+
 function useEveServerStatus(): EveStatus | null {
-  const [status, setStatus] = useState<EveStatus | null>(null);
+  const [status, setStatus] = useState<EveStatus | null>(() => readCache()?.value ?? null);
 
   useEffect(() => {
     let cancelled = false;
 
-    async function poll() {
+    async function tick() {
+      const cached = readCache();
+      if (cached && Date.now() - cached.at < POLL_MS) {
+        if (!cancelled) setStatus(cached.value);
+        return;
+      }
       let esiOnline = false;
       let serverUp  = false;
       let players   = 0;
@@ -36,12 +68,29 @@ function useEveServerStatus(): EveStatus | null {
       } catch {
         // esiOnline stays false
       }
-      if (!cancelled) setStatus({ players, serverUp, esiOnline });
+      const value: EveStatus = { players, serverUp, esiOnline };
+      writeCache(value);
+      if (!cancelled) setStatus(value);
     }
 
-    poll();
-    const id = setInterval(poll, 5 * 60 * 1000);
-    return () => { cancelled = true; clearInterval(id); };
+    tick();
+    const id = setInterval(tick, POLL_MS);
+
+    // Other tabs writing to STATUS_KEY → fire `storage` event here
+    const onStorage = (e: StorageEvent) => {
+      if (e.key !== STATUS_KEY || !e.newValue) return;
+      try {
+        const parsed = JSON.parse(e.newValue) as CachedStatus;
+        if (!cancelled && parsed.value) setStatus(parsed.value);
+      } catch { /* ignore malformed payloads */ }
+    };
+    window.addEventListener('storage', onStorage);
+
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+      window.removeEventListener('storage', onStorage);
+    };
   }, []);
 
   return status;
@@ -63,6 +112,29 @@ function CheckedAtLabel({ checkedAt }: { checkedAt: Date }) {
     return () => clearInterval(id);
   }, []);
   return <span className="toolbar__checked-at">checked {formatCheckedAt(checkedAt)}</span>;
+}
+
+// Persistent indicator for the nearest live threat (incursion / insurgency).
+// Mounts the proximity hook (which also fires the browser notification + beep
+// on threshold crossings — Toolbar is rendered once for every logged-in user).
+function ProximityChip() {
+  const { nearest, threshold } = useProximityAlerts();
+  if (!nearest) return null;
+  const inZone = nearest.jumps <= threshold;
+  const label  = nearest.kind === 'incursion' ? 'Incursion' : 'Insurgency';
+  return (
+    <span
+      className={`toolbar__proximity${inZone ? ' toolbar__proximity--alert' : ''}`}
+      data-tooltip={`Nearest ${label.toLowerCase()} system`}
+    >
+      <span className="toolbar__proximity-icon">
+        {nearest.kind === 'incursion' ? '⚠' : '☠'}
+      </span>
+      <span className="toolbar__proximity-text">
+        {nearest.jumps === 0 ? 'IN' : `${nearest.jumps}j`} {label}
+      </span>
+    </span>
+  );
 }
 
 export function Toolbar() {
@@ -195,6 +267,8 @@ export function Toolbar() {
         <span>{systemCount} systems</span>
         <span>{connectionCount} connections</span>
       </div>
+
+      <ProximityChip />
 
       <div className="toolbar__spacer" />
 

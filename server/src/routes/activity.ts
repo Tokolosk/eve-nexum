@@ -199,4 +199,19 @@ router.get('/:systemId(\\d+)', async (req, res) => {
   res.json(systemHistory.get(eveSystemId) ?? []);
 });
 
+// Snapshot of the current ESI kills cache, used to highlight "hot" systems on
+// the map. One ESI call covers the whole cluster, already cached for 5 min by
+// fetchEsi(), so this endpoint adds no extra upstream load.
+router.get('/current-kills', async (_req, res) => {
+  const snap = await fetchEsi();
+  if (!snap) { res.json([]); return; }
+  const arr = Array.from(snap.kills.values()).map((k) => ({
+    systemId:  k.system_id,
+    shipKills: k.ship_kills,
+    podKills:  k.pod_kills,
+    npcKills:  k.npc_kills,
+  }));
+  res.json(arr);
+});
+
 export default router;

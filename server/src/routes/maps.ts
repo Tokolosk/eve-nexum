@@ -260,7 +260,8 @@ mapsRouter.get('/:mapId', async (req, res) => {
       `SELECT id, eve_system_id AS "eveSystemId", name, system_class AS "systemClass",
               effect, statics, region_name AS "regionName", npc_type AS "npcType",
               position_x AS x, position_y AS y,
-              status, is_home AS "isHome", locked, notes
+              status, is_home AS "isHome", locked, notes,
+              last_activity_at AS "lastActivityAt"
        FROM map_systems WHERE map_id = $1`,
       [mapId],
     ),
@@ -268,7 +269,10 @@ mapsRouter.get('/:mapId', async (req, res) => {
       `SELECT id, source_id AS "sourceId", target_id AS "targetId",
               source_handle AS "sourceHandle", target_handle AS "targetHandle",
               connection_type AS "connectionType", mass_status AS "massStatus",
-              time_status AS "timeStatus", size, created_at AS "createdAt"
+              time_status AS "timeStatus", size, wh_type AS "type",
+              COALESCE(mass_used, 0)::float8 AS "massUsed",
+              eol_at AS "eolAt",
+              created_at AS "createdAt"
        FROM map_connections WHERE map_id = $1`,
       [mapId],
     ),
@@ -391,8 +395,9 @@ mapsRouter.patch('/:mapId/systems/:systemId', async (req, res) => {
   const access = await requireMapWrite(res, mapId, req);
   if (!access) return;
 
+  // Append last_activity_at = NOW() to mark this system as active.
   await db.query(
-    `UPDATE map_systems SET ${sets.join(', ')} WHERE id = $${vals.length + 1} AND map_id = $${vals.length + 2}`,
+    `UPDATE map_systems SET ${sets.join(', ')}, last_activity_at = NOW() WHERE id = $${vals.length + 1} AND map_id = $${vals.length + 2}`,
     [...vals, systemId, mapId],
   );
   await touchMap(mapId);
@@ -440,6 +445,8 @@ mapsRouter.patch('/:mapId/connections/:connectionId', async (req, res) => {
     connectionType: 'connection_type', massStatus: 'mass_status',
     timeStatus: 'time_status', size: 'size',
     sourceHandle: 'source_handle', targetHandle: 'target_handle',
+    type: 'wh_type', massUsed: 'mass_used',
+    eolAt: 'eol_at',
   };
 
   const updates = req.body as Record<string, unknown>;
@@ -503,6 +510,7 @@ mapsRouter.post('/:mapId/systems/:systemId/signatures', async (req, res) => {
     `INSERT INTO user_events (user_id, event_type, sig_type) VALUES ($1, 'signature', $2)`,
     [req.session.userId, sigType],
   ).catch(console.error);
+  db.query(`UPDATE map_systems SET last_activity_at = NOW() WHERE id = $1`, [systemId]).catch(console.error);
   res.status(201).json(rows[0]);
 });
 
@@ -525,6 +533,7 @@ mapsRouter.patch('/:mapId/systems/:systemId/signatures/:sigId', async (req, res)
     `UPDATE map_signatures SET ${sets.join(', ')} WHERE id = $${vals.length + 1} AND system_id = $${vals.length + 2}`,
     [...vals, sigId, systemId],
   );
+  db.query(`UPDATE map_systems SET last_activity_at = NOW() WHERE id = $1`, [systemId]).catch(console.error);
   res.json({ ok: true });
 });
 
@@ -534,6 +543,7 @@ mapsRouter.delete('/:mapId/systems/:systemId/signatures/:sigId', async (req, res
   if (!access) return;
   if (!(await verifySystemInMap(res, systemId, mapId))) return;
   await db.query(`DELETE FROM map_signatures WHERE id = $1 AND system_id = $2`, [sigId, systemId]);
+  db.query(`UPDATE map_systems SET last_activity_at = NOW() WHERE id = $1`, [systemId]).catch(console.error);
   res.json({ ok: true });
 });
 

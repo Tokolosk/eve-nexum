@@ -16,32 +16,47 @@ const FEATURES = [
   {
     icon: '◐',
     title: 'Signature Capture',
-    desc: 'Paste straight from the probe scanner. Sig IDs, wormhole codes, destinations, and timestamps are kept across sessions — ready to use again later.',
+    desc: 'Paste straight from the probe scanner. Sig IDs, wormhole codes, destinations, and timestamps persist across sessions. WH-type and leads-to choices auto-fill the matching connection.',
+  },
+  {
+    icon: '⟿',
+    title: 'Built-in Route Planner',
+    desc: 'In-memory BFS over the entire stargate graph. One click sets your destination or adds a waypoint; expand the route to preview every system with its true-sec colour.',
+  },
+  {
+    icon: '⧗',
+    title: 'EOL Countdown & Mass Tracking',
+    desc: 'Live countdown on every End-of-Life connection (4h → 1h → expired, auto-removed). Per-connection mass tracker with WH-specific specs and quick-log buttons for common ship classes.',
+  },
+  {
+    icon: '⚠',
+    title: 'Threat Proximity Alerts',
+    desc: 'Browser notification plus an audio ping when you’re within a configurable number of jumps of an active incursion or insurgency. Persistent toolbar chip shows the nearest threat at a glance.',
+  },
+  {
+    icon: '⚔',
+    title: 'Live Kill Activity',
+    desc: 'Per-system kill feed from zKillboard, plus a red glow on map nodes that had ship kills in the current hour. Spot dangerous systems on your chain without opening any panel.',
   },
   {
     icon: '⊞',
     title: 'NPC Station Information',
-    desc: 'Per-system station list with available services and owning corporation. Set destination or add a waypoint in one click.',
-  },
-  {
-    icon: '⚔',
-    title: 'zKill Integration',
-    desc: 'Live recent-kill feed per system — ship, pilot, corporation, alliance — with direct links back to zkillboard.com.',
+    desc: 'Per-system station list with available services and owning corporation. Set destination or add a waypoint with one click.',
   },
   {
     icon: '✦',
-    title: 'Thera Connections',
-    desc: 'EVE-Scout\'s live Thera signature list in your sidebar, sorted by jumps from your current location. Route preview and one-click destination set.',
-  },
-  {
-    icon: '✦',
-    title: 'Turnur Connections',
-    desc: 'The same live coverage for Turnur, sorted by jumps from your location. Pre-plan your route in or out without scanning.',
+    title: 'Thera & Turnur Connections',
+    desc: 'EVE-Scout’s live wormhole list for both scout systems in your sidebar, sorted by jumps from your current location. Route preview and one-click destination per row.',
   },
   {
     icon: '★',
     title: 'Find Your Closest A0 Sun',
-    desc: 'The 10 nearest A0 (Blue Small) suns to your current system, sorted by stargate jumps. Set destination or add a waypoint instantly.',
+    desc: 'The 10 nearest A0 (Blue Small) suns to your current system, sorted by stargate jumps. Set destination or add a waypoint instantly. A0 systems on your map carry a star icon.',
+  },
+  {
+    icon: '⊘',
+    title: 'Chain Hygiene',
+    desc: 'Stale systems fade automatically after a configurable idle period. Multi-select with shift-click to lock, clear, or remove dead branches in bulk. PNG export bakes the current view to a shareable image.',
   },
 ];
 

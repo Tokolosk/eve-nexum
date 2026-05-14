@@ -10,6 +10,9 @@ import { useIncursions, findIncursion } from '../../hooks/useIncursions';
 import { useInsurgency, findInsurgency } from '../../hooks/useInsurgency';
 import { useScoutConnections, findScoutConnections } from '../../hooks/useScoutConnections';
 import { useA0Systems } from '../../hooks/useA0Systems';
+import { useCurrentHourKills } from '../../hooks/useCurrentHourKills';
+import { useNow30s } from '../../hooks/useNow30s';
+import { useStaleThreshold } from '../../hooks/useStaleThreshold';
 import { truesecColor } from '../../utils/truesec';
 
 type SystemNodeData = MapSystem & { selected: boolean };
@@ -33,6 +36,13 @@ export const SystemNode = memo(({ data, selected }: NodeProps) => {
   const a0Systems       = useA0Systems();
   const a0Ids           = useMemo(() => new Set(a0Systems.map(s => s.id)), [a0Systems]);
   const isA0            = sys.eveSystemId !== null && a0Ids.has(sys.eveSystemId);
+  const allKills        = useCurrentHourKills();
+  const myKills         = sys.eveSystemId !== null ? allKills.get(sys.eveSystemId) : undefined;
+  const hotKills        = !!myKills && myKills.shipKills + myKills.podKills > 0;
+  const now             = useNow30s();
+  const [staleHours]    = useStaleThreshold();
+  const isStale         = !!sys.lastActivityAt &&
+                          (now - new Date(sys.lastActivityAt).getTime()) > staleHours * 3_600_000;
   const connection      = useConnection();
 
   // Tooltip label: dedupe by scout system name (Thera / Turnur). Multiple
@@ -49,13 +59,20 @@ export const SystemNode = memo(({ data, selected }: NodeProps) => {
 
   return (
     <div
-      className={`system-node${sys.locked ? ' nopan' : ''}${isTarget ? ' system-node--connect-target' : ''}`}
+      className={`system-node${sys.locked ? ' nopan' : ''}${isTarget ? ' system-node--connect-target' : ''}${isStale ? ' system-node--stale' : ''}`}
       style={{ '--class-color': color } as React.CSSProperties}
       data-selected={selected}
       data-status={sys.status}
       data-home={sys.isHome}
       data-current={isCurrent}
-      onClick={() => selectSystem(sys.id)}
+      onClick={(e) => {
+        // Skip our single-select on shift-click so ReactFlow's built-in
+        // multi-select can add this node to the existing selection. Calling
+        // selectSystem here would change selectedSystemId, which fires the
+        // systems→nodes effect and wipes ReactFlow's selection state.
+        if (e.shiftKey || e.ctrlKey || e.metaKey) return;
+        selectSystem(sys.id);
+      }}
     >
       {/* Always present so existing edge handle references stay valid across mode toggles */}
       <Handle type="source" position={Position.Top}    id="top"    className={easyConnect ? 'system-handle system-handle--ghost' : 'system-handle'} />
@@ -106,6 +123,14 @@ export const SystemNode = memo(({ data, selected }: NodeProps) => {
             <span className="system-node__a0-icon">
               ★
               <span className="system-node__a0-tooltip">A0 sun</span>
+            </span>
+          )}
+          {hotKills && myKills && (
+            <span className="system-node__kill-icon">
+              ⚔
+              <span className="system-node__kill-tooltip">
+                {myKills.shipKills} ship · {myKills.podKills} pod kills this hour
+              </span>
             </span>
           )}
           {sys.effect !== 'none' && (

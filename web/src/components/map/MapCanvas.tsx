@@ -91,6 +91,7 @@ export function MapCanvas() {
   const removeSystem         = useMapStore((s) => s.removeSystem);
   const removeConnection     = useMapStore((s) => s.removeConnection);
   const updateConnection     = useMapStore((s) => s.updateConnection);
+  const selectConnection     = useMapStore((s) => s.selectConnection);
   const undo                 = useMapStore((s) => s.undo);
   const autoLayoutPending    = useMapStore((s) => s.autoLayoutPending);
   const clearAutoLayoutPending = useMapStore((s) => s.clearAutoLayoutPending);
@@ -117,6 +118,31 @@ export function MapCanvas() {
     },
     [systems, removeSystem, setNodes],
   );
+
+  const centerOnSystem = useCallback((systemId: string) => {
+    const node = getNode(systemId);
+    if (!node) return false;
+
+    const zoom   = getZoom();
+    const flowX  = node.position.x + (node.measured?.width  ?? 150) / 2;
+    const flowY  = node.position.y + (node.measured?.height ?? 80)  / 2;
+
+    const rfEl   = document.querySelector<HTMLElement>('.react-flow');
+    const panel  = document.querySelector<HTMLElement>('.system-panel');
+    const cW     = rfEl?.offsetWidth  ?? window.innerWidth;
+    const cH     = rfEl?.offsetHeight ?? window.innerHeight;
+    const panelH = panel?.offsetHeight ?? 0;
+
+    setViewport(
+      {
+        x:    cW / 2 - flowX * zoom,
+        y:    (cH - panelH) / 2 - flowY * zoom,
+        zoom,
+      },
+      { duration: 300 },
+    );
+    return true;
+  }, [getNode, getZoom, setViewport]);
 
   // Preserve rubber-band selection when Shift is released before the mouse button.
   // React Flow clears the selection on Shift keyup, so we capture it just before.
@@ -155,6 +181,17 @@ export function MapCanvas() {
           if (sys && !sys.locked) removeSystem(selectedSystemId);
         }
       }
+
+      if (e.key === 'h' || e.key === 'H') {
+        const target = e.target as HTMLElement;
+        if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) return;
+        const home = systems.find((s) => s.isHome);
+        if (home) {
+          centerOnSystem(home.id);
+        } else {
+          toast.info('No home system set. Right-click a system → "Set as home".');
+        }
+      }
     };
     const onKeyUp = (e: KeyboardEvent) => {
       if (e.key !== 'Shift') return;
@@ -184,33 +221,6 @@ export function MapCanvas() {
   useEffect(() => {
     setNodes(systems.map((s) => systemToNode(s, selectedSystemId, easyConnect)));
   }, [systems, selectedSystemId, easyConnect, setNodes]);
-
-  const centerOnSystem = useCallback((systemId: string) => {
-    const node = getNode(systemId);
-    if (!node) return false;
-
-    const zoom   = getZoom();
-    const flowX  = node.position.x + (node.measured?.width  ?? 150) / 2;
-    const flowY  = node.position.y + (node.measured?.height ?? 80)  / 2;
-
-    // Measure the visible canvas area, subtracting the system panel that
-    // overlays the bottom so the node lands in the centre of what's visible.
-    const rfEl   = document.querySelector<HTMLElement>('.react-flow');
-    const panel  = document.querySelector<HTMLElement>('.system-panel');
-    const cW     = rfEl?.offsetWidth  ?? window.innerWidth;
-    const cH     = rfEl?.offsetHeight ?? window.innerHeight;
-    const panelH = panel?.offsetHeight ?? 0;
-
-    setViewport(
-      {
-        x:    cW / 2 - flowX * zoom,
-        y:    (cH - panelH) / 2 - flowY * zoom,
-        zoom,
-      },
-      { duration: 300 },
-    );
-    return true;
-  }, [getNode, getZoom, setViewport]);
 
   useEffect(() => {
     if (!selectedSystemId) return;
@@ -255,6 +265,25 @@ export function MapCanvas() {
 
     toMove.forEach((r) => moveSystem(r.id, { x: r.x, y: r.y }, { skipUndo: true }));
   }, [autoLayoutPending, clearAutoLayoutPending, getNodes, systems, moveSystem, pushUndo]);
+
+  // Sweep expired EOL connections every minute. A connection is considered
+  // expired 4 h + 30 min grace after the user marked it EOL. The 30 min grace
+  // gives the "expired" state a chance to be visible before removal.
+  useEffect(() => {
+    const EXPIRY_MS = (4 * 60 + 30) * 60 * 1000;
+    const sweep = () => {
+      const now = Date.now();
+      for (const c of useMapStore.getState().map.connections) {
+        if (!c.eolAt) continue;
+        if (now - new Date(c.eolAt).getTime() >= EXPIRY_MS) {
+          removeConnection(c.id);
+        }
+      }
+    };
+    sweep();
+    const id = setInterval(sweep, 60_000);
+    return () => clearInterval(id);
+  }, [removeConnection]);
 
   // Edges driven directly from store — no local duplicate state
   const edges = useMemo(
@@ -364,6 +393,15 @@ export function MapCanvas() {
     [],
   );
 
+  // Click on the SVG edge path itself (the curve) selects the connection so
+  // the bottom ConnectionPanel opens — same effect as clicking the label chip.
+  const onEdgeClick = useCallback(
+    (_: React.MouseEvent, edge: Edge) => {
+      selectConnection(edge.id);
+    },
+    [selectConnection],
+  );
+
   const onPaneClick = useCallback(() => setContextMenu(null), []);
 
   const ctxItems = (() => {
@@ -399,28 +437,43 @@ export function MapCanvas() {
         },
         {
           label: 'Wormhole Lifetime',
-          submenu: [
-            {
-              label: 'Less than 1 day remaining',
-              checked: timeStatus === 'lessThan24h',
-              action: () => updateConnection(eid, { timeStatus: 'lessThan24h' }),
-            },
-            {
-              label: 'Less than 4 hours remaining',
-              checked: timeStatus === 'lessThan4h',
-              action: () => updateConnection(eid, { timeStatus: 'lessThan4h' }),
-            },
-            {
-              label: 'Less than 1 hour remaining',
-              checked: timeStatus === 'lessThan1h',
-              action: () => updateConnection(eid, { timeStatus: 'lessThan1h' }),
-            },
-            {
-              label: 'Expired, closure imminent',
-              checked: timeStatus === 'expired',
-              action: () => updateConnection(eid, { timeStatus: 'expired' }),
-            },
-          ],
+          submenu: (() => {
+            // The submenu's checked indicator reflects what the user last
+            // selected (categorical), not the live derived stage. Live stage
+            // lives on the edge label; this is just "what option did I click?".
+            const hasEol = !!conn?.eolAt;
+            const stage: 'fresh' | 'lessThan24h' | 'eol' =
+              timeStatus === 'lessThan24h' ? 'lessThan24h' :
+              hasEol || timeStatus === 'eol' ? 'eol' :
+              'fresh';
+            const eolFromOffset = (hrsBack: number) =>
+              new Date(Date.now() - hrsBack * 3_600_000).toISOString();
+            return [
+              {
+                label: 'Fresh',
+                checked: stage === 'fresh',
+                action: () => updateConnection(eid, { timeStatus: 'fresh', eolAt: null }),
+              },
+              {
+                label: 'Less than 1 day remaining',
+                checked: stage === 'lessThan24h',
+                action: () => updateConnection(eid, { timeStatus: 'lessThan24h', eolAt: null }),
+              },
+              {
+                label: 'Less than 4 hours remaining',
+                checked: stage === 'eol',
+                action: () => updateConnection(eid, { timeStatus: 'eol', eolAt: eolFromOffset(0) }),
+              },
+              {
+                label: 'Less than 1 hour remaining',
+                action: () => updateConnection(eid, { timeStatus: 'eol', eolAt: eolFromOffset(3) }),
+              },
+              {
+                label: 'Expired, closure imminent',
+                action: () => updateConnection(eid, { timeStatus: 'eol', eolAt: eolFromOffset(4) }),
+              },
+            ];
+          })(),
         },
         {
           label: 'Mass Stability',
@@ -477,6 +530,33 @@ export function MapCanvas() {
           icon: '🔓',
           action: () => selectedNodes.forEach((n) => updateSystem(n.id, { locked: false })),
         },
+        {
+          label: `Mark ${selectedNodes.length} as Cleared`,
+          icon: '✓',
+          action: () => selectedNodes.forEach((n) => updateSystem(n.id, { status: 'cleared' })),
+        },
+      ] : [];
+
+      // "Set as home" / "Unset home" — single selection only; isHome is a
+      // mutually-exclusive flag, so setting one clears whichever was home before.
+      const homeItem = !multiSelected ? [
+        sys?.isHome
+          ? {
+              label: 'Unset home',
+              icon:  '⌂',
+              action: () => updateSystem(contextMenu.nodeId!, { isHome: false }),
+            }
+          : {
+              label: 'Set as home (H to centre)',
+              icon:  '⌂',
+              action: () => {
+                // Clear any previously-set home so only one exists at a time.
+                const oldHome = systems.find((s) => s.isHome);
+                if (oldHome && oldHome.id !== contextMenu.nodeId)
+                  updateSystem(oldHome.id, { isHome: false });
+                updateSystem(contextMenu.nodeId!, { isHome: true });
+              },
+            },
       ] : [];
 
       return [
@@ -498,6 +578,7 @@ export function MapCanvas() {
             }
           },
         }] : []),
+        ...homeItem,
         ...multiItems,
         ...waypointItems,
       ];
@@ -530,6 +611,7 @@ export function MapCanvas() {
         onPaneContextMenu={onPaneContextMenu}
         onNodeContextMenu={onNodeContextMenu}
         onEdgeContextMenu={onEdgeContextMenu}
+        onEdgeClick={onEdgeClick}
         proOptions={{ hideAttribution: true }}
         onSelectionContextMenu={onSelectionContextMenu}
         onPaneClick={onPaneClick}
