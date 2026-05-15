@@ -15,7 +15,7 @@ export async function requireAdmin(req: Request, res: Response, next: NextFuncti
     [req.session.userId],
   );
   const role = rows[0]?.role;
-  if (role !== 'admin' && role !== 'member' && role !== 'readonly') {
+  if (role !== 'admin' && role !== 'full' && role !== 'edit' && role !== 'readonly') {
     res.status(401).json({ error: 'Not authenticated' });
     return;
   }

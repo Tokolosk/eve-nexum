@@ -291,6 +291,7 @@
   color: #e2e8f8;
 
   span { display: flex; align-items: center; gap: 4px; }
+  color:
 }
 
 .toolbar__spacer { flex: 1; }
@@ -307,6 +308,8 @@
   background: #0d1117;
   white-space: nowrap;
   position: relative;
+  color: red;
+  border-color: red;
 }
 
 .toolbar__proximity--alert {
@@ -502,6 +505,40 @@
 .toolbar__map-type--solo { background: rgba(74,222,128,0.12); color: #4ade80; border: 1px solid rgba(74,222,128,0.3); }
 .toolbar__map-type--corp { background: rgba(100,160,255,0.15); color: #7ab0f0; border: 1px solid rgba(100,160,255,0.3); }
 
+.toolbar__locked-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: 8px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #f5b96a;
+  background: rgba(245,185,106,0.10);
+  border: 1px solid rgba(245,185,106,0.35);
+
+  /* Override the generic [data-tooltip] placement — the chip sits near the
+     top-left of the viewport, so the default centered-below tooltip clips
+     off the left edge. Anchor it to the right of the chip instead and let
+     it wrap. */
+  &::after {
+    top: 50%;
+    left: calc(100% + 8px);
+    transform: translateY(-50%);
+    white-space: normal;
+    width: max-content;
+    max-width: 320px;
+    text-transform: none;
+    letter-spacing: 0;
+    line-height: 1.4;
+  }
+}
+
+.toolbar__locked-icon { font-size: 12px; }
+
 .map-dropdown {
   position: absolute;
   top: calc(100% + 4px);
@@ -671,7 +708,41 @@
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: #5a6a8a;
-  margin-bottom: 6px;
+}
+
+.map-sidebar__section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  background: transparent;
+  border: none;
+  padding: 4px 0;
+  margin: 0;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.map-sidebar__section-header:hover .map-sidebar__section-title { color: #c8d0e0; }
+
+.map-sidebar__caret {
+  color: #5a6a8a;
+  font-size: 12px;
+  transition: transform 0.15s ease;
+  transform: rotate(-90deg);
+}
+
+.map-sidebar__caret--open { transform: rotate(0deg); }
+
+.map-sidebar__section-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 6px;
+}
+
+.map-sidebar__section--collapsed {
+  gap: 0;
 }
 
 .map-sidebar__select {
@@ -2596,6 +2667,28 @@ div.system-node__easy-handle {
   font-size: 12px;
 }
 
+/* Portal-rendered tooltip for chain-effect chips — escapes the system panel's
+   overflow:hidden by living in document.body with position:fixed. */
+.sys-info__chain-fx__tip {
+  position: fixed;
+  transform: translateX(-50%);
+  z-index: 9999;
+  background: #111827;
+  border: 1px solid #2e3f60;
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  pointer-events: none;
+  max-width: 280px;
+  white-space: normal;
+}
+
+.sys-info__chain-fx__tip-good { color: #3ddc84; }
+.sys-info__chain-fx__tip-bad  { color: #e05a5a; }
+
 /* ── Command palette (Cmd+K search) ──────────────────────── */
 .command-palette {
   width: 560px;
@@ -4140,3 +4233,513 @@ div.system-node__easy-handle {
 .toast--error   { border-left-color: #f87171; background: #1a1014; }
 .toast--info    { border-left-color: #60a5fa; background: #0f1620; }
 .toast--success { border-left-color: #4ade80; background: #0f1a14; }
+
+/* ── Role badge ──────────────────────────────────────────── */
+.role-badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  vertical-align: middle;
+  border: 1px solid transparent;
+}
+
+.role-badge--admin    { background: #3a1c2a; color: #f0a8c0; border-color: #6a2e48; }
+.role-badge--full     { background: #1a2a4a; color: #7ab4f0; border-color: #2e5a9a; }
+.role-badge--edit     { background: #1a2e1a; color: #8ad08a; border-color: #2e5a2e; }
+.role-badge--readonly { background: #232830; color: #8a96aa; border-color: #3a4254; }
+
+/* ── Admin modal ─────────────────────────────────────────── */
+.admin-modal {
+  width: 880px;
+  max-width: 95vw;
+}
+
+.admin-modal__tabs {
+  display: flex;
+  gap: 4px;
+  padding: 0 16px 12px;
+  border-bottom: 1px solid #1e2740;
+}
+
+.admin-modal__tab {
+  background: transparent;
+  border: 1px solid #1e2740;
+  border-radius: 5px;
+  color: #5a6a8a;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 13px;
+  padding: 4px 14px;
+}
+
+.admin-modal__tab:hover { background: #1a2240; color: #c8d0e0; }
+
+.admin-modal__tab--active {
+  background: #1a3a6a;
+  border-color: #2e5a9a;
+  color: #7ab4f0;
+}
+
+.admin-modal__body {
+  max-height: 65vh;
+  overflow: auto;
+}
+
+.admin-modal__loading,
+.admin-modal__empty {
+  font-size: 13px;
+  color: #5a6a8a;
+  text-align: center;
+  padding: 24px 0;
+}
+
+.admin-modal__error {
+  font-size: 13px;
+  color: #e05a5a;
+  text-align: center;
+  padding: 24px 0;
+}
+
+.admin-modal__table {
+  width: 100%;
+  border-collapse: collapse;
+  border: 1px solid #1e2740;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.admin-modal__table thead {
+  background: #0a0e1a;
+}
+
+.admin-modal__table th {
+  font-size: 11px;
+  font-weight: 600;
+  color: #7a8aa8;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 8px 10px;
+  text-align: left;
+  border-bottom: 1px solid #1e2740;
+}
+
+.admin-modal__table tbody tr {
+  border-bottom: 1px solid #111827;
+}
+
+.admin-modal__table tbody tr:last-child { border-bottom: none; }
+.admin-modal__table tbody tr:nth-child(even) { background: #080c14; }
+
+.admin-modal__table td {
+  padding: 8px 10px;
+  font-size: 13px;
+  color: #c0ccde;
+  vertical-align: middle;
+}
+
+.admin-modal__tr--blocked td {
+  opacity: 0.6;
+}
+
+.admin-modal__name-cell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.admin-modal__avatar {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: #1a2240;
+}
+
+.admin-modal__self-tag {
+  font-size: 10px;
+  color: #7ab4f0;
+  background: #1a2a4a;
+  border: 1px solid #2e5a9a;
+  border-radius: 3px;
+  padding: 1px 5px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.admin-modal__role-select {
+  background: #0a0e1a;
+  border: 1px solid #1e2740;
+  border-radius: 4px;
+  color: #c8d0e0;
+  font-family: inherit;
+  font-size: 12px;
+  padding: 3px 6px;
+}
+
+.admin-modal__role-select:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.admin-modal__pill {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 3px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  border: 1px solid transparent;
+}
+
+.admin-modal__pill--ok      { background: #0f1a14; color: #4ade80; border-color: #1e3a28; }
+.admin-modal__pill--blocked { background: #1a1014; color: #f87171; border-color: #3a1e22; }
+
+.admin-modal__num {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  color: #8a96aa;
+}
+
+.admin-modal__mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  color: #8a96aa;
+}
+
+.admin-modal__ticker {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  font-weight: 600;
+  color: #c8d0e0;
+  letter-spacing: 0.04em;
+}
+
+.admin-modal__when {
+  font-size: 12px;
+  color: #7a8aa8;
+  white-space: nowrap;
+}
+
+.admin-modal__actions {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+  white-space: nowrap;
+}
+
+.admin-modal__danger { color: #f87171; }
+
+.admin-modal__action {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  color: #c8d0e0;
+  background: #111827;
+  border: 1px solid #1e2740;
+  border-radius: 3px;
+  padding: 1px 6px;
+}
+
+/* ── Admin page (full-page dashboard) ────────────────────── */
+.admin-page {
+  display: flex;
+  height: 100vh;
+  background: #050810;
+  color: #c8d0e0;
+}
+
+.admin-page__nav {
+  width: 220px;
+  flex-shrink: 0;
+  background: #0a0e1a;
+  border-right: 1px solid #1e2740;
+  padding: 18px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.admin-page__back {
+  background: transparent;
+  border: none;
+  color: #7a8aa8;
+  font-family: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+  padding: 0;
+}
+
+.admin-page__back:hover { color: #c8d0e0; }
+
+.admin-page__title {
+  font-size: 18px;
+  font-weight: 600;
+  color: #e2e8f8;
+  margin: 0;
+  letter-spacing: 0.02em;
+}
+
+.admin-page__tabs {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.admin-page__tab {
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  color: #7a8aa8;
+  font-family: inherit;
+  font-size: 13px;
+  padding: 7px 10px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.admin-page__tab:hover { background: #1a2240; color: #c8d0e0; }
+
+.admin-page__tab--active {
+  background: #1a3a6a;
+  border-color: #2e5a9a;
+  color: #7ab4f0;
+}
+
+.admin-page__content {
+  flex: 1;
+  overflow: auto;
+  padding: 24px 28px;
+}
+
+.admin-page__section-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: #e2e8f8;
+  margin: 0 0 16px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.admin-page__section-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+
+.admin-page__section-bar .admin-page__section-title { margin: 0; }
+
+.admin-page__section-bar--inline {
+  margin-bottom: 8px;
+}
+
+.admin-page__filter-bar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
+.admin-page__filter-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.admin-page__filter-label {
+  font-size: 11px;
+  color: #7a8aa8;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.admin-page__filter-spacer { flex: 1; }
+
+/* Centre-align the per-sig-type numeric columns on the users report so the
+   digits stack neatly under the header instead of right-jamming to the cell
+   edge. Existing right-aligned numeric cells in the maps tab keep their
+   alignment via .admin-modal__num. */
+.admin-modal__table .admin-modal__num--center {
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  color: #8a96aa;
+}
+
+.admin-page__sort-th--center { text-align: center; }
+
+.admin-page__loading,
+.admin-page__empty {
+  font-size: 13px;
+  color: #5a6a8a;
+  padding: 24px 0;
+}
+
+.admin-page__error {
+  font-size: 13px;
+  color: #e05a5a;
+  padding: 12px 14px;
+  background: #1a1014;
+  border: 1px solid #3a1e22;
+  border-radius: 6px;
+  margin-bottom: 12px;
+}
+
+.admin-page__subtabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 16px;
+}
+
+.admin-page__subtab {
+  background: transparent;
+  border: 1px solid #1e2740;
+  border-radius: 5px;
+  color: #7a8aa8;
+  font-family: inherit;
+  font-size: 13px;
+  padding: 4px 14px;
+  cursor: pointer;
+}
+
+.admin-page__subtab:hover { background: #1a2240; color: #c8d0e0; }
+
+.admin-page__subtab--active {
+  background: #1a3a6a;
+  border-color: #2e5a9a;
+  color: #7ab4f0;
+}
+
+.admin-page__sig-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.admin-page__sig-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: #0a0e1a;
+  border: 1px solid #1e2740;
+  border-radius: 3px;
+  padding: 1px 6px;
+  font-size: 11px;
+}
+
+.admin-page__sig-chip-label {
+  color: #7a8aa8;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.admin-page__sig-chip-count {
+  color: #c8d0e0;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.admin-page__sort-th {
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.admin-page__sort-th:hover { color: #c8d0e0; }
+
+.admin-page__sort-th--active { color: #7ab4f0; }
+
+.admin-page__sort-arrow {
+  display: inline-block;
+  width: 10px;
+  margin-left: 5px;
+  font-size: 9px;
+  color: #7ab4f0;
+}
+
+.admin-page__report-heading {
+  font-size: 12px;
+  font-weight: 600;
+  color: #7a8aa8;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin: 24px 0 10px;
+}
+
+.admin-page__report-heading:first-child { margin-top: 0; }
+
+.admin-page__stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.admin-page__stat-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  background: #08090f;
+  border: 1px solid #1e2740;
+  border-radius: 8px;
+  padding: 14px 12px;
+}
+
+.admin-page__stat-card--accent { border-color: #2e5a9a; background: #0a1426; }
+
+.admin-page__stat-card-value {
+  font-size: 22px;
+  font-weight: 700;
+  color: #e2e8f8;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.admin-page__stat-card--accent .admin-page__stat-card-value { color: #7ab4f0; }
+
+.admin-page__stat-card-label {
+  font-size: 11px;
+  color: #7a8aa8;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.admin-page__wh-table {
+  max-width: 360px;
+}
+
+.admin-page__chart-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.admin-page__chart-card {
+  background: #08090f;
+  border: 1px solid #1e2740;
+  border-radius: 8px;
+  padding: 14px 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.admin-page__chart-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #7a8aa8;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.admin-page__chart-canvas {
+  position: relative;
+  height: 240px;
+}

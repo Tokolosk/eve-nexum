@@ -11,8 +11,10 @@ import { ProximityOptInModal } from './components/ui/ProximityOptInModal';
 import { CommandPaletteModal } from './components/ui/CommandPaletteModal';
 import { LandingPage } from './components/ui/LandingPage';
 import { Toaster } from './components/ui/Toaster';
+import { AdminPage } from './components/ui/AdminPage';
 import { useMapStore } from './store/mapStore';
 import { useLocationTracking } from './hooks/useLocationTracking';
+import { useHashRoute } from './hooks/useHashRoute';
 import './App.css';
 
 function MapApp() {
@@ -57,6 +59,7 @@ function MapApp() {
 
 function AppShell() {
   const { user, loading } = useAuth();
+  const [path] = useHashRoute();
 
   if (loading) {
     return (
@@ -67,6 +70,12 @@ function AppShell() {
   }
 
   if (!user) return <LandingPage />;
+
+  // Hash routes — only admins can reach /admin/*; everyone else falls through
+  // to the map view even if they typed the URL.
+  if (path.startsWith('/admin') && user.role === 'admin') {
+    return <AdminPage />;
+  }
 
   return <MapApp />;
 }

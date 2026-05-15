@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { useMapStore } from '../store/mapStore';
 import { useCharacterLocation } from './useCharacterLocation';
+import { useCanEdit } from './useCanEdit';
 import type { SystemClass, WormholeEffect } from '../types';
 
 /**
@@ -11,6 +12,7 @@ import type { SystemClass, WormholeEffect } from '../types';
  */
 export function useLocationTracking(enabled: boolean) {
   const location = useCharacterLocation();
+  const canEdit  = useCanEdit();
   const lastEveSystemId = useRef<number | null>(null);
   const lastMapSystemId = useRef<string | null>(null);
   const lastActiveMapId = useRef<string | null>(null);
@@ -55,6 +57,15 @@ export function useLocationTracking(enabled: boolean) {
     if (existing) {
       mapSystemId = existing.id;
     } else {
+      // A locked map never grows from passive location tracking — that
+      // includes admins, who can still place systems manually via the
+      // canvas but shouldn't sprout them just by hopping through EVE.
+      // Readonly / no-topology-permission users are also blocked here.
+      if (map.locked || !canEdit) {
+        lastMapSystemId.current = null;
+        setCurrentSystem(null);
+        return;
+      }
       let position: { x: number; y: number };
       if (prevMapSystemId) {
         const prevSys = map.systems.find((s) => s.id === prevMapSystemId)!;
@@ -83,7 +94,7 @@ export function useLocationTracking(enabled: boolean) {
       );
     }
 
-    if (prevMapSystemId && prevMapSystemId !== mapSystemId) {
+    if (canEdit && !map.locked && prevMapSystemId && prevMapSystemId !== mapSystemId) {
       const freshConnections = useMapStore.getState().map.connections;
       const alreadyConnected = freshConnections.some(
         (c) =>
@@ -96,5 +107,5 @@ export function useLocationTracking(enabled: boolean) {
     lastMapSystemId.current = mapSystemId;
     setCurrentSystem(mapSystemId);
     selectSystem(mapSystemId);
-  }, [enabled, location]);
+  }, [enabled, location, canEdit]);
 }

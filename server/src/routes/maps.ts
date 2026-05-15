@@ -20,28 +20,52 @@ async function getMapAccess(mapId: string, req: Request): Promise<MapMeta | null
   if (!rows.length) return null;
   const m = rows[0];
   const isOwner   = m.userId === userId;
-  const isCorpMap = config.corpMode && m.corpId === config.corpId;
+  // A corp map is visible if the user is in the same corp as the map's
+  // creator (or CORP_MAP_SHARED is true, in which case any member of any
+  // listed corp can see it).
+  const isCorpMap = config.corpMode
+    && m.corpId !== null
+    && config.corpIds.includes(m.corpId)
+    && (config.corpMapShared || m.corpId === (req.session.userCorpId ?? null));
   return (isOwner || isCorpMap) ? m : null;
 }
 
-// Checks read access + write role + lock in one call. Returns null and sends
-// the appropriate error response if any check fails. Centralises the
-// `req.session.role ?? 'readonly'` fallback that used to live at every call
-// site.
-async function requireMapWrite(res: Response, mapId: string, req: Request): Promise<MapMeta | null> {
+// Two tiers of write permission:
+//
+//   - requireMapContentWrite enforces *only* the role check. Used for routes
+//     that mutate per-system content (signatures, structures, notes). An
+//     admin-applied map lock freezes topology but leaves these open so the
+//     map can still be used operationally while the layout is frozen.
+//
+//   - requireMapWrite is the strict version — role check plus lock check.
+//     Used for everything that changes the map's *shape*: adding/removing
+//     systems, moving systems, connections, map rename.
+//
+// Both helpers send the appropriate 403/404 and return null on failure.
+async function requireMapContentWrite(res: Response, mapId: string, req: Request): Promise<MapMeta | null> {
   const access = await getMapAccess(mapId, req);
   if (!access) { res.status(404).json({ error: 'Map not found' }); return null; }
 
   const role = req.session.role ?? 'readonly';
-  const isCorpMap = config.corpMode && access.corpId === config.corpId;
-  if (isCorpMap && role !== 'member' && role !== 'admin') {
+  const isCorpMap = config.corpMode
+    && access.corpId !== null
+    && config.corpIds.includes(access.corpId);
+
+  // Corp maps: any role except readonly can edit (edit / full / admin).
+  // Personal maps: owner is allowed regardless of role.
+  if (isCorpMap && role === 'readonly') {
     res.status(403).json({ error: 'Write access required' }); return null;
   }
+  return access;
+}
 
-  if (access.locked && role !== 'admin') {
+async function requireMapWrite(res: Response, mapId: string, req: Request): Promise<MapMeta | null> {
+  const access = await requireMapContentWrite(res, mapId, req);
+  if (!access) return null;
+
+  if (access.locked && req.session.role !== 'admin') {
     res.status(403).json({ error: 'Map is locked' }); return null;
   }
-
   return access;
 }
 
@@ -58,7 +82,6 @@ async function verifySystemInMap(res: Response, systemId: string, mapId: string)
 
 // ── Maps ──────────────────────────────────────────────────────────────────────
 
-const MAX_MAPS = parseInt(process.env.MAX_USER_MAPS ?? '10', 10);
 const MAX_MAP_NAME_LEN  = 200;
 const MAX_IMPORT_SYSTEMS     = 500;
 const MAX_IMPORT_CONNECTIONS = 2000;
@@ -68,14 +91,19 @@ mapsRouter.get('/', async (req, res) => {
   let query: string;
   let params: unknown[];
 
-  if (config.corpMode && config.corpId !== null) {
-    // Personal maps owned by this user + all corp maps
+  if (config.corpMode && config.corpIds.length > 0) {
+    // Personal maps owned by this user + visible corp maps. When
+    // CORP_MAP_SHARED is true, every member of any listed corp sees every
+    // corp map. When false, only the user's own corp's maps are visible.
+    const visibleCorpIds = config.corpMapShared
+      ? config.corpIds
+      : (req.session.userCorpId ? [req.session.userCorpId] : []);
     query = `SELECT id, name, corp_id IS NOT NULL AS "isCorpMap", locked,
                     last_active_at AS "lastActiveAt", created_at AS "createdAt", updated_at AS "updatedAt"
              FROM maps
-             WHERE (user_id = $1 AND corp_id IS NULL) OR corp_id = $2
+             WHERE (user_id = $1 AND corp_id IS NULL) OR corp_id = ANY($2::int[])
              ORDER BY corp_id NULLS LAST, name`;
-    params = [req.session.userId, config.corpId];
+    params = [req.session.userId, visibleCorpIds];
   } else {
     query = `SELECT id, name, FALSE AS "isCorpMap", locked,
                     last_active_at AS "lastActiveAt", created_at AS "createdAt", updated_at AS "updatedAt"
@@ -84,25 +112,35 @@ mapsRouter.get('/', async (req, res) => {
   }
 
   const { rows } = await db.query(query, params);
-  const corpMapCount = config.corpMode && config.corpId !== null
-    ? (await db.query(`SELECT 1 FROM maps WHERE corp_id = $1`, [config.corpId])).rowCount ?? 0
+  // Count corp maps for the user's own corp (the per-corp limit applies to
+  // each corp independently — Corp A's slots are separate from Corp B's).
+  const corpMapCount = config.corpMode && req.session.userCorpId
+    ? (await db.query(`SELECT 1 FROM maps WHERE corp_id = $1`, [req.session.userCorpId])).rowCount ?? 0
     : 0;
 
-  res.json({ maps: rows, maxMaps: MAX_MAPS, maxCorpMaps: config.maxCorpMaps, corpMapCount });
+  res.json({ maps: rows, maxMaps: config.maxUserMaps, maxCorpMaps: config.maxCorpMaps, corpMapCount });
 });
 
 // POST /api/maps
 mapsRouter.post('/', async (req, res) => {
   const isCorpMap = config.corpMode && req.body.isCorpMap === true;
+  const role      = req.session.role ?? 'readonly';
 
+  // Personal map creation is open to every role — they're scoped to the
+  // individual user, so role gating only matters for shared (corp) maps.
+  // Corp map creation still requires 'full' or 'admin'.
   if (isCorpMap) {
-    if (req.session.role !== 'admin') {
-      res.status(403).json({ error: 'Only admins can create corp maps' });
+    if (role !== 'full' && role !== 'admin') {
+      res.status(403).json({ error: 'Corp map creation requires full-edit or admin role' });
+      return;
+    }
+    if (!req.session.userCorpId) {
+      res.status(403).json({ error: 'Cannot create corp map: user has no corp affiliation' });
       return;
     }
     const { rowCount } = await db.query(
       `SELECT 1 FROM maps WHERE corp_id = $1`,
-      [config.corpId],
+      [req.session.userCorpId],
     );
     if ((rowCount ?? 0) >= config.maxCorpMaps) {
       res.status(403).json({ error: 'Maximum corp maps reached' });
@@ -113,14 +151,14 @@ mapsRouter.post('/', async (req, res) => {
       `SELECT 1 FROM maps WHERE user_id = $1 AND corp_id IS NULL`,
       [req.session.userId],
     );
-    if ((rowCount ?? 0) >= MAX_MAPS) {
+    if ((rowCount ?? 0) >= config.maxUserMaps) {
       res.status(403).json({ error: 'Maximum maps reached' });
       return;
     }
   }
 
   const name   = String(req.body.name ?? 'New Map').slice(0, MAX_MAP_NAME_LEN);
-  const corpId = isCorpMap ? config.corpId : null;
+  const corpId = isCorpMap ? (req.session.userCorpId ?? null) : null;
 
   const { rows } = await db.query<{ id: string }>(
     `INSERT INTO maps (user_id, name, corp_id) VALUES ($1, $2, $3) RETURNING id`,
@@ -131,13 +169,40 @@ mapsRouter.post('/', async (req, res) => {
 
 // POST /api/maps/import
 mapsRouter.post('/import', async (req, res) => {
-  const { rowCount } = await db.query(
-    `SELECT 1 FROM maps WHERE user_id = $1 AND corp_id IS NULL`,
-    [req.session.userId],
-  );
-  if ((rowCount ?? 0) >= MAX_MAPS) {
-    res.status(403).json({ error: 'Maximum maps reached' });
-    return;
+  const isCorpImport = config.corpMode && (req.body as Record<string, unknown>).isCorpMap === true;
+  const role         = req.session.role ?? 'readonly';
+
+  // Quota check against the matching tier — importing a corp map counts
+  // against MAX_CORP_MAPS (for the user's corp), importing a personal map
+  // counts against MAX_USER_MAPS. Previously this always checked the
+  // personal quota, so corp imports skipped MAX_CORP_MAPS entirely.
+  // Personal imports are open to every role; corp imports need full/admin.
+  if (isCorpImport) {
+    if (role !== 'full' && role !== 'admin') {
+      res.status(403).json({ error: 'Corp map import requires full-edit or admin role' });
+      return;
+    }
+    if (!req.session.userCorpId) {
+      res.status(403).json({ error: 'Cannot import corp map: user has no corp affiliation' });
+      return;
+    }
+    const { rowCount } = await db.query(
+      `SELECT 1 FROM maps WHERE corp_id = $1`,
+      [req.session.userCorpId],
+    );
+    if ((rowCount ?? 0) >= config.maxCorpMaps) {
+      res.status(403).json({ error: 'Maximum corp maps reached' });
+      return;
+    }
+  } else {
+    const { rowCount } = await db.query(
+      `SELECT 1 FROM maps WHERE user_id = $1 AND corp_id IS NULL`,
+      [req.session.userId],
+    );
+    if ((rowCount ?? 0) >= config.maxUserMaps) {
+      res.status(403).json({ error: 'Maximum maps reached' });
+      return;
+    }
   }
 
   const { name, systems = [], connections = [] } = req.body as {
@@ -163,11 +228,10 @@ mapsRouter.post('/import', async (req, res) => {
   try {
     await client.query('BEGIN');
 
-    const isCorpMap = config.corpMode && (req.body as Record<string, unknown>).isCorpMap === true;
     const importName = String(name ?? 'Imported Map').slice(0, MAX_MAP_NAME_LEN);
     const mapRes = await client.query<{ id: string }>(
       `INSERT INTO maps (user_id, name, corp_id) VALUES ($1, $2, $3) RETURNING id`,
-      [req.session.userId, importName, isCorpMap ? config.corpId : null],
+      [req.session.userId, importName, isCorpImport ? (req.session.userCorpId ?? null) : null],
     );
     const mapId = mapRes.rows[0].id;
 
@@ -354,6 +418,10 @@ mapsRouter.post('/:mapId/systems', async (req, res) => {
      position?.x ?? 0, position?.y ?? 0,
      status ?? 'unknown', isHome ?? false, locked ?? false, notes ?? ''],
   );
+  db.query(
+    `INSERT INTO user_events (user_id, event_type, map_id) VALUES ($1, 'system_add', $2)`,
+    [req.session.userId, mapId],
+  ).catch(console.error);
   await touchMap(mapId);
   res.status(201).json({ ok: true });
 });
@@ -391,8 +459,13 @@ mapsRouter.patch('/:mapId/systems/:systemId', async (req, res) => {
 
   if (!sets.length) { res.status(400).json({ error: 'Nothing to update' }); return; }
 
-  // verify map ownership
-  const access = await requireMapWrite(res, mapId, req);
+  // Notes-only updates are content, not topology — they pass through even
+  // when an admin has locked the map. Anything else (move, rename, status…)
+  // requires the strict lock-aware check.
+  const isNotesOnly = Object.keys(updates).length === 1 && 'notes' in updates;
+  const access = isNotesOnly
+    ? await requireMapContentWrite(res, mapId, req)
+    : await requireMapWrite(res, mapId, req);
   if (!access) return;
 
   // Append last_activity_at = NOW() to mark this system as active.
@@ -408,7 +481,13 @@ mapsRouter.delete('/:mapId/systems/:systemId', async (req, res) => {
   const { mapId, systemId } = req.params;
   const access = await requireMapWrite(res, mapId, req);
   if (!access) return;
-  await db.query(`DELETE FROM map_systems WHERE id = $1 AND map_id = $2`, [systemId, mapId]);
+  const { rowCount } = await db.query(`DELETE FROM map_systems WHERE id = $1 AND map_id = $2`, [systemId, mapId]);
+  if ((rowCount ?? 0) > 0) {
+    db.query(
+      `INSERT INTO user_events (user_id, event_type, map_id) VALUES ($1, 'system_delete', $2)`,
+      [req.session.userId, mapId],
+    ).catch(console.error);
+  }
   await touchMap(mapId);
   res.json({ ok: true });
 });
@@ -496,15 +575,15 @@ mapsRouter.get('/:mapId/systems/:systemId/signatures', async (req, res) => {
 
 mapsRouter.post('/:mapId/systems/:systemId/signatures', async (req, res) => {
   const { mapId, systemId } = req.params;
-  const access = await requireMapWrite(res, mapId, req);
+  const access = await requireMapContentWrite(res, mapId, req);
   if (!access) return;
   if (!(await verifySystemInMap(res, systemId, mapId))) return;
   const { sigId = '', sigType = 'unknown', name = '', notes = '', whType = '', whLeadsTo = '' } = req.body as Record<string, string>;
   const { rows } = await db.query(
-    `INSERT INTO map_signatures (system_id, sig_id, sig_type, name, notes, wh_type, wh_leads_to)
-     VALUES ($1, $2, $3, $4, $5, $6, $7)
+    `INSERT INTO map_signatures (system_id, sig_id, sig_type, name, notes, wh_type, wh_leads_to, created_by_user_id)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
      RETURNING id, sig_id AS "sigId", sig_type AS "sigType", name, notes, wh_type AS "whType", wh_leads_to AS "whLeadsTo", created_at AS "createdAt"`,
-    [systemId, sigId, sigType, name, notes, whType, whLeadsTo],
+    [systemId, sigId, sigType, name, notes, whType, whLeadsTo, req.session.userId],
   );
   db.query(
     `INSERT INTO user_events (user_id, event_type, sig_type) VALUES ($1, 'signature', $2)`,
@@ -516,7 +595,7 @@ mapsRouter.post('/:mapId/systems/:systemId/signatures', async (req, res) => {
 
 mapsRouter.patch('/:mapId/systems/:systemId/signatures/:sigId', async (req, res) => {
   const { mapId, systemId, sigId } = req.params;
-  const access = await requireMapWrite(res, mapId, req);
+  const access = await requireMapContentWrite(res, mapId, req);
   if (!access) return;
   if (!(await verifySystemInMap(res, systemId, mapId))) return;
 
@@ -539,7 +618,7 @@ mapsRouter.patch('/:mapId/systems/:systemId/signatures/:sigId', async (req, res)
 
 mapsRouter.delete('/:mapId/systems/:systemId/signatures/:sigId', async (req, res) => {
   const { mapId, systemId, sigId } = req.params;
-  const access = await requireMapWrite(res, mapId, req);
+  const access = await requireMapContentWrite(res, mapId, req);
   if (!access) return;
   if (!(await verifySystemInMap(res, systemId, mapId))) return;
   await db.query(`DELETE FROM map_signatures WHERE id = $1 AND system_id = $2`, [sigId, systemId]);
@@ -564,22 +643,22 @@ mapsRouter.get('/:mapId/systems/:systemId/structures', async (req, res) => {
 
 mapsRouter.post('/:mapId/systems/:systemId/structures', async (req, res) => {
   const { mapId, systemId } = req.params;
-  const access = await requireMapWrite(res, mapId, req);
+  const access = await requireMapContentWrite(res, mapId, req);
   if (!access) return;
   if (!(await verifySystemInMap(res, systemId, mapId))) return;
   const { name = '', structureType = 'unknown', ownerCorp = '', notes = '', eveId = null } = req.body as Record<string, string>;
   const { rows } = await db.query(
-    `INSERT INTO map_structures (system_id, name, structure_type, owner_corp, eve_id, notes)
-     VALUES ($1, $2, $3, $4, $5, $6)
+    `INSERT INTO map_structures (system_id, name, structure_type, owner_corp, eve_id, notes, created_by_user_id)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)
      RETURNING id, name, structure_type AS "structureType", owner_corp AS "ownerCorp", eve_id AS "eveId", notes, created_at AS "createdAt"`,
-    [systemId, name, structureType, ownerCorp, eveId || null, notes],
+    [systemId, name, structureType, ownerCorp, eveId || null, notes, req.session.userId],
   );
   res.status(201).json(rows[0]);
 });
 
 mapsRouter.patch('/:mapId/systems/:systemId/structures/:structureId', async (req, res) => {
   const { mapId, systemId, structureId } = req.params;
-  const access = await requireMapWrite(res, mapId, req);
+  const access = await requireMapContentWrite(res, mapId, req);
   if (!access) return;
   if (!(await verifySystemInMap(res, systemId, mapId))) return;
 
@@ -601,7 +680,7 @@ mapsRouter.patch('/:mapId/systems/:systemId/structures/:structureId', async (req
 
 mapsRouter.delete('/:mapId/systems/:systemId/structures/:structureId', async (req, res) => {
   const { mapId, systemId, structureId } = req.params;
-  const access = await requireMapWrite(res, mapId, req);
+  const access = await requireMapContentWrite(res, mapId, req);
   if (!access) return;
   if (!(await verifySystemInMap(res, systemId, mapId))) return;
   await db.query(`DELETE FROM map_structures WHERE id = $1 AND system_id = $2`, [structureId, systemId]);

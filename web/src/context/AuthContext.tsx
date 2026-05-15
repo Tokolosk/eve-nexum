@@ -5,7 +5,7 @@ export interface AuthUser {
   id: number;
   characterId: number;
   characterName: string;
-  role: 'admin' | 'member' | 'readonly';
+  role: 'admin' | 'full' | 'edit' | 'readonly';
   corpMode: boolean;
   compactMode: boolean;
   snapToGrid: boolean;

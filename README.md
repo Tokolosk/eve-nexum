@@ -4,6 +4,70 @@ A wormhole mapping tool for EVE Online. Track systems, signatures, structures, k
 
 ---
 
+## Overview
+
+### Key features
+
+#### Mapping
+
+- **Interactive map** — drag systems, draw connections, set wormhole class/type/status per connection. Snap-to-grid, optional minimap.
+- **Wormhole intel** — per-connection mass tracker (≤10% / ≤50% / critical), end-of-life flag with countdown, K162-aware static identification, frig-hole and gas-site auto-tagging from sig type.
+- **Wormhole type picker** — searchable popover for assigning the exact wormhole type to a connection; statics quick-info on hover shows destination class, mass, lifetime.
+- **Multi-select bulk operations** — shift-click to select multiple systems/signatures, then bulk-assign type, delete, or rename.
+- **PNG export** — render the current map (with sig counts, connections, status) to a PNG for sharing.
+- **Map PNG / clipboard** — copy or download the current chain as an image for pings.
+
+#### Personal & corp maps
+
+- **Solo / Corp split** — every user has personal maps that are always private; in corp mode each corp also gets shared corp maps. Cross-corp visibility is opt-in via `CORP_MAP_SHARED` (see [Corp mode](#corp-mode)).
+- **Multi-map support** — each character (or corp) can maintain multiple independent maps up to configured limits (`MAX_USER_MAPS` / `MAX_CORP_MAPS`).
+- **Map locking** — admins can freeze a corp map's topology. Systems, connections, and the map name lock for non-admins, but signatures, structures, and per-system notes stay editable so ops can continue while the layout is pinned. The toolbar shows an amber 🔒 chip while the lock is active, and passive location tracking won't auto-add new systems on a locked map.
+- **Role-based access** — `admin` / `full` / `edit` / `readonly`. Roles only restrict corp-map actions; every user owns their personal maps regardless of role. See [Roles](#roles) for the full matrix.
+
+#### System intelligence
+
+- **System panel** — per-system cards for signatures, structures, NPC stations, notes, killboard, and activity charts; cards are reorderable via drag-and-drop and persist per-user.
+- **Signature management** — paste EVE scan results directly; tracks created/updated age per signature; auto-deletes sigs missing from a re-paste; bulk type assignment for multi-select.
+- **Structure import** — paste EVE overview data to import player-owned structures.
+- **Activity charts** — 24-hour rolling history of jumps, ship/pod kills, and NPC kills, polled from ESI hourly.
+- **Sovereignty & station data** — live alliance/corp/faction sov info and NPC station services with in-game waypoint/destination actions.
+- **Killboard pane** — recent zKillboard activity per system; recent kills also bubble up as highlights on the map.
+- **Chain effect summary** — at-a-glance view of all wormhole effects currently present in the chain.
+
+#### Live ops
+
+- **Scout connections** — Thera and Turnur public Eve-Scout connections surfaced into the sidebar so you can jump straight to known holes.
+- **A0 sun detection** — auto-flags systems with A0 (yellow) suns visible via ESI for capital-friendly skirmish planning.
+- **Proximity alerts** — incursions and pirate insurgencies appear as a toolbar chip showing the closest threat in jumps; configurable threshold with browser notification + beep on entry/exit.
+- **Route planner** — server-side BFS over stargates + your live chain, so a route through a wormhole hop is a single click.
+- **Location tracking** — opt-in live character location dot in the toolbar plus per-map "you are here" indicator.
+- **Online status** — toolbar dot shows whether each user is currently logged into EVE Online.
+
+#### Productivity & UX
+
+- **Command palette** — `Cmd/Ctrl + K` opens a fuzzy search across systems, sigs, and actions (jump to system, set waypoint, toggle panes).
+- **Home hotkey** — jump the viewport back to the home system from any panel.
+- **Recent-kill highlights** — systems with kills in the last hour get a coloured halo so you can see fresh activity at a glance.
+- **User stats modal** — per-character totals: jumps, signatures by type, broken down by day/week/month/year/forever.
+- **Server status widget** — live Tranquility server status, player count, and ESI health in the toolbar.
+- **Demo map** — the landing page mounts a non-editable demo map so visitors can see what the tool does before logging in.
+- **Collapsible sidebar** — Map Options, Connections, Proximity Alerts, Stale System Fade, and Shortcuts each expand or collapse independently. Per-section open/closed state persists per browser via `localStorage`.
+- **European date format** — DD-MM-YYYY everywhere a date is displayed (chart axes, relative-time fallbacks for events older than a month). ISO timestamps are still used in CSV exports for spreadsheet sortability.
+
+#### For corporations
+
+These features only matter once `CORP_ID` is set — see [Corp mode](#corp-mode) for the full configuration.
+
+- **Multi-corp deployments** — `CORP_ID` accepts a comma-separated list of corporation IDs. One Nexum instance can host several corps; each corp's maps stay scoped to its own members unless `CORP_MAP_SHARED=true`.
+- **Admin dashboard** — a dedicated `#/admin` page with four tabs: Users, Maps, Reports, Audit log. Admins reach it from the toolbar's Admin button.
+- **User management** — change roles, block / unblock, and force an ESI corp-membership re-check on demand. Self-block / self-demote and changes to `ADMIN_CHAR_ID` are guarded against. Anyone who has left every listed corp is auto-blocked on the next login or recheck.
+- **Map management** — admins see every corp map (solo maps are excluded by design) with owner avatar, corp ticker, system / connection counts, lock state, and last-active time. Force-lock, force-unlock, and force-delete are one-click each.
+- **Users report** — per-character last-login, systems added / deleted, structures added, signatures broken down by type, and last-corp-activity timestamps. Every column sortable, filterable by activity (logins / signatures / structures) and time window (24h / week / month / year / all), exportable as CSV.
+- **Systems report** — aggregate corp-map signatures with a sig-type donut, daily / monthly activity line chart (bucketing adapts to the window), and a sortable wormhole-type breakdown.
+- **Audit log** — every admin action (role change, block, force-lock, force-unlock, force-delete, ESI corp change, auto-block on departure) is recorded with actor, target, old → new value, and timestamp. Exportable as CSV.
+- **Corp ticker resolution** — corp IDs in the Users and Maps reports are resolved to in-game tickers via ESI (`/v5/corporations/{id}/`), with a 1-hour in-memory cache to keep the report loads cheap.
+- **Per-character attribution** — sigs, structures, and system add / delete actions are recorded with the user who made them, so reports can answer "who has been scanning what" with no manual logging.
+
 ## Installation
 
 ### Option 1 — Docker (recommended)
@@ -30,6 +94,12 @@ Edit `.env` and fill in the required values:
 | `EVE_CALLBACK_URL` | Yes | Must match the callback registered in your EVE app — e.g. `https://yourdomain.com/auth/callback` |
 | `FRONTEND_URL` | Yes | Public URL of the app — e.g. `https://yourdomain.com` |
 | `DOMAIN` | Traefik only | Bare hostname for the Traefik router rule — e.g. `nexum.yourdomain.com` |
+| `CORP_ID` | Optional | Restricts logins to specific EVE corporations. **Comma-separated list** of corporation IDs — anyone whose corp is not in the list is rejected at the OAuth callback. Leave empty/unset to allow any EVE character to log in. Example single corp: `98000001`. Example multi-corp: `98000001,98000002`. |
+| `ADMIN_CHAR_ID` | When `CORP_ID` is set | EVE character ID of the bootstrap admin. Forced to the `admin` role on first login and cannot be demoted or blocked by other admins. **Not a corp-membership exemption** — this character still has to be in one of the corps listed in `CORP_ID` to log in. See [What happens when a user leaves the corp](#what-happens-when-a-user-leaves-the-corp). |
+| `CORP_MAP_SHARED` | Optional | `1` / `true` to share every corp map across every listed corp. Default (`false`) scopes corp maps to the corp that created them — Corp A's chain stays invisible to Corp B even when they share a deployment. Only enable when all listed corps explicitly trust each other. |
+| `CORP_MAP_TIME` | Optional | Days an idle corp map can sit untouched before it's auto-archived. Default `30`. |
+| `MAX_USER_MAPS` | Optional | Max number of personal maps per user. Default `5`. |
+| `MAX_CORP_MAPS` | Optional | Max number of corp maps per corp. Default `5`. |
 
 **EVE developer app scopes**
 
@@ -150,6 +220,103 @@ Restart the server after regenerating — the file is read once at process start
 
 ---
 
+## Corp mode
+
+When `CORP_ID` is set, Nexum operates in **corp mode** — only members of the listed corporations can log in. All four user roles described below apply only in corp mode; open deployments (no `CORP_ID`) treat every authenticated character as a normal user with full access to their own maps.
+
+### Allowing multiple corporations
+
+`CORP_ID` accepts a comma-separated list of corporation IDs. Every character logging in is checked against this list via ESI; anyone whose corp is not included is bounced to the landing page with `?error=not_in_corp`.
+
+```dotenv
+# Single corp
+CORP_ID=98000001
+
+# Two (or more) corps sharing the same deployment
+CORP_ID=98000001,98000002,98000003
+```
+
+### How corp map visibility works
+
+By default (`CORP_MAP_SHARED=false`), **corp maps are scoped to the corp that created them**. If Corp A creates a corp map, only members of Corp A can see it — Corp B's members never know it exists, even though they share the deployment. This is the safer default for alliance-shared instances where each corp wants to keep its chain intel private.
+
+Set `CORP_MAP_SHARED=true` to make every corp map visible to every listed corp. Only do this when all listed corps explicitly trust each other.
+
+Personal maps are **always private to their owning user**, regardless of corp or `CORP_MAP_SHARED`. Leaving a corp does not transfer ownership.
+
+### Roles
+
+Roles are stored per-user in the database. New users default to `readonly`; an admin must promote them.
+
+Rules differ for personal (solo) maps vs corp maps. Personal maps are scoped to a single user; corp maps are shared infrastructure and gated more tightly.
+
+**Personal maps** — every user can create their own personal maps (up to `MAX_USER_MAPS`) and edit everything inside them, regardless of role. A `readonly` user is "readonly" only with respect to other people's maps; their own personal map is theirs.
+
+**Corp maps:**
+
+| Role       | View | Edit signatures / structures / notes | Edit systems / connections / rename | Create / delete corp map | Lock map | Manage users |
+|---|---|---|---|---|---|---|
+| `readonly` | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ |
+| `edit`     | ✓ | ✓ | ✓ | ✗ | ✗ | ✗ |
+| `full`     | ✓ | ✓ | ✓ | ✓ | ✗ | ✗ |
+| `admin`    | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+
+The character whose ID matches `ADMIN_CHAR_ID` is always given `admin` on login and **cannot be demoted or blocked** by other admins. Leave it set even after you've promoted other admins — it's the recovery path against an admin demoting themselves or being blocked by mistake.
+
+### Map locking
+
+Admins can lock any corp map from the **Admin → Maps** page. A locked map keeps accepting **signatures, structures, and per-system notes** from any user with normal edit permission, but rejects topology mutations — system add/move/remove, connection add/edit/delete, and map rename are all frozen for non-admins. The toolbar shows an amber 🔒 Locked chip next to the map name while the lock is active.
+
+A locked map also stops auto-growing from passive location tracking: even an admin walking through EVE won't sprout new systems on a locked chain (admins can still add manually via the canvas right-click). This is intentional — locking is what you do when you want the layout pinned, including against your own movements.
+
+`force_lock_map` and `force_unlock_map` actions are written to the audit log.
+
+### What happens when a user leaves the corp
+
+The corp membership check runs **at login**. Existing sessions keep working until the user logs out and back in — at which point ESI is queried again and a corp departure causes the login to fail. Admins can also manually block a user (see below), which prevents login entirely regardless of corp membership.
+
+#### …including `ADMIN_CHAR_ID`
+
+The corp gate is fail-closed and **does not exempt `ADMIN_CHAR_ID`**. If your bootstrap admin character leaves every corp listed in `CORP_ID`, their next login is rejected just like anyone else's, and because they can no longer log in there's no in-app path to recover. This is intentional — a former member walking out of corp with admin keys is exactly who you *don't* want signing back in. To recover you have three options:
+
+1. Move the character back into one of the listed corps in-game and log in again.
+2. Edit `.env` to add their new corp to `CORP_ID` and restart the server.
+3. Edit the `users` table directly (last resort).
+
+If you want a permanent break-glass, run a second `ADMIN_CHAR_ID`-eligible character in a corp you control and don't plan to leave.
+
+### Admin operations
+
+Admins reach the dashboard from the **Admin** button in the toolbar, which lands them at `#/admin/users`. The page has four tabs:
+
+- **Users** — role select, block / unblock, recheck corp via ESI.
+- **Maps** — every corp map across every listed corp. Force-lock, force-unlock, force-delete. Solo maps are deliberately excluded — they belong to individual users.
+- **Reports** — placeholder for future ops reports.
+- **Audit log** — last 200 admin actions, newest first.
+
+Each tab is also reachable at its own hash route (`#/admin/maps`, `#/admin/audit`, …). All mutating actions write to the `admin_audit` table with the actor, target, old value, and new value.
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /api/admin/users` | Full user list with role, corp ID (and resolved corp ticker from ESI), blocked status, last login, and activity counts. |
+| `PATCH /api/admin/users/:id/role` | Change a user's role to one of `admin`, `full`, `edit`, `readonly`. Cannot demote yourself or the `ADMIN_CHAR_ID` character. |
+| `POST /api/admin/users/:id/block` | Block a user from logging in. They keep their existing session until next login, then get bounced with `?error=blocked`. Cannot block yourself or `ADMIN_CHAR_ID`. |
+| `POST /api/admin/users/:id/unblock` | Reverse a block. |
+| `POST /api/admin/users/:id/recheck-corp` | Hits ESI for the target user's current corp without waiting for their next login. If they've left every corp in `CORP_ID`, they're auto-blocked. Useful when a known departure needs to take effect immediately. |
+| `GET /api/admin/maps` | Every corp map with owner, corp ticker, system / connection counts, lock state, last active. |
+| `POST /api/admin/maps/:id/lock` | Freeze a corp map's topology. Signatures/structures/notes remain editable; see [Map locking](#map-locking). |
+| `POST /api/admin/maps/:id/unlock` | Reverse a lock. |
+| `DELETE /api/admin/maps/:id` | Force-delete a corp map regardless of who owns it. |
+| `GET /api/admin/audit` | The 200 most recent admin actions (role change, block, unblock, corp change, auto-block-on-departure, force-lock, force-unlock, force-delete). |
+
+#### What admins **cannot** do
+
+- Demote themselves (use another admin).
+- Demote or block the character whose ID is in `ADMIN_CHAR_ID` — that character is the safety hatch.
+- Force-terminate an existing live session. A blocked user stays signed in until they log out or their session cookie expires; the next login then fails. If you need someone offline *right now*, blocking + revoking their EVE OAuth in CCP's developer panel is the immediate path.
+
+---
+
 ## Technology Overview
 
 ### Frontend — `web/`
@@ -191,13 +358,4 @@ The frontend is a fully static SPA after build. In production it is served by ng
 | Container orchestration | Docker Compose |
 | Database | PostgreSQL 16 (Alpine) |
 
-### Key features
 
-- **Interactive map** — drag systems, draw connections, set wormhole class/type/status per connection
-- **System panel** — per-system cards for signatures, structures, NPC stations, notes, killboard, and activity charts; cards are reorderable via drag-and-drop
-- **Signature management** — paste EVE scan results directly; tracks created/updated age per signature
-- **Structure import** — paste EVE overview data to import player-owned structures
-- **Activity charts** — 24-hour rolling history of jumps, ship/pod kills, and NPC kills, polled from ESI hourly
-- **Sovereignty & station data** — live alliance/corp/faction sov info and NPC station services with in-game waypoint/destination actions
-- **Multi-map support** — each character can maintain multiple independent maps
-- **Server status widget** — live Tranquility server status, player count, and ESI health in the toolbar

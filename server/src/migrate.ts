@@ -40,6 +40,12 @@ export async function migrate() {
     ALTER TABLE users ADD COLUMN IF NOT EXISTS panel_order   TEXT[]  NOT NULL DEFAULT '{notes,signatures,structures,npcStations}';
     ALTER TABLE users ADD COLUMN IF NOT EXISTS role          TEXT    NOT NULL DEFAULT 'readonly';
     UPDATE users SET role = 'readonly' WHERE role = 'standard';
+    -- Multi-corp + new role model: 'member' (old trusted role) → 'full' (can
+    -- create / delete maps). New roles 'edit' (per-system edits only) and
+    -- 'readonly' remain. 'admin' is unchanged.
+    UPDATE users SET role = 'full' WHERE role = 'member';
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS corp_id INTEGER;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS blocked BOOLEAN NOT NULL DEFAULT FALSE;
 
     CREATE TABLE IF NOT EXISTS maps (
       id             UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -116,6 +122,20 @@ export async function migrate() {
       created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
+
+    -- Attribute sigs and structures to the user who created them, so the
+    -- admin Users report can answer "last time X added a sig/struct on a
+    -- corp map". Nullable: rows created before this migration stay NULL,
+    -- and we deliberately ON DELETE SET NULL so dropping a user doesn't
+    -- nuke the rows they touched.
+    ALTER TABLE map_signatures ADD COLUMN IF NOT EXISTS created_by_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL;
+    ALTER TABLE map_structures ADD COLUMN IF NOT EXISTS created_by_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL;
+
+    -- Track which map a user_event belongs to, so the admin Users report
+    -- can scope counts to corp maps. Nullable for compatibility with rows
+    -- created before this migration; no FK because we want events to
+    -- survive even after the map is force-deleted.
+    ALTER TABLE user_events ADD COLUMN IF NOT EXISTS map_id UUID;
 
     CREATE TABLE IF NOT EXISTS user_events (
       id          BIGSERIAL   PRIMARY KEY,

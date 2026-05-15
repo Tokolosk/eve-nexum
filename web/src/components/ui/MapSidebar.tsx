@@ -1,6 +1,7 @@
-import { useRef } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useNotificationPermission, notifyPermissionChanged } from '../../hooks/useNotificationPermission';
 import { useMapStore } from '../../store/mapStore';
+import { useAuth } from '../../context/AuthContext';
 import { api } from '../../api/client';
 import { toast } from './Toaster';
 import { pickHandles } from '../map/edgeUtils';
@@ -9,11 +10,59 @@ import { useStaleThreshold } from '../../hooks/useStaleThreshold';
 import { toPng } from 'html-to-image';
 import type { WormholeMap } from '../../types';
 
+// Collapsible group inside the map sidebar. Open/closed state is persisted to
+// localStorage per `storageKey` so each user keeps their preferred layout
+// across reloads.
+function CollapsibleSection({
+  title,
+  storageKey,
+  defaultOpen = true,
+  children,
+}: {
+  title: string;
+  storageKey: string;
+  defaultOpen?: boolean;
+  children: ReactNode;
+}) {
+  const [open, setOpen] = useState<boolean>(() => {
+    try {
+      const v = localStorage.getItem(storageKey);
+      return v === null ? defaultOpen : v === '1';
+    } catch { return defaultOpen; }
+  });
+
+  useEffect(() => {
+    try { localStorage.setItem(storageKey, open ? '1' : '0'); } catch { /* quota / private mode */ }
+  }, [open, storageKey]);
+
+  return (
+    <div className={`map-sidebar__section${open ? '' : ' map-sidebar__section--collapsed'}`}>
+      <button
+        type="button"
+        className="map-sidebar__section-header"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+      >
+        <span className="map-sidebar__section-title">{title}</span>
+        <span className={`map-sidebar__caret${open ? ' map-sidebar__caret--open' : ''}`}>▾</span>
+      </button>
+      {open && <div className="map-sidebar__section-body">{children}</div>}
+    </div>
+  );
+}
+
 export function MapSidebar() {
   const importInputRef = useRef<HTMLInputElement>(null);
   const [threshold, setThreshold] = useProximityThreshold();
   const [staleHours, setStaleHours] = useStaleThreshold();
   const notifPermission = useNotificationPermission();
+  const { user } = useAuth();
+  const isCorpMap = useMapStore((s) => !!s.map.isCorpMap);
+  // The map-management buttons (optimize / spread / JSON / PNG / stale fade)
+  // are hidden only when a readonly user is looking at a corp map. On their
+  // own personal map a readonly user still owns the layout and can use the
+  // full toolkit.
+  const hideTopologyTools = user?.role === 'readonly' && isCorpMap;
 
   function requestNotifPermission() {
     if (typeof Notification === 'undefined') return;
@@ -134,9 +183,7 @@ export function MapSidebar() {
       </button>
 
       <div className="map-sidebar__content">
-        <div className="map-sidebar__title">Map Options</div>
-
-        <div className="map-sidebar__section">
+        <CollapsibleSection title="Map Options" storageKey="nexum.mapSidebar.mapOptions">
           <div className="map-sidebar__row">
             <label className="map-sidebar__label">Snap to Grid</label>
             <button
@@ -180,13 +227,48 @@ export function MapSidebar() {
               {easyConnect ? 'On' : 'Off'}
             </button>
           </div>
-        </div>
+        </CollapsibleSection>
 
-        <div className="map-sidebar__divider" />
+        <CollapsibleSection title="Connections" storageKey="nexum.mapSidebar.connections">
+          <div className="map-sidebar__label">Connection Style</div>
+          <div className="map-sidebar__btn-group">
+            {([
+              { value: 'bezier',     label: 'Standard' },
+              { value: 'straight',   label: 'Straight' },
+              { value: 'smoothstep', label: 'Step' },
+            ] as const).map(({ value, label }) => (
+              <button
+                key={value}
+                className={`map-sidebar__btn-group-item${edgeStyle === value ? ' map-sidebar__btn-group-item--active' : ''}`}
+                onClick={() => setEdgeStyle(value)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
 
-        <div className="map-sidebar__section">
-          <div className="map-sidebar__section-title">Proximity Alerts</div>
+          {!hideTopologyTools && (
+            <>
+              <button
+                className="map-sidebar__action"
+                onClick={handleOptimizeConnections}
+                disabled={connectionCount === 0}
+              >
+                ⟳ Optimize Connections
+              </button>
+              <button
+                className="map-sidebar__action"
+                onClick={requestAutoLayout}
+                disabled={systemCount < 2}
+                data-tooltip="Adjust system nodes to stop overlapping"
+              >
+                ⊞ Spread Nodes
+              </button>
+            </>
+          )}
+        </CollapsibleSection>
 
+        <CollapsibleSection title="Proximity Alerts" storageKey="nexum.mapSidebar.proximity">
           <div className="map-sidebar__row">
             <label className="map-sidebar__label" htmlFor="proximity-threshold">Threshold</label>
             <select
@@ -231,103 +313,58 @@ export function MapSidebar() {
               your address bar → Notifications → Allow → reload the page.
             </div>
           )}
-        </div>
+        </CollapsibleSection>
 
-        <div className="map-sidebar__divider" />
-
-        <div className="map-sidebar__section">
-          <div className="map-sidebar__section-title">Stale System Fade</div>
-          <div className="map-sidebar__row">
-            <label className="map-sidebar__label" htmlFor="stale-threshold">Threshold</label>
-            <select
-              id="stale-threshold"
-              className="map-sidebar__select"
-              value={staleHours}
-              onChange={(e) => setStaleHours(parseInt(e.target.value, 10))}
-            >
-              <option value={1}>1 hour</option>
-              <option value={4}>4 hours</option>
-              <option value={12}>12 hours</option>
-              <option value={24}>24 hours</option>
-              <option value={48}>48 hours</option>
-              <option value={168}>1 week</option>
-            </select>
-          </div>
-        </div>
-
-                <div className="map-sidebar__divider" />
-
-        <div className="map-sidebar__section">
-          <button
-            className="map-sidebar__action"
-            onClick={handleOptimizeConnections}
-            disabled={connectionCount === 0}
-          >
-            ⟳ Optimize Connections
-          </button>
-          <button
-            className="map-sidebar__action"
-            onClick={requestAutoLayout}
-            disabled={systemCount < 2}
-            data-tooltip="Adjust system nodes to stop overlapping"
-          >
-            ⊞ Spread Nodes
-          </button>
-        </div>
-
-        <div className="map-sidebar__divider" />
-
-        <div className="map-sidebar__section">
-          <div className="map-sidebar__label" style={{ marginBottom: 6 }}>Connection Style</div>
-          <div className="map-sidebar__btn-group">
-            {([
-              { value: 'bezier',     label: 'Standard' },
-              { value: 'straight',   label: 'Straight' },
-              { value: 'smoothstep', label: 'Step' },
-            ] as const).map(({ value, label }) => (
-              <button
-                key={value}
-                className={`map-sidebar__btn-group-item${edgeStyle === value ? ' map-sidebar__btn-group-item--active' : ''}`}
-                onClick={() => setEdgeStyle(value)}
+        {!hideTopologyTools && (
+          <CollapsibleSection title="Stale System Fade" storageKey="nexum.mapSidebar.stale">
+            <div className="map-sidebar__row">
+              <label className="map-sidebar__label" htmlFor="stale-threshold">Threshold</label>
+              <select
+                id="stale-threshold"
+                className="map-sidebar__select"
+                value={staleHours}
+                onChange={(e) => setStaleHours(parseInt(e.target.value, 10))}
               >
-                {label}
+                <option value={1}>1 hour</option>
+                <option value={4}>4 hours</option>
+                <option value={12}>12 hours</option>
+                <option value={24}>24 hours</option>
+                <option value={48}>48 hours</option>
+                <option value={168}>1 week</option>
+              </select>
+            </div>
+          </CollapsibleSection>
+        )}
+
+        {!hideTopologyTools && (
+          <CollapsibleSection title="Export" storageKey="nexum.mapSidebar.export">
+          <div className="map-sidebar__section">
+            <button className="map-sidebar__action" onClick={handleExport}>
+              ↓ Export as JSON
+            </button>
+
+            <div className={`map-sidebar__import-wrap${atMapLimit ? ' map-sidebar__import-wrap--disabled' : ''}`}>
+              <button
+                className="map-sidebar__action"
+                onClick={() => importInputRef.current?.click()}
+                disabled={atMapLimit}
+              >
+                ↑ Import from JSON
               </button>
-            ))}
-          </div>
-        </div>
-
-
-
-        <div className="map-sidebar__divider" />
-
-        <div className="map-sidebar__section">
-          <button className="map-sidebar__action" onClick={handleExport}>
-            ↓ Export as JSON
-          </button>
-
-          <div className={`map-sidebar__import-wrap${atMapLimit ? ' map-sidebar__import-wrap--disabled' : ''}`}>
+            </div>
             <button
+              type="button"
               className="map-sidebar__action"
-              onClick={() => importInputRef.current?.click()}
-              disabled={atMapLimit}
+              onClick={handleExportPng}
+              disabled={systemCount === 0}
             >
-              ↑ Import from JSON
+              ⎙ Export as PNG
             </button>
           </div>
-          <button
-            type="button"
-            className="map-sidebar__action"
-            onClick={handleExportPng}
-            disabled={systemCount === 0}
-          >
-            ⎙ Export as PNG
-          </button>
-        </div>
+          </CollapsibleSection>
+        )}
 
-        <div className="map-sidebar__divider" />
-
-        <div className="map-sidebar__section">
-          <div className="map-sidebar__section-title">Shortcuts</div>
+        <CollapsibleSection title="Shortcuts" storageKey="nexum.mapSidebar.shortcuts" defaultOpen={false}>
           <div className="map-sidebar__shortcut">
             <kbd>⌘/Ctrl + K</kbd>
             <span>Search systems &amp; maps</span>
@@ -352,7 +389,7 @@ export function MapSidebar() {
             <kbd>Shift + drag</kbd>
             <span>Rubber-band select systems</span>
           </div>
-        </div>
+        </CollapsibleSection>
       </div>
 
       <input

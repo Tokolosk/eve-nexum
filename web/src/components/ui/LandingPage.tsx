@@ -1,72 +1,240 @@
 import { useEffect, useRef, useState } from 'react';
 import { apiUrl } from '../../api/client';
 import { DemoMap } from './DemoMap';
-import menuImg from '../../assets/Menu.png';
-import quickSystemImg from '../../assets/quick-system.png';
-import showSigsImg from '../../assets/show-sigs.png';
 import portraitImg from '../../assets/portrait.jpeg';
 interface LastCharacter { characterId: number; characterName: string; }
 
-const FEATURES = [
+// Categorised feature sections that mirror the README's Key features tree.
+// Cards still render through the same `landing__feature` template; each
+// section gets a heading rendered above its grid.
+interface FeatureItem { icon: string; title: string; desc: string }
+interface FeatureSection { title: string; items: FeatureItem[] }
+
+const FEATURE_SECTIONS: FeatureSection[] = [
   {
-    icon: '◎',
-    title: 'Live Character Tracking',
-    desc: 'Your current system updates across the EVE universe every 10 seconds via ESI. New systems appear on your map automatically and link back to where you came from.',
+    title: 'Mapping',
+    items: [
+      {
+        icon: '◈',
+        title: 'Interactive map',
+        desc: 'Drag systems, draw connections, set wormhole class / type / status per connection. Snap-to-grid and an optional minimap.',
+      },
+      {
+        icon: '⧗',
+        title: 'Wormhole intel',
+        desc: 'Per-connection mass tracker (≤10% / ≤50% / critical), end-of-life flag with countdown, K162-aware static identification, and frig-hole / gas-site auto-tagging from sig type.',
+      },
+      {
+        icon: '▸',
+        title: 'Wormhole type picker',
+        desc: 'Searchable popover for assigning the exact wormhole type to a connection. Statics quick-info on hover shows destination class, mass, and lifetime.',
+      },
+      {
+        icon: '⊟',
+        title: 'Multi-select bulk operations',
+        desc: 'Shift-click to select multiple systems or signatures, then bulk-assign type, delete, or rename in a single action.',
+      },
+      {
+        icon: '⎙',
+        title: 'PNG export',
+        desc: 'Render the current map — with sig counts, connections, and status — to a PNG you can drop into a fleet ping or a corp Discord.',
+      },
+    ],
+  },
+  {
+    title: 'Personal & corp maps',
+    items: [
+      {
+        icon: '⊕',
+        title: 'Solo / Corp split',
+        desc: 'Every user has personal maps that are always private; in corp mode each corp also gets shared corp maps. Cross-corp visibility is opt-in via a single env flag.',
+      },
+      {
+        icon: '▦',
+        title: 'Multi-map support',
+        desc: 'Each character (or corp) can maintain multiple independent maps up to configured limits — separate chains for separate ops without losing context.',
+      },
+      {
+        icon: '🔒',
+        title: 'Map locking',
+        desc: 'Admins can freeze a corp map\'s topology. Systems and connections lock for non-admins, but signatures, structures, and per-system notes stay editable so ops continue while the layout is pinned.',
+      },
+      {
+        icon: '⌬',
+        title: 'Role-based access',
+        desc: 'Four tiers — readonly, edit, full, admin — gating corp-map actions. Personal maps stay yours regardless of role.',
+      },
+    ],
+  },
+  {
+    title: 'System intelligence',
+    items: [
+      {
+        icon: '⎘',
+        title: 'System panel',
+        desc: 'Per-system cards for signatures, structures, NPC stations, notes, killboard, and activity charts. Cards are reorderable via drag-and-drop and persist per-user.',
+      },
+      {
+        icon: '◐',
+        title: 'Signature management',
+        desc: 'Paste straight from the probe scanner. Tracks created / updated age per signature, auto-deletes sigs missing from a re-paste, and supports bulk type assignment for multi-select.',
+      },
+      {
+        icon: '⊠',
+        title: 'Structure import',
+        desc: 'Paste EVE overview data to import player-owned structures with names, types, owners, and notes in one operation.',
+      },
+      {
+        icon: '▤',
+        title: 'Activity charts',
+        desc: '24-hour rolling history of jumps, ship / pod kills, and NPC kills per system, polled from ESI hourly.',
+      },
+      {
+        icon: '✦',
+        title: 'Sovereignty & station data',
+        desc: 'Live alliance / corp / faction sov info and NPC station services, with in-game waypoint and destination actions.',
+      },
+      {
+        icon: '⚔',
+        title: 'Killboard pane',
+        desc: 'Recent zKillboard activity per system. Recent kills also bubble up as highlights on the map so dangerous systems stand out.',
+      },
+      {
+        icon: '✺',
+        title: 'Chain-wide effect digest',
+        desc: 'A one-line summary at the top of the system info panel lists every Pulsar / Wolf-Rayet / Magnetar / etc. on the current chain. Hover for the modifier list; click to centre.',
+      },
+    ],
+  },
+  {
+    title: 'Live ops',
+    items: [
+      {
+        icon: '⟿',
+        title: 'Scout connections',
+        desc: 'Thera and Turnur public Eve-Scout connections surfaced into the sidebar so you can jump straight to known holes.',
+      },
+      {
+        icon: '★',
+        title: 'A0 sun detection',
+        desc: 'Auto-flags systems with A0 (yellow) suns visible via ESI for capital-friendly skirmish planning.',
+      },
+      {
+        icon: '⚠',
+        title: 'Proximity alerts',
+        desc: 'Browser notification plus an audio ping when you\'re within a configurable number of jumps of an active incursion or insurgency. Persistent toolbar chip shows the nearest threat.',
+      },
+      {
+        icon: '⤳',
+        title: 'Route planner',
+        desc: 'Server-side BFS over stargates plus your live chain, so a route through a wormhole hop is a single click.',
+      },
+      {
+        icon: '◎',
+        title: 'Location tracking',
+        desc: 'Opt-in live character location dot in the toolbar, plus a per-map "you are here" indicator that updates every 10 seconds via ESI.',
+      },
+      {
+        icon: '◉',
+        title: 'Online status',
+        desc: 'Toolbar dot shows whether each logged-in user is currently signed into EVE Online, so you can see at a glance who\'s actually on grid.',
+      },
+    ],
+  },
+  {
+    title: 'Productivity & UX',
+    items: [
+      {
+        icon: '⌘',
+        title: 'Command palette',
+        desc: '⌘ / Ctrl + K opens a fuzzy search across systems, sigs, and actions — jump to a system, set a waypoint, or toggle a pane without touching the mouse.',
+      },
+      {
+        icon: '⌂',
+        title: 'Home hotkey',
+        desc: 'Hit H to jump the viewport back to your home system from any panel. Right-click a system to set or change which one is home.',
+      },
+      {
+        icon: '⚔',
+        title: 'Recent-kill highlights',
+        desc: 'Systems with kills in the last hour get a coloured halo so you can see fresh activity at a glance across the chain.',
+      },
+      {
+        icon: '▦',
+        title: 'User stats modal',
+        desc: 'Per-character totals: jumps, signatures by type, broken down by day / week / month / year / forever.',
+      },
+      {
+        icon: '◍',
+        title: 'Server status widget',
+        desc: 'Live Tranquility server status, player count, and ESI health in the toolbar. Cross-tab cached so all your open windows share a single ESI poll.',
+      },
+      {
+        icon: '▣',
+        title: 'Demo map',
+        desc: 'The landing page mounts a non-editable demo map so visitors can see what the tool does before logging in.',
+      },
+      {
+        icon: '⊟',
+        title: 'Collapsible sidebar',
+        desc: 'Map Options, Connections, Proximity Alerts, Stale System Fade, and Shortcuts each expand or collapse independently. Per-section state persists per browser via localStorage.',
+      },
+    ],
+  },
+];
+
+// "For corporations" section in the README mirrored here. Hidden behind
+// CORP_ID at the deployment level; admin-only at the UI level.
+const CORP_FEATURES: FeatureItem[] = [
+  {
+    icon: '⊠',
+    title: 'Multi-corp deployments',
+    desc: 'CORP_ID accepts a comma-separated list of corporation IDs. One Nexum instance can host several corps; each corp\'s maps stay scoped to its own members unless CORP_MAP_SHARED=true.',
+  },
+  {
+    icon: '⌗',
+    title: 'Admin dashboard',
+    desc: 'A dedicated /admin page with four tabs: Users, Maps, Reports, and Audit log. Admins reach it from the toolbar\'s Admin button.',
+  },
+  {
+    icon: '◈',
+    title: 'User management',
+    desc: 'Change roles, block / unblock, and force an ESI corp-membership re-check on demand. Self-block, self-demote, and changes to ADMIN_CHAR_ID are guarded against.',
+  },
+  {
+    icon: '▦',
+    title: 'Map management',
+    desc: 'Admins see every corp map with owner avatar, corp ticker, system / connection counts, lock state, and last-active time. Force-lock, force-unlock, and force-delete are one-click each.',
+  },
+  {
+    icon: '⌗',
+    title: 'Users report',
+    desc: 'Per-character last login, systems added / deleted, structures added, signatures broken down by type, and last-corp-activity timestamps. Sortable, filterable by activity and time window, exportable as CSV.',
   },
   {
     icon: '◐',
-    title: 'Signature Capture',
-    desc: 'Paste straight from the probe scanner. Sig IDs, wormhole codes, destinations, and timestamps persist across sessions. WH-type and leads-to choices auto-fill the matching connection.',
+    title: 'Systems report',
+    desc: 'Aggregate corp-map signatures with a sig-type donut, a daily / monthly activity line chart (bucketing adapts to the window), and a sortable wormhole-type breakdown.',
   },
   {
-    icon: '⟿',
-    title: 'Built-in Route Planner',
-    desc: 'In-memory BFS over the entire stargate graph. One click sets your destination or adds a waypoint; expand the route to preview every system with its true-sec colour.',
+    icon: '⏱',
+    title: 'Time-windowed reporting',
+    desc: 'Every report can be scoped to past 24 hours, week, month, year, or all time. Chart bucketing adapts automatically: hourly for 24h, daily for week / month, monthly for year and all-time.',
   },
   {
-    icon: '⧗',
-    title: 'EOL Countdown & Mass Tracking',
-    desc: 'Live countdown on every End-of-Life connection (4h → 1h → expired, auto-removed). Per-connection mass tracker with WH-specific specs and quick-log buttons for common ship classes.',
+    icon: '⌖',
+    title: 'Audit log',
+    desc: 'Every admin action — role change, block / unblock, force-lock, force-delete, ESI corp change, auto-block on corp departure — is recorded with actor, target, old → new value, and timestamp. Exportable as CSV.',
   },
   {
-    icon: '⚠',
-    title: 'Threat Proximity Alerts',
-    desc: 'Browser notification plus an audio ping when you’re within a configurable number of jumps of an active incursion or insurgency. Persistent toolbar chip shows the nearest threat at a glance.',
+    icon: '⌥',
+    title: 'Corp ticker resolution',
+    desc: 'Corp IDs in the Users and Maps reports are resolved to in-game tickers via ESI, with a 1-hour in-memory cache to keep report loads cheap.',
   },
   {
-    icon: '⚔',
-    title: 'Live Kill Activity',
-    desc: 'Per-system kill feed from zKillboard, plus a red glow on map nodes that had ship kills in the current hour. Spot dangerous systems on your chain without opening any panel.',
-  },
-  {
-    icon: '⊞',
-    title: 'NPC Station Information',
-    desc: 'Per-system station list with available services and owning corporation. Set destination or add a waypoint with one click.',
-  },
-  {
-    icon: '✦',
-    title: 'Thera & Turnur Connections',
-    desc: 'EVE-Scout’s live wormhole list for both scout systems in your sidebar, sorted by jumps from your current location. Route preview and one-click destination per row.',
-  },
-  {
-    icon: '★',
-    title: 'Find Your Closest A0 Sun',
-    desc: 'The 10 nearest A0 (Blue Small) suns to your current system, sorted by stargate jumps. Set destination or add a waypoint instantly. A0 systems on your map carry a star icon.',
-  },
-  {
-    icon: '⊘',
-    title: 'Chain Hygiene',
-    desc: 'Stale systems fade automatically after a configurable idle period. Multi-select with shift-click to lock, clear, or remove dead branches in bulk. PNG export bakes the current view to a shareable image.',
-  },
-  {
-    icon: '⌘',
-    title: 'Command Palette',
-    desc: 'Hit ⌘/Ctrl + K to fuzzy-search systems across every map you own and jump straight to one. Pair with ⓘ-on-hover for any wormhole code to see lifetime, total mass, and max jump mass without leaving the page.',
-  },
-  {
-    icon: '✺',
-    title: 'Chain-wide Effect Digest',
-    desc: 'A one-line summary at the top of the system info panel lists every Pulsar / Wolf-Rayet / Magnetar / etc. on the current chain. Hover any chip for its full modifier list; click to centre on that system.',
+    icon: '↓',
+    title: 'Per-character attribution',
+    desc: 'Sigs, structures, and system add / delete actions are recorded with the user who made them, so reports can answer "who has been scanning what" with no manual logging.',
   },
 ];
 
@@ -233,17 +401,7 @@ export function LandingPage() {
       </header>
 
       <div className="landing__content">
-        <section className="landing__features">
-          {FEATURES.map((f) => (
-            <div key={f.title} className="landing__feature">
-              <span className="landing__feature-icon">{f.icon}</span>
-              <h3 className="landing__feature-title">{f.title}</h3>
-              <p className="landing__feature-desc">{f.desc}</p>
-            </div>
-          ))}
-        </section>
-
-        <div className="landing__demo">
+                <div className="landing__demo">
           <p className="landing__demo-note">
             ◈ Interactive demo — a simplified preview. Sign in to access signatures, kill feeds, connection tracking, activity history, and more.
           </p>
@@ -292,6 +450,39 @@ export function LandingPage() {
             </>
           )}
         </div>
+        {FEATURE_SECTIONS.map((section) => (
+          <section key={section.title} className="landing__section landing__section--features">
+            <h2 className="landing__section-title">{section.title}</h2>
+            <section className="landing__features">
+              {section.items.map((f) => (
+                <div key={f.title} className="landing__feature">
+                  <span className="landing__feature-icon">{f.icon}</span>
+                  <h3 className="landing__feature-title">{f.title}</h3>
+                  <p className="landing__feature-desc">{f.desc}</p>
+                </div>
+              ))}
+            </section>
+          </section>
+        ))}
+
+        {/* ── Corp / alliance features ───────────────────────── */}
+        <section className="landing__section landing__section--features" id="for-corporations">
+          <h2 className="landing__section-title">For Corporations</h2>
+          <p className="landing__section-body">
+            Run Nexum as a shared deployment for your corp or alliance. Members get
+            visible-to-the-corp chain maps and private personal maps in one tool, with
+            role-based permissions, admin tooling, and per-character activity reporting.
+          </p>
+          <section className="landing__features">
+            {CORP_FEATURES.map((f) => (
+              <div key={f.title} className="landing__feature">
+                <span className="landing__feature-icon">{f.icon}</span>
+                <h3 className="landing__feature-title">{f.title}</h3>
+                <p className="landing__feature-desc">{f.desc}</p>
+              </div>
+            ))}
+          </section>
+        </section>
 
         {/* ── About Nexum ───────────────────────────────────── */}
         <section className="landing__section" id="about-nexum">
@@ -300,31 +491,8 @@ export function LandingPage() {
             Nexum is a wormhole and exploration tool.  It can be used for mapping routes and logging signatures. It was heavily inspired by Pathfinder but as this is no longer in development.
             Because of this, rather than complain about it, Nexum was created.
           </p>
-          <p className="landing__section-body">Key Features
-            <ul>
-              <li>Dynamic mapping based on where you character is in eve.  The map updates when you move from system to system</li>
-              <li>Store Signatures against the systems.  Don't waste time re-scanning already known sigs</li>
-              <li>See Wormhole effects at a glance</li>
-              <li>See which systems have NPC stations and which services are offered there</li>
-              <li>zKillboard integration</li>
-            </ul>
-            <div className="landing__screenshot-grid">
-              <figure className="landing__screenshot-figure">
-                <img src={menuImg} alt="System menu" className="landing__screenshot landing__screenshot--sm" />
-                <figcaption className="landing__screenshot-caption">Easy to customize options</figcaption>
-              </figure>
-              <figure className="landing__screenshot-figure">
-                <img src={quickSystemImg} alt="Quick system add" className="landing__screenshot" />
-                <figcaption className="landing__screenshot-caption">See key data at a glance</figcaption>
-              </figure>
-            </div>
-            <div className="landing__screenshot-single">
-              <p className="landing__screenshot-subtitle">You can copy and paste signatures directly from the Probe scanner in Eve</p>
-              <figure className="landing__screenshot-figure">
-                <img src={showSigsImg} alt="Signature panel" className="landing__screenshot" />
-                <figcaption className="landing__screenshot-caption">Cut and paste signatures from game to map</figcaption>
-              </figure>
-            </div>
+          <p className="landing__section-body">
+            Nexum is built by a single developer.  I'm adding features as we go but get in contact if you want support or feature requests
           </p>
         </section>
 

@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { useMapStore } from '../../store/mapStore';
 import { useWormholeTypes } from '../../hooks/useWormholeTypes';
 import { useNow30s } from '../../hooks/useNow30s';
+import { useCanEdit } from '../../hooks/useCanEdit';
 import { WHTypeInfo } from './WHTypeInfo';
 import { api } from '../../api/client';
 import type { MassStatus, TimeStatus, ConnectionSize, Signature, SystemClass } from '../../types';
@@ -63,10 +64,16 @@ function detectWhType(
 }
 
 export function ConnectionPanel() {
-  const { map, selectedConnectionId, updateConnection, removeConnection, selectConnection } =
+  const { map, selectedConnectionId, updateConnection: rawUpdate, removeConnection: rawRemove, selectConnection } =
     useMapStore();
   const whTypes = useWormholeTypes();
   const now     = useNow30s();
+  const canEdit = useCanEdit();
+
+  // No-op the mutation calls when the user lacks topology permission. The
+  // panel still renders so readonly users can inspect the connection.
+  const updateConnection: typeof rawUpdate = (...args) => { if (canEdit) rawUpdate(...args); };
+  const removeConnection: typeof rawRemove = (...args) => { if (canEdit) rawRemove(...args); };
 
   const conn = map.connections.find((c) => c.id === selectedConnectionId);
   const src = conn ? map.systems.find((s) => s.id === conn.sourceId) : undefined;

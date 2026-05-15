@@ -96,7 +96,10 @@ authRouter.get('/callback', async (req, res) => {
       return;
     }
 
-    // In corp mode, verify the character belongs to the corp — fail-closed
+    // In corp mode, verify the character belongs to one of the allowed
+    // corps — fail-closed. Capture the corp_id so we can persist it and use
+    // it for per-corp visibility scoping later.
+    let userCorpId: number | null = null;
     if (config.corpMode) {
       try {
         const esiChar = await fetch(`https://esi.evetech.net/v4/characters/${characterId}/`);
@@ -105,10 +108,11 @@ authRouter.get('/callback', async (req, res) => {
           return;
         }
         const charData = await esiChar.json() as { corporation_id: number };
-        if (charData.corporation_id !== config.corpId) {
+        if (!config.corpIds.includes(charData.corporation_id)) {
           res.redirect(`${FRONTEND_URL}?error=not_in_corp`);
           return;
         }
+        userCorpId = charData.corporation_id;
       } catch {
         res.redirect(`${FRONTEND_URL}?error=corp_check_failed`);
         return;
@@ -120,23 +124,32 @@ authRouter.get('/callback', async (req, res) => {
     // Determine role: ADMIN_CHAR_ID always gets admin; others keep existing role or default to standard
     const isAdminChar = characterId === config.adminCharId;
 
-    const { rows } = await db.query<{ id: number; role: string }>(
-      `INSERT INTO users (character_id, character_name, access_token, refresh_token, token_expires_at, role)
-       VALUES ($1, $2, $3, $4, $5, $6)
+    const { rows } = await db.query<{ id: number; role: string; blocked: boolean }>(
+      `INSERT INTO users (character_id, character_name, access_token, refresh_token, token_expires_at, role, corp_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $8)
        ON CONFLICT (character_id) DO UPDATE SET
          character_name   = EXCLUDED.character_name,
          access_token     = EXCLUDED.access_token,
          refresh_token    = EXCLUDED.refresh_token,
          token_expires_at = EXCLUDED.token_expires_at,
+         corp_id          = COALESCE($8::int, users.corp_id),
          role             = CASE WHEN $7::int IS NOT NULL AND users.character_id = $7::int THEN 'admin' ELSE users.role END,
          updated_at       = NOW()
-       RETURNING id, role`,
+       RETURNING id, role, blocked`,
       [characterId, jwtPayload.name, encryptToken(tokens.access_token), encryptToken(tokens.refresh_token), expiresAt,
-       isAdminChar ? 'admin' : 'readonly', config.adminCharId],
+       isAdminChar ? 'admin' : 'readonly', config.adminCharId, userCorpId],
     );
 
     const userId = rows[0].id;
-    const role   = rows[0].role as 'admin' | 'member' | 'readonly';
+    const role   = rows[0].role as 'admin' | 'full' | 'edit' | 'readonly';
+
+    // Blocked users can never sign in. ADMIN_CHAR_ID is the safety hatch:
+    // it can't be blocked by the role/block flow, but if the DB row somehow
+    // ends up flagged we still let the configured admin character through.
+    if (rows[0].blocked && characterId !== config.adminCharId) {
+      res.redirect(`${FRONTEND_URL}?error=blocked`);
+      return;
+    }
 
     // Create a default personal map if this is a new user
     await db.query(
@@ -163,6 +176,7 @@ authRouter.get('/callback', async (req, res) => {
     req.session.characterId   = characterId;
     req.session.characterName = jwtPayload.name;
     req.session.role          = role;
+    req.session.userCorpId    = userCorpId;
     req.session.prefs         = {
       compactMode: p?.compact_mode ?? false,
       snapToGrid:  p?.snap_to_grid ?? false,
@@ -211,7 +225,7 @@ authRouter.get('/me', async (req, res) => {
       showMinimap: row?.show_minimap ?? true,
       panelOrder:  row?.panel_order  ?? ['notes', 'signatures'],
     };
-    role = (row?.role as 'admin' | 'member' | 'readonly') ?? 'readonly';
+    role = (row?.role as 'admin' | 'full' | 'edit' | 'readonly') ?? 'readonly';
     req.session.prefs = prefs;
     req.session.role  = role;
   }

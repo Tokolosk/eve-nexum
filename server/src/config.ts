@@ -1,10 +1,24 @@
 import { createHash } from 'node:crypto';
 
-const CORP_ID       = process.env.CORP_ID       ? parseInt(process.env.CORP_ID,       10) : null;
+// CORP_ID accepts a comma-separated list of corporation IDs. Any member of
+// any listed corp is allowed to log in.
+const CORP_IDS: number[] = (process.env.CORP_ID ?? '')
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean)
+  .map((s) => parseInt(s, 10))
+  .filter((n) => Number.isInteger(n) && n > 0);
+
 const ADMIN_CHAR_ID = process.env.ADMIN_CHAR_ID ? parseInt(process.env.ADMIN_CHAR_ID, 10) : null;
 const CORP_MAP_TIME = parseInt(process.env.CORP_MAP_TIME ?? '30', 10);
 
-if (CORP_ID !== null && ADMIN_CHAR_ID === null) {
+// When true, every member of any listed corp can see every corp map regardless
+// of which corp created it. When false (default), corp maps are visible only
+// to members of the corp that created them — Corp A's chain is invisible to
+// Corp B even if they share the deployment.
+const CORP_MAP_SHARED = /^(1|true|yes)$/i.test(process.env.CORP_MAP_SHARED ?? '');
+
+if (CORP_IDS.length > 0 && ADMIN_CHAR_ID === null) {
   console.error('FATAL: CORP_ID is set but ADMIN_CHAR_ID is missing');
   process.exit(1);
 }
@@ -46,10 +60,12 @@ if (tokenEncryptionKey.length !== 64) {
 }
 
 export const config = {
-  corpMode:            CORP_ID !== null,
-  corpId:              CORP_ID,
+  corpMode:            CORP_IDS.length > 0,
+  corpIds:             CORP_IDS,
+  corpMapShared:       CORP_MAP_SHARED,
   adminCharId:         ADMIN_CHAR_ID,
   corpMapExpireDays:   CORP_MAP_TIME,
+  maxUserMaps:         parseInt(process.env.MAX_USER_MAPS ?? '5', 10),
   maxCorpMaps:         parseInt(process.env.MAX_CORP_MAPS ?? '5', 10),
   sessionSecret:       process.env.SESSION_SECRET ?? 'dev-secret-change-me',
   tokenEncryptionKey,

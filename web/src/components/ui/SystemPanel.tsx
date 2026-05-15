@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useSovData } from '../../hooks/useSovData';
 import { useEsiSystem } from '../../hooks/useEsiSystem';
 import { api } from '../../api/client';
@@ -17,8 +18,62 @@ import { ActivityPane } from './ActivityPane';
 import { truesecColor } from '../../utils/truesec';
 import { useIncursions, findIncursion } from '../../hooks/useIncursions';
 import { useInsurgency, findInsurgency } from '../../hooks/useInsurgency';
-import { useCanEdit } from '../../hooks/useCanEdit';
+import { useCanEditContent } from '../../hooks/useCanEditContent';
 import { WHTypeInfo } from './WHTypeInfo';
+
+/**
+ * One chip in the "In chain:" digest. Owns its own hover state and renders
+ * the modifier-list tooltip via portal so it can escape the system panel's
+ * `overflow: hidden` and not get clipped.
+ */
+function ChainEffectChip({
+  name, effect, isCurrent, onClick,
+}: {
+  name: string;
+  effect: keyof typeof EFFECT_MODIFIERS;
+  isCurrent: boolean;
+  onClick: () => void;
+}) {
+  const ref = useRef<HTMLSpanElement>(null);
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+
+  function onEnter() {
+    if (!ref.current) return;
+    const r = ref.current.getBoundingClientRect();
+    setPos({ top: r.bottom + 6, left: r.left + r.width / 2 });
+  }
+  function onLeave() { setPos(null); }
+
+  return (
+    <>
+      <span
+        ref={ref}
+        className={`sys-info__chain-fx__chip${isCurrent ? ' sys-info__chain-fx__chip--current' : ''}`}
+        onMouseEnter={onEnter}
+        onMouseLeave={onLeave}
+        onClick={onClick}
+      >
+        {EFFECT_LABELS[effect]} <span className="sys-info__chain-fx__sys">({name})</span>
+      </span>
+      {pos && createPortal(
+        <div
+          className="sys-info__chain-fx__tip"
+          style={{ top: pos.top, left: pos.left }}
+        >
+          {EFFECT_MODIFIERS[effect].map((m) => (
+            <span
+              key={m.label}
+              className={m.good ? 'sys-info__chain-fx__tip-good' : 'sys-info__chain-fx__tip-bad'}
+            >
+              {m.good ? '▲' : '▼'} {m.label}
+            </span>
+          ))}
+        </div>,
+        document.body,
+      )}
+    </>
+  );
+}
 
 function FlashingSkull({ color }: { color: string }) {
   const [dim, setDim] = useState(false);
@@ -58,7 +113,7 @@ export function SystemPanel() {
   const updateSystem     = useMapStore((s) => s.updateSystem);
   const selectSystem     = useMapStore((s) => s.selectSystem);
   const setPanelOrder    = useMapStore((s) => s.setPanelOrder);
-  const canEdit          = useCanEdit();
+  const canEdit          = useCanEditContent();
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
 
   const [height, setHeight] = useState(() => {
@@ -179,23 +234,19 @@ export function SystemPanel() {
           </div>
 
           {(() => {
-            // Chain-wide effect digest: list every system on this map that
-            // has a non-'none' effect. Compact, with each chip tooltip-able.
             const chainEffects = systems.filter((s) => s.effect !== 'none');
             if (chainEffects.length === 0) return null;
             return (
               <div className="sys-info__chain-fx">
                 <span className="sys-info__chain-fx__label">In chain:</span>
                 {chainEffects.map((s) => (
-                  <span
+                  <ChainEffectChip
                     key={s.id}
-                    className={`sys-info__chain-fx__chip${s.id === sys.id ? ' sys-info__chain-fx__chip--current' : ''}`}
-                    data-tooltip={EFFECT_MODIFIERS[s.effect]
-                      .map((m) => `${m.good ? '+' : '−'} ${m.label}`).join(' · ')}
+                    name={s.name}
+                    effect={s.effect}
+                    isCurrent={s.id === sys.id}
                     onClick={() => selectSystem(s.id)}
-                  >
-                    {EFFECT_LABELS[s.effect]} <span className="sys-info__chain-fx__sys">({s.name})</span>
-                  </span>
+                  />
                 ))}
               </div>
             );

@@ -3,6 +3,7 @@ import { useMapStore } from '../../store/mapStore';
 import { useAuth } from '../../context/AuthContext';
 import { useOnlineStatus } from '../../hooks/useOnlineStatus';
 import { useCanEdit } from '../../hooks/useCanEdit';
+import { useCanCreateMaps } from '../../hooks/useCanCreateMaps';
 import { UserStatsModal } from './UserStatsModal';
 import { ConfirmModal } from './ConfirmModal';
 import { PromptModal } from './PromptModal';
@@ -125,13 +126,13 @@ function ProximityChip() {
   return (
     <span
       className={`toolbar__proximity${inZone ? ' toolbar__proximity--alert' : ''}`}
-      data-tooltip={`Nearest ${label.toLowerCase()} system`}
+      data-tooltip={`Closest ${label.toLowerCase()} system`}
     >
       <span className="toolbar__proximity-icon">
         {nearest.kind === 'incursion' ? '⚠' : '☠'}
       </span>
       <span className="toolbar__proximity-text">
-        {nearest.jumps === 0 ? 'IN' : `${nearest.jumps}j`} {label}
+        {nearest.jumps === 0 ? 'IN' : `${nearest.jumps} jumps`} - {label}
       </span>
     </span>
   );
@@ -139,7 +140,7 @@ function ProximityChip() {
 
 export function Toolbar() {
   const mapName         = useMapStore((s) => s.map.name);
-  const isCorpActive    = useMapStore((s) => !!s.map.isCorpMap);
+  const mapLocked       = useMapStore((s) => !!s.map.locked);
   const systemCount     = useMapStore((s) => s.map.systems.length);
   const connectionCount = useMapStore((s) => s.map.connections.length);
   const maps            = useMapStore((s) => s.maps);
@@ -157,7 +158,8 @@ export function Toolbar() {
   const atMapLimit      = maps.filter((m) => !m.isCorpMap).length >= maxMaps;
   const atCorpMapLimit  = corpMapCount >= maxCorpMaps;
   const { user, logout } = useAuth();
-  const canEdit = useCanEdit();
+  const canEdit       = useCanEdit();
+  const canManageMaps = useCanCreateMaps();
   const { online, checkedAt } = useOnlineStatus(!!user);
   const eveStatus = useEveServerStatus();
   const [showMaps, setShowMaps]   = useState(false);
@@ -195,6 +197,16 @@ export function Toolbar() {
           <span className="toolbar__caret">▾</span>
         </button>
 
+        {mapLocked && (
+          <span
+            className="toolbar__locked-chip"
+            data-tooltip="Map is locked — systems and connections are frozen. Signatures, structures, and notes can still be edited."
+          >
+            <span className="toolbar__locked-icon">🔒</span>
+            Locked
+          </span>
+        )}
+
         {showMaps && (
           <div className="map-dropdown" onMouseLeave={() => setShowMaps(false)}>
             {[...maps].sort((a, b) => {
@@ -224,7 +236,7 @@ export function Toolbar() {
               >
                 + Personal Map
               </button>
-              {user?.corpMode && user.role === 'admin' && (
+              {user?.corpMode && canManageMaps && (
                 <span
                   className={`map-dropdown__new-wrap${atCorpMapLimit ? ' map-dropdown__new-wrap--disabled' : ''}`}
                   data-disabled-reason={atCorpMapLimit ? `Corp map limit reached (${maxCorpMaps})` : undefined}
@@ -239,7 +251,7 @@ export function Toolbar() {
                 </span>
               )}
             </span>
-            {maps.length > 1 && (!isCorpActive || user?.role === 'admin') && (
+            {canManageMaps && maps.length > 1 && (
               <button className="map-dropdown__item map-dropdown__item--danger" onClick={() => { setShowMaps(false); setDeleteConfirm(true); }}>
                 Delete this map
               </button>
@@ -272,12 +284,22 @@ export function Toolbar() {
 
       <div className="toolbar__spacer" />
 
+              {user?.role === 'admin' && (
+        <button
+          className="toolbar__toggle"
+          onClick={() => { window.location.hash = '#/admin/users'; }}
+        >
+          Admin
+        </button>
+      )}
       <button
         className="toolbar__toggle"
         onClick={() => setShowStats(true)}
       >
         User Stats
       </button>
+
+
 
       <button
         className={`toolbar__toggle${mapOptionsOpen ? ' toolbar__toggle--on' : ''}`}
@@ -333,7 +355,15 @@ export function Toolbar() {
             alt={user.characterName}
           />
           <div className="toolbar__char-info">
-            <span className="toolbar__char-name">{user.characterName}</span>
+            <span className="toolbar__char-name">
+              {user.characterName}
+              <span
+                className={`role-badge role-badge--${user.role}`}
+                title={`Role: ${user.role}`}
+              >
+                {user.role}
+              </span>
+            </span>
             {checkedAt && <CheckedAtLabel checkedAt={checkedAt} />}
           </div>
           <button className="btn btn--ghost btn--sm" onClick={logout}>Logout</button>

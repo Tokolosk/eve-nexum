@@ -356,7 +356,12 @@ export const useMapStore = create<MapStore>()((set, get) => {
 
     setMapName: (name) => {
       const { activeMapId } = get();
-      set((s) => ({ map: { ...s.map, name } }));
+      // Mirror the rename into the maps list so the toolbar dropdown (which
+      // renders from `maps`, not the active `map`) updates immediately.
+      set((s) => ({
+        map:  { ...s.map, name },
+        maps: s.maps.map((m) => (m.id === activeMapId ? { ...m, name } : m)),
+      }));
       if (!activeMapId) return;
       const existing = nameTimers.get(activeMapId);
       if (existing) clearTimeout(existing);

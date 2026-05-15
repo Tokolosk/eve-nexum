@@ -8,6 +8,7 @@ import type { Connection, Node, Edge, EdgeChange, NodeChange } from '@xyflow/rea
 import '@xyflow/react/dist/style.css';
 
 import { useMapStore } from '../../store/mapStore';
+import { useCanEdit } from '../../hooks/useCanEdit';
 import { SystemNode } from './SystemNode';
 import { ConnectionEdge } from './ConnectionEdge';
 import { AddSystemModal } from '../ui/AddSystemModal';
@@ -63,13 +64,13 @@ interface CtxMenu {
   selectedNodeIds?: string[]; // snapshot taken at right-click time before RF resets selection
 }
 
-function systemToNode(sys: MapSystem, selectedId: string | null, easyConnect = false): Node {
+function systemToNode(sys: MapSystem, selectedId: string | null, easyConnect = false, canEdit = true): Node {
   return {
     id: sys.id,
     type: 'system',
     position: sys.position,
     data: { ...sys, selected: sys.id === selectedId },
-    draggable: !sys.locked,
+    draggable: canEdit && !sys.locked,
     dragHandle: easyConnect ? '.drag-handle' : undefined,
   };
 }
@@ -96,6 +97,7 @@ export function MapCanvas() {
   const autoLayoutPending    = useMapStore((s) => s.autoLayoutPending);
   const clearAutoLayoutPending = useMapStore((s) => s.clearAutoLayoutPending);
   const pushUndo             = useMapStore((s) => s.pushUndo);
+  const canEdit              = useCanEdit();
   const { screenToFlowPosition, setViewport, getNode, getNodes, getZoom } = useReactFlow();
 
   const [pendingPosition, setPendingPosition] = useState<{ x: number; y: number } | null>(null);
@@ -110,13 +112,14 @@ export function MapCanvas() {
     (changes: NodeChange[]) => {
       changes.forEach((c) => {
         if (c.type === 'remove') {
+          if (!canEdit) return;
           const sys = systems.find((s) => s.id === c.id);
           if (!sys?.locked) removeSystem(c.id);
         }
       });
       setNodes((nds) => applyNodeChanges(changes.filter((c) => c.type !== 'remove'), nds));
     },
-    [systems, removeSystem, setNodes],
+    [systems, removeSystem, setNodes, canEdit],
   );
 
   const centerOnSystem = useCallback((systemId: string) => {
@@ -164,6 +167,7 @@ export function MapCanvas() {
       if (e.key === 'Delete' || e.key === 'Backspace') {
         const target = e.target as HTMLElement;
         if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) return;
+        if (!canEdit) return;
 
         // Multi-select: remove all RF-selected non-locked nodes
         const rfSelected = nodes.filter((n) => n.selected);
@@ -212,15 +216,15 @@ export function MapCanvas() {
       window.removeEventListener('keyup',   onKeyUp);
       window.removeEventListener('blur',    onBlur);
     };
-  }, [nodes, selectedSystemId, systems, removeSystem, undo, setNodes]);
+  }, [nodes, selectedSystemId, systems, removeSystem, undo, setNodes, canEdit, centerOnSystem]);
 
   const onSelectionChange = useCallback(({ nodes: sel }: { nodes: Node[] }) => {
     if (shiftHeld.current && sel.length > 0) pendingSelection.current = sel.map((n) => n.id);
   }, []);
 
   useEffect(() => {
-    setNodes(systems.map((s) => systemToNode(s, selectedSystemId, easyConnect)));
-  }, [systems, selectedSystemId, easyConnect, setNodes]);
+    setNodes(systems.map((s) => systemToNode(s, selectedSystemId, easyConnect, canEdit)));
+  }, [systems, selectedSystemId, easyConnect, setNodes, canEdit]);
 
   useEffect(() => {
     if (!selectedSystemId) return;
@@ -304,14 +308,15 @@ export function MapCanvas() {
   const onEdgesChange = useCallback(
     (changes: EdgeChange[]) => {
       changes.forEach((change) => {
-        if (change.type === 'remove') removeConnection(change.id);
+        if (change.type === 'remove' && canEdit) removeConnection(change.id);
       });
     },
-    [removeConnection],
+    [removeConnection, canEdit],
   );
 
   const onConnect = useCallback(
     (params: Connection) => {
+      if (!canEdit) return;
       if (!params.source || !params.target) return;
       // Strip easy-connect handle IDs — they don't exist in normal mode,
       // which would cause the edge to render from the wrong position after toggling.
@@ -320,11 +325,12 @@ export function MapCanvas() {
       const tgtH = params.targetHandle && !EASY.has(params.targetHandle) ? params.targetHandle : null;
       addConnection(params.source, params.target, srcH, tgtH);
     },
-    [addConnection],
+    [addConnection, canEdit],
   );
 
   const onNodeDragStop = useCallback(
     (_: React.MouseEvent, _node: Node, movedNodes: Node[]) => {
+      if (!canEdit) return;
       movedNodes.forEach((n) => moveSystem(n.id, n.position));
 
       const movedIds = new Set(movedNodes.map((n) => n.id));
@@ -344,7 +350,7 @@ export function MapCanvas() {
         }
       }
     },
-    [moveSystem, systems, connections, updateConnection],
+    [moveSystem, systems, connections, updateConnection, canEdit],
   );
 
   const nodeCtxFired = useRef(false);
@@ -406,6 +412,38 @@ export function MapCanvas() {
 
   const ctxItems = (() => {
     if (!contextMenu) return [];
+
+    // Without topology permission, hide every menu item that would mutate
+    // systems or connections. Edges have no read-safe actions, so the menu
+    // collapses entirely; nodes keep only the EVE waypoint actions.
+    if (!canEdit) {
+      if (contextMenu.edgeId) return [];
+      if (contextMenu.nodeId) {
+        const sys = systems.find((s) => s.id === contextMenu.nodeId);
+        if (!sys?.eveSystemId) return [];
+        return [
+          {
+            label: 'Set Destination',
+            icon: '🎯',
+            action: () => setDestination(sys.eveSystemId!).catch(() => toast.error('Failed to set destination')),
+          },
+          {
+            label: 'Add Waypoint',
+            icon: '📍',
+            action: () => addWaypoint(sys.eveSystemId!).catch(() => toast.error('Failed to add waypoint')),
+          },
+        ];
+      }
+      // Pane menu — only "Select All" survives.
+      return [
+        {
+          label: 'Select All',
+          icon: '⊞',
+          action: () => setNodes((ns) => ns.map((n) => ({ ...n, selected: true }))),
+          disabled: nodes.length === 0,
+        },
+      ];
+    }
 
     if (contextMenu.edgeId) {
       const conn = connections.find((c) => c.id === contextMenu.edgeId);
@@ -619,6 +657,8 @@ export function MapCanvas() {
         nodeTypes={NODE_TYPES}
         edgeTypes={EDGE_TYPES}
         connectionMode={ConnectionMode.Loose}
+        nodesConnectable={canEdit}
+        nodesDraggable={canEdit}
         multiSelectionKeyCode="Shift"
         selectionKeyCode="Shift"
         snapToGrid={snapToGrid}

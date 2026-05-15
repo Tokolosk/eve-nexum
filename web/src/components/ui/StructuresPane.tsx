@@ -8,7 +8,7 @@ import { ConfirmModal, shouldSkipConfirm } from './ConfirmModal';
 import { ContextMenu } from './ContextMenu';
 import { setDestination, addWaypoint } from '../../api/waypoint';
 import { toast } from './Toaster';
-import { useCanEdit } from '../../hooks/useCanEdit';
+import { useCanEditContent } from '../../hooks/useCanEditContent';
 
 const STRUCTURE_TYPE_LABELS: Record<StructureType, string> = {
   unknown:   'Unknown',
@@ -64,7 +64,7 @@ function parseStructureClipboard(text: string): ParsedStructure[] {
 
 export function StructuresPane({ systemId }: { systemId: string }) {
   const activeMapId = useMapStore((s) => s.activeMapId);
-  const canEdit     = useCanEdit();
+  const canEdit     = useCanEditContent();
   const [structures, setStructures] = useState<Structure[]>([]);
   const [pendingAction, setPendingAction] = useState<{ message: string; fn: () => void } | null>(null);
   const [ctx, setCtx] = useState<{ x: number; y: number; structure: Structure } | null>(null);

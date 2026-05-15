@@ -14,5 +14,6 @@ export function useCanEdit(): boolean {
   if (!user) return false;
   if (locked && user.role !== 'admin') return false;
   if (!isCorpMap) return true;
-  return user.role === 'admin' || user.role === 'member';
+  // 'edit', 'full' and 'admin' can write to corp maps. 'readonly' cannot.
+  return user.role === 'admin' || user.role === 'full' || user.role === 'edit';
 }

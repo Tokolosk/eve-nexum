@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../../api/client';
 import { useMapStore } from '../../store/mapStore';
-import { useCanEdit } from '../../hooks/useCanEdit';
+import { useCanEditContent } from '../../hooks/useCanEditContent';
 import type { Signature, SigType } from '../../types';
 import { ConfirmModal, shouldSkipConfirm } from './ConfirmModal';
 import { NotesEditor } from './NotesEditor';
@@ -111,7 +111,7 @@ export function SignaturePane({ systemId }: { systemId: string }) {
   const activeMapId     = useMapStore((s) => s.activeMapId);
   const map             = useMapStore((s) => s.map);
   const currentSystemId = useMapStore((s) => s.currentSystemId);
-  const canEdit         = useCanEdit();
+  const canEdit         = useCanEditContent();
 
   const systemStatics = useMemo(
     () => map.systems.find((sys) => sys.id === systemId)?.statics ?? [],
