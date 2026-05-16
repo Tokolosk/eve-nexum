@@ -177,6 +177,56 @@ export async function migrate() {
       created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
     CREATE INDEX IF NOT EXISTS idx_admin_audit_created ON admin_audit (created_at DESC);
+
+    -- Standings (player contacts). Three owner tables keyed by character /
+    -- corp / alliance. Each row carries the standing (-10..+10) toward a
+    -- specific (contact_kind, contact_id) target. Shared at corp/alliance
+    -- level so one Contact-Manager pulling once benefits the whole corp.
+    -- Personal character contacts stay per-character.
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS alliance_id INTEGER;
+
+    CREATE TABLE IF NOT EXISTS character_standings (
+      character_id  INTEGER     NOT NULL,
+      contact_kind  TEXT        NOT NULL,
+      contact_id    INTEGER     NOT NULL,
+      standing      REAL        NOT NULL,
+      updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (character_id, contact_kind, contact_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS corp_standings (
+      corp_id            INTEGER     NOT NULL,
+      contact_kind       TEXT        NOT NULL,
+      contact_id         INTEGER     NOT NULL,
+      standing           REAL        NOT NULL,
+      updated_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_by_user_id INTEGER     REFERENCES users(id) ON DELETE SET NULL,
+      PRIMARY KEY (corp_id, contact_kind, contact_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS alliance_standings (
+      alliance_id        INTEGER     NOT NULL,
+      contact_kind       TEXT        NOT NULL,
+      contact_id         INTEGER     NOT NULL,
+      standing           REAL        NOT NULL,
+      updated_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_by_user_id INTEGER     REFERENCES users(id) ON DELETE SET NULL,
+      PRIMARY KEY (alliance_id, contact_kind, contact_id)
+    );
+
+    -- Tracks when we last *successfully* fetched standings for a given
+    -- owner so we can throttle refreshes (and so we know whether a 403
+    -- means "no role" vs "first ever fetch").
+    CREATE TABLE IF NOT EXISTS standings_refresh (
+      owner_kind      TEXT        NOT NULL,
+      owner_id        INTEGER     NOT NULL,
+      last_fetched_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (owner_kind, owner_id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_char_standings_target     ON character_standings (contact_kind, contact_id);
+    CREATE INDEX IF NOT EXISTS idx_corp_standings_target     ON corp_standings     (contact_kind, contact_id);
+    CREATE INDEX IF NOT EXISTS idx_alliance_standings_target ON alliance_standings (contact_kind, contact_id);
   `);
 
   await encryptLegacyTokens();

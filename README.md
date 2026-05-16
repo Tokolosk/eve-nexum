@@ -115,6 +115,9 @@ When registering your application at [developers.eveonline.com](https://develope
 | `esi-universe.read_structures.v1` | Read player-owned structure info |
 | `esi-corporations.read_corporation_membership.v1` | Read corporation member list |
 | `esi-characters.read_corporation_roles.v1` | Read character's corporation roles |
+| `esi-characters.read_contacts.v1` | Read the character's personal contact list (standings) — used to colour-tag hostile / friendly entities in the Standings card, Killboard, Sov holder, and map node halos. |
+| `esi-corporations.read_contacts.v1` | Read the **corporation's** shared contact list. Only succeeds for characters with the in-game **Contact Manager** role; the call is gracefully skipped for anyone else. When it does succeed, the entire corp benefits from the pulled standings until the next refresh. |
+| `esi-alliances.read_contacts.v1` | Read the **alliance's** shared contact list. Requires the character to be in the alliance executor corp with the right role; almost always denied for normal members, and that's fine — the call no-ops without breaking login. |
 
 **2. Build and start**
 

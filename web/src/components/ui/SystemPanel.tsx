@@ -15,6 +15,7 @@ import { NpcStationsPane } from './NpcStationsPane';
 import { NotesEditor } from './NotesEditor';
 import { KillboardPane } from './KillboardPane';
 import { ActivityPane } from './ActivityPane';
+import { useStandings, type ContactKind } from '../../hooks/useStandings';
 import { truesecColor } from '../../utils/truesec';
 import { useIncursions, findIncursion } from '../../hooks/useIncursions';
 import { useInsurgency, findInsurgency } from '../../hooks/useInsurgency';
@@ -126,6 +127,7 @@ export function SystemPanel() {
 
   const sys       = systems.find((s) => s.id === selectedSystemId);
   const sov       = useSovData(sys?.eveSystemId ?? null);
+  const standings = useStandings();
   const esiSys    = useEsiSystem(sys?.eveSystemId ?? null);
   const incursions   = useIncursions();
   const insurgencies = useInsurgency();
@@ -404,7 +406,7 @@ export function SystemPanel() {
             <div className="sys-info__section">
               <div className="sys-info__section-label">Sovereignty</div>
             <div className="sys-info__sov-block">
-              {sov.alliance && (
+              {sov.alliance && sov.allianceId !== undefined && (
                 <div className="sys-info__row sys-info__sov">
                   <img className="sys-info__sov-logo" src={sov.alliance.logoUrl} alt={sov.alliance.name} />
                   <div className="sys-info__sov-text">
@@ -412,9 +414,14 @@ export function SystemPanel() {
                     <span className="sys-info__sov-name">{sov.alliance.name}</span>
                     <span className="sys-info__sov-ticker">[{sov.alliance.ticker}]</span>
                   </div>
+                  <StandingsBadges
+                    standings={standings}
+                    kind="alliance"
+                    id={sov.allianceId}
+                  />
                 </div>
               )}
-              {sov.corp && (
+              {sov.corp && sov.corporationId !== undefined && (
                 <div className="sys-info__row sys-info__sov">
                   <img className="sys-info__sov-logo" src={sov.corp.logoUrl} alt={sov.corp.name} />
                   <div className="sys-info__sov-text">
@@ -422,6 +429,11 @@ export function SystemPanel() {
                     <span className="sys-info__sov-name">{sov.corp.name}</span>
                     <span className="sys-info__sov-ticker">[{sov.corp.ticker}]</span>
                   </div>
+                  <StandingsBadges
+                    standings={standings}
+                    kind="corporation"
+                    id={sov.corporationId}
+                  />
                 </div>
               )}
               {sov.faction && (
@@ -453,4 +465,87 @@ export function SystemPanel() {
       </DndContext>
     </aside>
   );
+}
+
+// Inline standings strip next to a sov holder row. Renders up to three
+// compact pills — Personal / Corp / Alliance — only for buckets that
+// actually have a contact for this entity. Colour-coded against in-game
+// blue (≥5) / red (≤-5) thresholds with a softer tier inside that range.
+function StandingsBadges({
+  standings,
+  kind,
+  id,
+}: {
+  standings: ReturnType<typeof useStandings>;
+  kind: ContactKind;
+  id: number;
+}) {
+  // Always render the container so the row layout is stable. When the
+  // standings call hasn't returned yet, show a single "…" pill instead of
+  // disappearing — makes it obvious whether the issue is "no data" vs
+  // "data not loaded yet" without opening the network tab.
+  if (!standings.loaded) {
+    return (
+      <div className="sys-info__sov-standings">
+        <span
+          className="sys-info__sov-standing sys-info__sov-standing--none"
+          data-tooltip="Standings not loaded yet. If this stays here, log out and back in to grant the read_contacts scopes."
+        >
+          <span className="sys-info__sov-standing-value">…</span>
+        </span>
+      </div>
+    );
+  }
+
+  const lookup = standings.getStanding(kind, id);
+  // Always show all three pills so the layout is consistent across rows.
+  // Buckets the user isn't a member of (no corp / no alliance) just show
+  // "—" with the "none" colour tier.
+  const entries: Array<{ label: string; value: number | null; hasBucket: boolean }> = [
+    { label: 'P', value: lookup.character, hasBucket: true },
+    { label: 'C', value: lookup.corp,      hasBucket: !!standings.self?.corpId     },
+    { label: 'A', value: lookup.alliance,  hasBucket: !!standings.self?.allianceId },
+  ];
+  return (
+    <div className="sys-info__sov-standings">
+      {entries.map((e) => {
+        const cls = !e.hasBucket || e.value === null ? 'sys-info__sov-standing--none' : standingClass(e.value);
+        const tooltip = !e.hasBucket
+          ? `${labelFor(e.label)}: you are not in one`
+          : e.value === null
+            ? `${labelFor(e.label)}: no standing set`
+            : `${labelFor(e.label)}: ${e.value.toFixed(1)}`;
+        return (
+          <span
+            key={e.label}
+            className={`sys-info__sov-standing ${cls}`}
+            data-tooltip={tooltip}
+          >
+            <span className="sys-info__sov-standing-label">{e.label}</span>
+            <span className="sys-info__sov-standing-value">
+              {!e.hasBucket || e.value === null ? '—' : e.value.toFixed(1)}
+            </span>
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
+function labelFor(short: string): string {
+  switch (short) {
+    case 'P': return 'Personal';
+    case 'C': return 'Corp';
+    case 'A': return 'Alliance';
+    default:  return short;
+  }
+}
+
+function standingClass(value: number | null): string {
+  if (value === null)   return 'sys-info__sov-standing--none';
+  if (value <= -5)      return 'sys-info__sov-standing--hostile';
+  if (value < 0)        return 'sys-info__sov-standing--bad';
+  if (value >= 5)       return 'sys-info__sov-standing--friendly';
+  if (value > 0)        return 'sys-info__sov-standing--good';
+  return 'sys-info__sov-standing--neutral';
 }

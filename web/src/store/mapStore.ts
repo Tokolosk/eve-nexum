@@ -292,6 +292,9 @@ export const useMapStore = create<MapStore>()((set, get) => {
     },
 
     applyPreferences: ({ compactMode, snapToGrid, showMinimap, panelOrder }) => {
+      // Whitelist of valid panel keys. `standings` was briefly a panel here
+      // — kept in the filter so any persisted occurrence is silently
+      // dropped on load now that standings live inline in the sov section.
       const all = ['activity', 'killboard', 'notes', 'signatures', 'structures', 'npcStations'];
       const merged = [
         ...panelOrder.filter((p) => all.includes(p)),

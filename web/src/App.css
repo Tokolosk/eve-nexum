@@ -1875,9 +1875,7 @@ div.system-node__easy-handle {
 .sys-info__sov-name {
   font-size: 13px;
   color: #c8d0e0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  word-break: break-word;
 }
 
 .sys-info__sov-ticker {
@@ -4643,6 +4641,51 @@ div.system-node__easy-handle {
   font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
+
+/* ── Inline sov standings badges ─────────────────────────── */
+.sys-info__sov-standings {
+  display: flex;
+  gap: 4px;
+  margin-left: auto;
+}
+
+.sys-info__sov-standing {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  background: #14182a;
+  border: 1px solid #1e2740;
+  color: #c8d0e0;
+  line-height: 1.4;
+  /* Lock to a consistent width so the dash-only pills and number-bearing
+     pills line up neatly side-by-side. Sized to fit '-10.0' worst case. */
+  min-width: 52px;
+}
+
+.sys-info__sov-standing-value {
+  min-width: 28px;
+  text-align: right;
+}
+
+.sys-info__sov-standing-label {
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #7a8aa8;
+}
+
+.sys-info__sov-standing--hostile  { color: #f87171; background: rgba(248,113,113,0.10); border-color: rgba(248,113,113,0.30); }
+.sys-info__sov-standing--bad      { color: #f5a06a; background: rgba(245,160,106,0.08); border-color: rgba(245,160,106,0.25); }
+.sys-info__sov-standing--friendly { color: #4ade80; background: rgba(74,222,128,0.10);  border-color: rgba(74,222,128,0.30); }
+.sys-info__sov-standing--good     { color: #7ad08a; background: rgba(122,208,138,0.08); border-color: rgba(122,208,138,0.25); }
+.sys-info__sov-standing--none     { color: #4a5670; }
+.sys-info__sov-standing--none .sys-info__sov-standing-label { color: #3a4254; }
 
 .admin-page__sort-th {
   cursor: pointer;

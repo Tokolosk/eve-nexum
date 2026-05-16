@@ -26,6 +26,13 @@ export interface SovResult {
   ticker?:    string;
   logoUrl?:   string;
 
+  // Raw IDs so consumers (e.g. the Standings pane) can match against the
+  // user's contact list. Populated whenever the corresponding entity is
+  // present.
+  allianceId?:    number;
+  corporationId?: number;
+  factionId?:     number;
+
   // Detailed breakdown for SystemPanel
   alliance?: { name: string; ticker: string; logoUrl: string };
   corp?:     { name: string; ticker: string; logoUrl: string };
@@ -122,6 +129,9 @@ export function useSovData(eveSystemId: number | null): SovResult | null {
         controller: primary.name,
         ticker:     (alliance ?? corp)?.ticker,
         logoUrl:    primary.logoUrl,
+        allianceId:    entry.alliance_id,
+        corporationId: entry.corporation_id,
+        factionId:     entry.faction_id,
         alliance,
         corp,
         faction,

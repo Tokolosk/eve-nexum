@@ -1,0 +1,91 @@
+import { useEffect, useState } from 'react';
+import { api } from '../api/client';
+
+export type ContactKind = 'character' | 'corporation' | 'alliance' | 'faction';
+
+export interface StandingsLookup {
+  character: number | null;
+  corp:      number | null;
+  alliance:  number | null;
+  effective: number;   // most negative non-null across the three, 0 if none
+  isHostile:  boolean; // effective <= -5 (matches in-game red-cross convention)
+  isFriendly: boolean; // effective >= 5  (matches in-game blue convention)
+  isNeutral:  boolean; // not hostile and not friendly
+}
+
+interface StandingsResponse {
+  characterId: number;
+  corpId:      number | null;
+  allianceId:  number | null;
+  character:   Record<string, number>;
+  corp:        Record<string, number>;
+  alliance:    Record<string, number>;
+}
+
+// Module-level cache so the standings payload is fetched once per page
+// load and shared by every hook consumer. The Standings card, the
+// Structures pane, the Killboard pane, and the system-node halo all read
+// from the same in-memory store — no need to refetch when navigating
+// between systems on the map.
+let cache: StandingsResponse | null = null;
+let loading = false;
+const listeners = new Set<() => void>();
+
+function notify() { for (const l of listeners) l(); }
+
+async function load() {
+  if (cache || loading) return;
+  loading = true;
+  try {
+    cache = await api<StandingsResponse>('/api/standings/me');
+  } catch {
+    // 401 (unauthed) is the typical failure; leave cache empty and try
+    // again next mount.
+    cache = null;
+  } finally {
+    loading = false;
+    notify();
+  }
+}
+
+const EMPTY: StandingsLookup = {
+  character: null, corp: null, alliance: null,
+  effective: 0, isHostile: false, isFriendly: false, isNeutral: true,
+};
+
+export function useStandings() {
+  const [, setTick] = useState(0);
+
+  useEffect(() => {
+    const listener = () => setTick((n) => n + 1);
+    listeners.add(listener);
+    if (!cache) load();
+    return () => { listeners.delete(listener); };
+  }, []);
+
+  function getStanding(kind: ContactKind, id: number): StandingsLookup {
+    if (!cache) return EMPTY;
+    const key = `${kind}:${id}`;
+    const character = cache.character[key] ?? null;
+    const corp      = cache.corp[key]      ?? null;
+    const alliance  = cache.alliance[key]  ?? null;
+
+    const values = [character, corp, alliance].filter((v): v is number => v !== null);
+    const effective = values.length ? Math.min(...values) : 0;
+    return {
+      character, corp, alliance, effective,
+      isHostile:  effective <= -5,
+      isFriendly: effective >= 5,
+      isNeutral:  effective > -5 && effective < 5,
+    };
+  }
+
+  return {
+    loaded: !!cache,
+    getStanding,
+    self: cache ? { characterId: cache.characterId, corpId: cache.corpId, allianceId: cache.allianceId } : null,
+  };
+}
+
+// Convenience for code that only needs the loader (no per-target lookups).
+export function preloadStandings() { void load(); }

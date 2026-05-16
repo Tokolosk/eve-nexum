@@ -21,6 +21,7 @@ import routeRouter        from './routes/route.js';
 import wormholesRouter    from './routes/wormholes.js';
 import { loadRouteGraph } from './services/routeGraph.js';
 import { adminRouter }   from './routes/admin.js';
+import { standingsRouter } from './routes/standings.js';
 import { authLimiter, esiLimiter, publicLimiter } from './middleware/rateLimits.js';
 
 const PgStore = connectPgSimple(session);
@@ -61,6 +62,7 @@ app.use('/api/scout',       esiLimiter, scoutRouter);
 app.use('/api/route',       esiLimiter, routeRouter);
 app.use('/api/wormholes',   esiLimiter, wormholesRouter);
 app.use('/api/admin',       adminRouter);
+app.use('/api/standings',   standingsRouter);
 
 app.get('/health', (_req, res) => res.json({ ok: true }));
 

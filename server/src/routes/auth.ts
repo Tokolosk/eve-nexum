@@ -4,6 +4,7 @@ import { db } from '../db.js';
 import { config } from '../config.js';
 import { encryptToken } from '../utils/tokenCrypto.js';
 import { createLogger } from '../utils/logger.js';
+import { refreshStandingsForUser } from '../services/standings.js';
 
 const log = createLogger('auth');
 
@@ -35,6 +36,13 @@ authRouter.get('/login', (req, res) => {
           'esi-ui.write_waypoint.v1',
           'esi-characters.read_corporation_roles.v1',
           'esi-location.read_online.v1',
+          // Read player standings (contacts) so the UI can colour-tag
+          // structures / killboard / sov by your standing toward each
+          // entity. Corp / alliance reads only succeed for characters with
+          // the Contact Manager role; reads gracefully no-op otherwise.
+          'esi-characters.read_contacts.v1',
+          'esi-corporations.read_contacts.v1',
+          'esi-alliances.read_contacts.v1',
         ].join(' '),
     state,
   });
@@ -96,24 +104,32 @@ authRouter.get('/callback', async (req, res) => {
       return;
     }
 
-    // In corp mode, verify the character belongs to one of the allowed
-    // corps — fail-closed. Capture the corp_id so we can persist it and use
-    // it for per-corp visibility scoping later.
+    // Pull the character's corp + alliance from public ESI so we know
+    // which corp/alliance to scope standings refreshes to. This used to
+    // only run in corp mode; we now always do it so personal standings
+    // also have an alliance bucket to target.
     let userCorpId: number | null = null;
-    if (config.corpMode) {
-      try {
-        const esiChar = await fetch(`https://esi.evetech.net/v4/characters/${characterId}/`);
-        if (!esiChar.ok) {
+    let userAllianceId: number | null = null;
+    try {
+      const esiChar = await fetch(`https://esi.evetech.net/v4/characters/${characterId}/`);
+      if (!esiChar.ok) {
+        if (config.corpMode) {
           res.redirect(`${FRONTEND_URL}?error=corp_check_failed`);
           return;
         }
-        const charData = await esiChar.json() as { corporation_id: number };
-        if (!config.corpIds.includes(charData.corporation_id)) {
+        // Solo mode: ESI hiccup shouldn't block login.
+        log.error(`ESI character lookup failed: ${esiChar.status}`);
+      } else {
+        const charData = await esiChar.json() as { corporation_id: number; alliance_id?: number };
+        userCorpId     = charData.corporation_id;
+        userAllianceId = charData.alliance_id ?? null;
+        if (config.corpMode && !config.corpIds.includes(userCorpId)) {
           res.redirect(`${FRONTEND_URL}?error=not_in_corp`);
           return;
         }
-        userCorpId = charData.corporation_id;
-      } catch {
+      }
+    } catch {
+      if (config.corpMode) {
         res.redirect(`${FRONTEND_URL}?error=corp_check_failed`);
         return;
       }
@@ -132,14 +148,15 @@ authRouter.get('/callback', async (req, res) => {
     const defaultRole = (!config.corpMode || isAdminChar) ? 'admin' : 'readonly';
 
     const { rows } = await db.query<{ id: number; role: string; blocked: boolean }>(
-      `INSERT INTO users (character_id, character_name, access_token, refresh_token, token_expires_at, role, corp_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $8)
+      `INSERT INTO users (character_id, character_name, access_token, refresh_token, token_expires_at, role, corp_id, alliance_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $8, $10)
        ON CONFLICT (character_id) DO UPDATE SET
          character_name   = EXCLUDED.character_name,
          access_token     = EXCLUDED.access_token,
          refresh_token    = EXCLUDED.refresh_token,
          token_expires_at = EXCLUDED.token_expires_at,
-         corp_id          = COALESCE($8::int, users.corp_id),
+         corp_id          = COALESCE($8::int,  users.corp_id),
+         alliance_id      = COALESCE($10::int, users.alliance_id),
          role             = CASE
            -- ADMIN_CHAR_ID is always pinned to admin regardless of mode
            WHEN $7::int IS NOT NULL AND users.character_id = $7::int THEN 'admin'
@@ -150,7 +167,7 @@ authRouter.get('/callback', async (req, res) => {
          updated_at       = NOW()
        RETURNING id, role, blocked`,
       [characterId, jwtPayload.name, encryptToken(tokens.access_token), encryptToken(tokens.refresh_token), expiresAt,
-       defaultRole, config.adminCharId, userCorpId, !config.corpMode],
+       defaultRole, config.adminCharId, userCorpId, !config.corpMode, userAllianceId],
     );
 
     const userId = rows[0].id;
@@ -200,6 +217,18 @@ authRouter.get('/callback', async (req, res) => {
     await new Promise<void>((resolve, reject) => {
       req.session.save((err) => err ? reject(err) : resolve());
     });
+
+    // Fire-and-forget standings refresh. We pass the *raw* access token
+    // here (not the encrypted-at-rest version) since it's already in
+    // memory and avoids a decrypt round-trip. The service swallows its
+    // own errors so a bad ESI response doesn't break login.
+    refreshStandingsForUser({
+      userId,
+      characterId,
+      corpId:      userCorpId,
+      allianceId:  userAllianceId,
+      accessToken: tokens.access_token,
+    }).catch((err) => log.error('standings refresh kickoff failed:', err));
 
     res.redirect(FRONTEND_URL);
   } catch (err) {
