@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { api } from '../../api/client';
 
+interface HoverState { index: number; xPct: number; yPct: number; value: number }
+
 interface HourlyPoint {
   hour:      number;
   jumps:     number;
@@ -24,6 +26,7 @@ function MiniLineChart({ title, values, color }: {
   values: number[];
   color:  string;
 }) {
+  const [hover, setHover] = useState<HoverState | null>(null);
   const n      = values.length;
   const maxVal = Math.max(...values, 1);
   const avg    = n > 0 ? values.reduce((s, v) => s + v, 0) / n : 0;
@@ -33,6 +36,7 @@ function MiniLineChart({ title, values, color }: {
   const xOfSlot = (slot: number) => PAD.left + (slot / (SLOTS - 1)) * IW;
   const xOfIdx  = (i:    number) => xOfSlot(SLOTS - n + i);
   const yOf     = (v:    number) => PAD.top + IH - (v / maxVal) * IH;
+  const slotOfIdx = (i: number) => SLOTS - n + i;
 
   const avgY   = n > 0 ? yOf(avg) : PAD.top + IH;
   const yTicks = [0, 1, 2, 3].map((t) => Math.round((maxVal / 3) * t));
@@ -41,10 +45,12 @@ function MiniLineChart({ title, values, color }: {
   return (
     <div className="activity-chart">
       <div className="activity-chart__title">{title}</div>
+      <div className="activity-chart__plot">
       <svg
         className="activity-chart__svg"
         viewBox={`0 0 ${VB_W} ${VB_H}`}
         preserveAspectRatio="none"
+        onMouseLeave={() => setHover(null)}
       >
         {/* Grid + Y labels */}
         {yTicks.map((v) => (
@@ -79,13 +85,39 @@ function MiniLineChart({ title, values, color }: {
           <polyline points={polyline} fill="none" stroke={color} strokeWidth={1.5} />
         )}
 
-        {/* Dots */}
-        {values.map((v, i) => (
-          <circle key={i} cx={xOfIdx(i)} cy={yOf(v)} r={2.2}
-            fill={color} stroke="#08090f" strokeWidth={0.8}>
-            <title>{v.toLocaleString()}</title>
-          </circle>
-        ))}
+        {/* Crosshair on the hovered point */}
+        {hover && (
+          <line
+            x1={xOfIdx(hover.index)} y1={PAD.top}
+            x2={xOfIdx(hover.index)} y2={PAD.top + IH}
+            stroke={color} strokeWidth={0.8} opacity={0.4}
+            pointerEvents="none"
+          />
+        )}
+
+        {/* Visible dot + a larger transparent hit-target so 24 ticks are
+            still easy to mouse onto. */}
+        {values.map((v, i) => {
+          const cx = xOfIdx(i);
+          const cy = yOf(v);
+          const isActive = hover?.index === i;
+          return (
+            <g key={i}>
+              <circle cx={cx} cy={cy} r={isActive ? 3.4 : 2.2}
+                fill={color} stroke="#08090f" strokeWidth={0.8}
+                pointerEvents="none" />
+              <circle cx={cx} cy={cy} r={8}
+                fill="transparent"
+                onMouseEnter={() => setHover({
+                  index: i,
+                  value: v,
+                  xPct:  (cx / VB_W) * 100,
+                  yPct:  (cy / VB_H) * 100,
+                })}
+              />
+            </g>
+          );
+        })}
 
         {/* Fixed X-axis labels (right-anchored, hours-ago) */}
         {X_TICKS.map((hoursAgo) => {
@@ -98,8 +130,27 @@ function MiniLineChart({ title, values, color }: {
           );
         })}
       </svg>
+      {hover && (
+        <div
+          className="activity-chart__tooltip"
+          style={{
+            left: `${hover.xPct}%`,
+            top:  `${hover.yPct}%`,
+          }}
+        >
+          <span className="activity-chart__tooltip-value">{hover.value.toLocaleString()}</span>
+          <span className="activity-chart__tooltip-when">{hoursAgoLabel(SLOTS - 1 - slotOfIdx(hover.index))}</span>
+        </div>
+      )}
+      </div>
     </div>
   );
+}
+
+function hoursAgoLabel(h: number): string {
+  if (h <= 0) return 'this hour';
+  if (h === 1) return '1h ago';
+  return `${h}h ago`;
 }
 
 export function ActivityPane({ eveSystemId }: { eveSystemId: number | null }) {

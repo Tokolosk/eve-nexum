@@ -1,6 +1,9 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useKillboard } from '../../hooks/useKillboard';
+import { useStandings } from '../../hooks/useStandings';
 import type { ZkbKill } from '../../hooks/useKillboard';
+
+const NPC_TOGGLE_KEY = 'nexum.killboardIncludeNpc';
 
 const PAGE_SIZE = 5;
 
@@ -68,13 +71,48 @@ function EntityCol({ characterId, corporationId, allianceId, label }: {
   );
 }
 
-function KillRow({ kill }: { kill: ZkbKill }) {
+// Lookup the most extreme standing for an entity across its corp + alliance.
+// Returns 0 when the entity has no contact entries in any bucket, so the
+// rest of the row's tint logic can treat "no signal" as neutral.
+function entityStanding(
+  standings: ReturnType<typeof useStandings>,
+  corpId?: number,
+  allianceId?: number,
+): number {
+  if (!standings.loaded) return 0;
+  const values: number[] = [];
+  if (corpId)     values.push(standings.getStanding('corporation', corpId).effective);
+  if (allianceId) values.push(standings.getStanding('alliance',    allianceId).effective);
+  const nonZero = values.filter((v) => v !== 0);
+  if (!nonZero.length) return 0;
+  // Pick the extremum farthest from zero — a single +5 still flags blue
+  // even if the other bucket is neutral.
+  return nonZero.reduce((a, b) => (Math.abs(a) >= Math.abs(b) ? a : b));
+}
+
+// Combine victim + final-blow attacker into a single row tint. Priority
+// from an FC's POV: hostile actor in the chain or losing a blue are the
+// signals worth flagging in red. A blue scoring or a hostile dying tilt
+// it green.
+function killRowTint(victim: number, killer: number): '' | 'zkb-kill--bad' | 'zkb-kill--good' {
+  // Bad: a hostile actor is killing things here, or we just lost a blue.
+  if (killer < 0 || victim > 0) return 'zkb-kill--bad';
+  // Good: a friendly scored, or someone we'd flagged died.
+  if (killer > 0 || victim < 0) return 'zkb-kill--good';
+  return '';
+}
+
+function KillRow({ kill, standings }: { kill: ZkbKill; standings: ReturnType<typeof useStandings> }) {
   const isPod      = kill.victim.ship_type_id === 670;
   const v          = kill.victim;
   const fbAttacker = kill.attackers.find((a) => a.final_blow);
 
+  const victimStanding = entityStanding(standings, v.corporation_id, v.alliance_id);
+  const killerStanding = entityStanding(standings, fbAttacker?.corporation_id, fbAttacker?.alliance_id);
+  const tint           = killRowTint(victimStanding, killerStanding);
+
   return (
-    <div className={`zkb-kill${isPod ? ' zkb-kill--pod' : ''}`}>
+    <div className={`zkb-kill${isPod ? ' zkb-kill--pod' : ''}${tint ? ` ${tint}` : ''}`}>
       <a
         href={`${ZKB}/kill/${kill.killmail_id}/`}
         target="_blank"
@@ -130,33 +168,57 @@ interface Props {
 }
 
 export function KillboardPane({ eveSystemId }: Props) {
-  const { kills, loading, error, lastUpdated } = useKillboard(eveSystemId);
+  const [includeNpc, setIncludeNpc] = useState<boolean>(() => {
+    try { return localStorage.getItem(NPC_TOGGLE_KEY) === '1'; }
+    catch { return false; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem(NPC_TOGGLE_KEY, includeNpc ? '1' : '0'); }
+    catch { /* quota / private mode */ }
+  }, [includeNpc]);
+
+  const { kills, loading, error, lastUpdated, npcCount, refresh } = useKillboard(eveSystemId, { includeNpc });
+  const standings = useStandings();
   const [page, setPage] = useState(0);
 
   if (!eveSystemId) {
     return <p className="zkb-state">No EVE system linked.</p>;
   }
-  if (loading && kills.length === 0) {
-    return <p className="zkb-state">Loading kills…</p>;
-  }
-  if (error) {
-    return <p className="zkb-state zkb-state--error">{error}</p>;
-  }
-  if (kills.length === 0) {
-    return <p className="zkb-state">No kills in the last 24h.</p>;
-  }
 
-  const totalPages = Math.ceil(kills.length / PAGE_SIZE);
+  const totalPages = Math.max(1, Math.ceil(kills.length / PAGE_SIZE));
   const safePage   = Math.min(page, totalPages - 1);
   const pageKills  = kills.slice(safePage * PAGE_SIZE, safePage * PAGE_SIZE + PAGE_SIZE);
 
+  // Render the meta row (with the NPC toggle) regardless of whether there
+  // are kills to show — otherwise the user has no way to flip the toggle
+  // when the filter is hiding every kill.
   return (
     <div className="zkb-pane">
       <div className="zkb-pane__meta">
         <span>
           {kills.length} kill{kills.length !== 1 ? 's' : ''}
+          {!includeNpc && npcCount > 0 && (
+            <span className="zkb-pane__npc-hidden" data-tooltip="NPC-only kills (CONCORD, rats, etc.) hidden">
+              {' '}· {npcCount} NPC hidden
+            </span>
+          )}
           {lastUpdated && <> · updated {timeAgo(lastUpdated.toISOString())}</>}
         </span>
+        <label className="zkb-pane__npc-toggle" data-tooltip="Include NPC-only killmails in the feed">
+          <input
+            type="checkbox"
+            checked={includeNpc}
+            onChange={(e) => {
+              setIncludeNpc(e.target.checked);
+              setPage(0);
+              // Toggling is also a signal of "show me what's actually
+              // there" — force a refetch so the user isn't looking at
+              // stale data from the 5-minute cache.
+              refresh(true);
+            }}
+          />
+          <span>Show NPC kills</span>
+        </label>
         {totalPages > 1 && (
           <span className="zkb-pane__pages">
             <button
@@ -175,9 +237,24 @@ export function KillboardPane({ eveSystemId }: Props) {
           </span>
         )}
       </div>
-      <div className="zkb-pane__list">
-        {pageKills.map((k) => <KillRow key={k.killmail_id} kill={k} />)}
-      </div>
+
+      {loading && kills.length === 0 ? (
+        <p className="zkb-state">Loading kills…</p>
+      ) : error ? (
+        <p className="zkb-state zkb-state--error">{error}</p>
+      ) : kills.length === 0 ? (
+        <p className="zkb-state">
+          No kills in the last 24h
+          {!includeNpc && npcCount > 0 && (
+            <> — {npcCount} NPC-only hidden. <button type="button" className="zkb-pane__inline-toggle" onClick={() => { setIncludeNpc(true); refresh(true); }}>Show them</button></>
+          )}
+          .
+        </p>
+      ) : (
+        <div className="zkb-pane__list">
+          {pageKills.map((k) => <KillRow key={k.killmail_id} kill={k} standings={standings} />)}
+        </div>
+      )}
     </div>
   );
 }

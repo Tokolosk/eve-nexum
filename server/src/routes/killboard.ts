@@ -119,8 +119,12 @@ router.get('/:systemId(\\d+)', async (req, res) => {
   if (fresh) return res.json(fresh.value);
   const stale = cache.peek(systemId);
 
-  // zKillboard: kills in the past 24 h, NPC kills excluded
-  const zkbUrl = `https://zkillboard.com/api/kills/npc/0/solarSystemID/${systemId}/pastSeconds/86400/`;
+  // zKillboard: every kill in the past 24h, NPC flag intact on each row.
+  // We used to pass `npc/0/` to exclude NPCs at the API level, but that
+  // made the client-side toggle ineffective — the server now hands back
+  // everything and the killboard pane decides whether to render NPC kills
+  // based on the user's preference.
+  const zkbUrl = `https://zkillboard.com/api/kills/solarSystemID/${systemId}/pastSeconds/86400/`;
   const zkbHeaders: Record<string, string> = {
     'User-Agent': ZKB_AGENT,
     Accept:       'application/json',

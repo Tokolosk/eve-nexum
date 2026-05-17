@@ -5,6 +5,7 @@ import type { MapSystem } from '../../types';
 import { CLASS_COLORS, CLASS_LABELS, EFFECT_ICONS, EFFECT_LABELS, EFFECT_MODIFIERS, WORMHOLE_DESTINATIONS } from '../../data/wormholes';
 import { useMapStore } from '../../store/mapStore';
 import { useSovData } from '../../hooks/useSovData';
+import { useStandings } from '../../hooks/useStandings';
 import { useEsiSystem } from '../../hooks/useEsiSystem';
 import { useIncursions, findIncursion } from '../../hooks/useIncursions';
 import { useInsurgency, findInsurgency } from '../../hooks/useInsurgency';
@@ -27,7 +28,25 @@ export const SystemNode = memo(({ data, selected }: NodeProps) => {
   const currentSystemId = useMapStore((s) => s.currentSystemId);
   const isCurrent       = sys.id === currentSystemId;
   const sov             = useSovData(sys.eveSystemId);
+  const standings       = useStandings();
   const esiSys          = useEsiSystem(sys.eveSystemId);
+
+  // Halo around any sov-holder system based on the user's contact bands.
+  // Threshold is just "negative or positive" rather than the strict ≤-5
+  // EVE flag tier — most players set hostiles to exactly -5 (orange),
+  // which we still want to highlight on the map.
+  const sovEffective = useMemo(() => {
+    if (!standings.loaded || !sov) return 0;
+    const values: number[] = [];
+    if (sov.corporationId) values.push(standings.getStanding('corporation', sov.corporationId).effective);
+    if (sov.allianceId)    values.push(standings.getStanding('alliance',    sov.allianceId).effective);
+    if (!values.length) return 0;
+    // Pick the most extreme magnitude so a +10 alliance with a 0 corp
+    // still flashes blue (and vice-versa for hostile).
+    return values.reduce((a, b) => (Math.abs(a) >= Math.abs(b) ? a : b));
+  }, [standings, sov]);
+  const isSovHostile = sovEffective < 0;
+  const isSovBlue    = sovEffective > 0;
   const incursions      = useIncursions();
   const incursion       = findIncursion(incursions, sys.eveSystemId);
   const insurgencies    = useInsurgency();
@@ -60,7 +79,7 @@ export const SystemNode = memo(({ data, selected }: NodeProps) => {
 
   return (
     <div
-      className={`system-node${sys.locked ? ' nopan' : ''}${isTarget ? ' system-node--connect-target' : ''}${isStale ? ' system-node--stale' : ''}`}
+      className={`system-node${sys.locked ? ' nopan' : ''}${isTarget ? ' system-node--connect-target' : ''}${isStale ? ' system-node--stale' : ''}${isSovHostile ? ' system-node--sov-hostile' : ''}${isSovBlue ? ' system-node--sov-blue' : ''}`}
       style={{ '--class-color': color } as React.CSSProperties}
       data-selected={selected}
       data-status={sys.status}

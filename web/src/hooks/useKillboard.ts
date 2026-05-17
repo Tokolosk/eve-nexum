@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../api/client';
 
 export interface ZkbKill {
@@ -30,57 +30,84 @@ interface CacheEntry {
 }
 
 const CACHE_TTL_MS = 5 * 60 * 1000;
+// Cache the *raw* (unfiltered) zKillboard response so toggling NPC
+// inclusion doesn't require a refetch — we just re-apply the filter.
 const clientCache = new Map<number, CacheEntry>();
 
-export function useKillboard(eveSystemId: number | null) {
-  const [kills, setKills]           = useState<ZkbKill[]>([]);
+export interface UseKillboardOptions {
+  /** Include NPC-only kills (zkb.npc === true). Defaults to false. */
+  includeNpc?: boolean;
+}
+
+export function useKillboard(eveSystemId: number | null, options: UseKillboardOptions = {}) {
+  const { includeNpc = false } = options;
+  // Raw (unfiltered) data goes through state so toggling `includeNpc`
+  // doesn't require a refetch — we re-apply the filter in a useMemo below.
+  const [rawKills, setRawKills]     = useState<ZkbKill[]>([]);
   const [loading, setLoading]       = useState(false);
   const [error, setError]           = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const cancelledRef = useRef(false);
+  const systemRef    = useRef<number | null>(null);
+
+  // Stable fetcher exposed via the hook return so consumers (e.g. the
+  // killboard pane's NPC toggle) can force-refresh on demand. `force=true`
+  // skips the TTL cache check; otherwise the cache is honoured.
+  const refresh = useCallback(async (force = false) => {
+    const id = systemRef.current;
+    if (!id) return;
+    const cached = clientCache.get(id);
+    if (!force && cached && Date.now() - cached.fetchedAt < CACHE_TTL_MS) {
+      setRawKills(cached.kills);
+      setLastUpdated(new Date(cached.fetchedAt));
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await api<ZkbKill[]>(`/api/killboard/${id}`);
+      if (cancelledRef.current || systemRef.current !== id) return;
+      clientCache.set(id, { kills: data, fetchedAt: Date.now() });
+      setRawKills(data);
+      setLastUpdated(new Date());
+    } catch {
+      if (!cancelledRef.current) setError('Could not load kill data');
+    } finally {
+      if (!cancelledRef.current) setLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
+    systemRef.current = eveSystemId;
     if (!eveSystemId) {
-      setKills([]);
+      setRawKills([]);
       setError(null);
       setLastUpdated(null);
       return;
     }
 
     cancelledRef.current = false;
-
-    async function fetchKills() {
-      const now = Date.now();
-      const cached = clientCache.get(eveSystemId!);
-      if (cached && now - cached.fetchedAt < CACHE_TTL_MS) {
-        setKills(cached.kills);
-        setLastUpdated(new Date(cached.fetchedAt));
-        return;
-      }
-
-      setLoading(true);
-      setError(null);
-      try {
-        const data = await api<ZkbKill[]>(`/api/killboard/${eveSystemId}`);
-        if (cancelledRef.current) return;
-        clientCache.set(eveSystemId!, { kills: data, fetchedAt: Date.now() });
-        setKills(data);
-        setLastUpdated(new Date());
-      } catch {
-        if (!cancelledRef.current) setError('Could not load kill data');
-      } finally {
-        if (!cancelledRef.current) setLoading(false);
-      }
-    }
-
-    fetchKills();
-    const interval = setInterval(fetchKills, CACHE_TTL_MS);
+    refresh();
+    const interval = setInterval(() => refresh(), CACHE_TTL_MS);
 
     return () => {
       cancelledRef.current = true;
       clearInterval(interval);
     };
-  }, [eveSystemId]);
+  }, [eveSystemId, refresh]);
 
-  return { kills, loading, error, lastUpdated };
+  // zKillboard flags `npc: true` on killmails where every attacker was an
+  // NPC (CONCORD pops, ratter rage, null NPC fleets). Strip them by
+  // default — they're noise in a wormhole / ops feed. The toggle lets ops
+  // opt back in when investigating something specific.
+  const kills = useMemo(
+    () => (includeNpc ? rawKills : rawKills.filter((k) => !k.zkb.npc)),
+    [rawKills, includeNpc],
+  );
+  const npcCount = useMemo(
+    () => rawKills.reduce((n, k) => n + (k.zkb.npc ? 1 : 0), 0),
+    [rawKills],
+  );
+
+  return { kills, loading, error, lastUpdated, npcCount, refresh };
 }

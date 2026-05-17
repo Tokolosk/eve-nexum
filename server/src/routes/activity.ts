@@ -26,7 +26,11 @@ interface EsiSnapshot {
 }
 
 const systemHistory  = new Map<number, HourlyPoint[]>();
-const trackedSystems = new Set<number>();
+// `trackedSystems` used to gate which systems recordSnapshot persisted.
+// Now we persist every system in the ESI snapshot, so the in-memory
+// `systemHistory` map alone is enough to know "do I have a buffer for
+// this system this session" — set membership in `systemHistory` is the
+// new tracker.
 let   esiCache: EsiSnapshot | null = null;
 let   fetching: Promise<EsiSnapshot | null> | null = null;
 // Tracks the ESI snapshot timestamp that's already been written to the DB so
@@ -96,25 +100,35 @@ async function ensureHistory(sysId: number): Promise<void> {
   if (systemHistory.has(sysId)) return;
   const history = await loadFromDb(sysId);
   systemHistory.set(sysId, history);
-  trackedSystems.add(sysId);
 }
 
 async function recordSnapshot(): Promise<void> {
   const snap = await fetchEsi();
-  if (!snap || trackedSystems.size === 0) return;
+  if (!snap) return;
 
   const hour     = hourFloor();
   const hourDate = new Date(hour);
 
-  // Single pass: refresh the in-memory ring buffer and collect arrays for the
-  // bulk DB write.
+  // Union of every system that appears in either ESI snapshot — these are
+  // the systems with non-zero activity this hour. We persist a row for
+  // each so the charts can render history for every k-space system, not
+  // just the ones a Nexum user has opened.
+  const systemsInSnap = new Set<number>();
+  for (const id of snap.jumps.keys()) systemsInSnap.add(id);
+  for (const id of snap.kills.keys()) systemsInSnap.add(id);
+  if (systemsInSnap.size === 0) return;
+
+  // Single pass: collect arrays for the bulk DB write + refresh the
+  // in-memory ring buffer for any system we already have buffered (i.e.
+  // someone has viewed it this session). Brand-new systems get loaded
+  // from DB on first view via ensureHistory().
   const sysIds:    number[] = [];
   const jumps:     number[] = [];
   const shipKills: number[] = [];
   const podKills:  number[] = [];
   const npcKills:  number[] = [];
 
-  for (const sysId of trackedSystems) {
+  for (const sysId of systemsInSnap) {
     const kll = snap.kills.get(sysId);
     const point: HourlyPoint = {
       hour,
@@ -123,14 +137,15 @@ async function recordSnapshot(): Promise<void> {
       podKills:  kll?.pod_kills  ?? 0,
       npcKills:  kll?.npc_kills  ?? 0,
     };
-    const history = systemHistory.get(sysId) ?? [];
-    if (history.length > 0 && history[history.length - 1].hour === hour) {
-      history[history.length - 1] = point;
-    } else {
-      history.push(point);
-      if (history.length > MAX_HISTORY) history.shift();
+    const history = systemHistory.get(sysId);
+    if (history) {
+      if (history.length > 0 && history[history.length - 1].hour === hour) {
+        history[history.length - 1] = point;
+      } else {
+        history.push(point);
+        if (history.length > MAX_HISTORY) history.shift();
+      }
     }
-    systemHistory.set(sysId, history);
 
     sysIds.push(sysId);
     jumps.push(point.jumps);
@@ -141,10 +156,13 @@ async function recordSnapshot(): Promise<void> {
 
   // If we've already written this ESI snapshot to the DB, the rows wouldn't
   // change — skip the round-trip entirely.
-  if (snap.fetchedAt === lastWrittenFetchedAt || sysIds.length === 0) return;
+  if (snap.fetchedAt === lastWrittenFetchedAt) return;
 
-  // Bulk INSERT...ON CONFLICT in one round-trip via unnest() arrays. Previously
-  // we did one INSERT per tracked system serially.
+  // Bulk INSERT...ON CONFLICT in one round-trip via unnest() arrays. The
+  // ON CONFLICT DO UPDATE here is what makes the boot-time fetch a safe
+  // re-fetch — if the row for (system, hour) already exists from an
+  // earlier process lifetime, we just overwrite it with the current
+  // ESI-cached counts.
   await db.query(
     `INSERT INTO system_activity (eve_system_id, hour, jumps, ship_kills, pod_kills, npc_kills)
      SELECT * FROM unnest(
@@ -171,22 +189,25 @@ async function pruneOldRows(): Promise<void> {
 // `system_activity` table exists by the time we read from it. The previous
 // fire-on-import pattern would swallow a "relation does not exist" error and
 // then race writes against the migration on cold start.
-export async function initActivity(): Promise<void> {
-  const { rows } = await db.query<{ eve_system_id: number }>(
-    `SELECT DISTINCT eve_system_id FROM system_activity`,
-  );
-  for (const row of rows) trackedSystems.add(row.eve_system_id);
-  await pruneOldRows();
-  scheduleNextPoll();
-}
+//
+// On boot we immediately call recordSnapshot() so the current hour's data
+// is captured (or refreshed via ON CONFLICT if a row already exists from
+// a previous server lifetime). Then a 61-minute interval keeps us
+// comfortably past CCP's 60-minute cache TTL on every subsequent poll,
+// so we never refetch the same hourly aggregate twice in a row.
+const POLL_MS = 61 * 60 * 1000;
 
-function scheduleNextPoll() {
-  const now  = Date.now();
-  const next = Math.ceil(now / HOUR_MS) * HOUR_MS + 60_000;
-  setTimeout(async () => {
-    await recordSnapshot();
-    scheduleNextPoll();
-  }, next - now);
+export async function initActivity(): Promise<void> {
+  await pruneOldRows();
+
+  // Capture the latest ESI snapshot for *every* system right now. Failures
+  // are non-fatal — we'll retry on the next poll.
+  try { await recordSnapshot(); }
+  catch (err) { console.error('[activity] boot snapshot failed:', err); }
+
+  setInterval(() => {
+    recordSnapshot().catch((err) => console.error('[activity] poll failed:', err));
+  }, POLL_MS);
 }
 
 router.get('/:systemId(\\d+)', async (req, res) => {
