@@ -228,6 +228,52 @@ console.log('wrote ' + ids.length + ' A0 system IDs');
 
 Restart the server after regenerating — the file is read once at process start.
 
+### `data/wormholes.json`
+
+Per-wormhole-type metadata for every connection signature (T405, R943, K162, …) keyed by the in-game 3-letter code. Each entry carries the destination class, mass limits, lifetime, mass-regen, source classes, static-flag, sibling groups, and the EVE `typeID`. The client uses it for the wormhole type picker, sig aging tints, and the WH-type info popover; the server uses it for the demo-map seeder and a few admin-side lookups.
+
+Schema follows the [exodus4d/Pathfinder](https://github.com/exodus4d/pathfinder) shape — that project is the original source of the file and is bundled at the repo root for licensing/attribution. CCP rebalancing or new wormhole types (e.g. recent additions that exodus4d/Pathfinder no longer mirrors) require this file to be refreshed.
+
+**Refreshing from the SDE.** Most fields can be pulled deterministically from dogma attributes on the `Wormhole XXX` item types:
+
+| Field | Source |
+|---|---|
+| `dest` | dogma attribute `1381` (`wormholeTargetSystemClass`) |
+| `total_mass` | dogma attribute `1382` (`massWormholeTotal`) |
+| `max_mass_per_jump` | dogma attribute `1383` (`massWormholeMaxJumpable`) |
+| `mass_regen` | dogma attribute `1384` (`massWormholeMassRegeneration`) |
+| `lifetime` | dogma attribute `1503` (`wormholeMaxStableTime`, seconds — converted to hours) |
+
+What CCP does **not** encode in dogma is the `src` array — "where can this wormhole appear" is community/observation knowledge, not data. The refresh script preserves existing `src`, `static`, and `sibling_groups` values from the current `wormholes.json` and only flags brand-new codes for manual review.
+
+Run it after a fresh `yarn setup-db`:
+
+```bash
+cd server
+PG_HOST=localhost yarn extract-wormholes
+```
+
+Or inside Docker via a one-off container (matching the SDE refresh recipe in the Troubleshooting section):
+
+```bash
+docker compose run --rm \
+  -v "$PWD/server:/app" \
+  -w /app \
+  -e NODE_ENV=development \
+  --entrypoint sh \
+  server -c "yarn install --frozen-lockfile && yarn extract-wormholes"
+```
+
+The script prints three lists at the end:
+
+- **New codes** since last run — these have `src: []` and `static: false` filled in as placeholders; review them against CCP's patch notes (or the WH's in-game description) and edit by hand.
+- **Orphaned codes** — present in old JSON but absent from current SDE. Usually means CCP removed the type (very rare).
+- **Unmapped destination classes** — printed only if CCP adds a new class enum we don't know about; if you see this, extend `CLASS_MAP` at the top of `scripts/extract-wormholes.ts`.
+
+K162 is special-cased: it's preserved untouched because it has no single destination class (it's the "return side" of every other connection).
+
+Restart the server after regenerating.
+
 ---
 
 ## Corp mode
