@@ -122,6 +122,8 @@ export function MapSidebar() {
   const setConnectionThickness = useMapStore((s) => s.setConnectionThickness);
   const routeMode              = useMapStore((s) => s.routeMode);
   const setRouteMode           = useMapStore((s) => s.setRouteMode);
+  const uiZoom                 = useMapStore((s) => s.uiZoom);
+  const setUiZoom              = useMapStore((s) => s.setUiZoom);
   const updateConnection = useMapStore((s) => s.updateConnection);
   const requestAutoLayout = useMapStore((s) => s.requestAutoLayout);
   const connectionCount  = useMapStore((s) => s.map.connections.length);
@@ -213,6 +215,30 @@ export function MapSidebar() {
             >
               {showMinimap ? 'On' : 'Off'}
             </button>
+          </div>
+
+          <div className="map-sidebar__row">
+            <label className="map-sidebar__label" htmlFor="ui-zoom">Font Size</label>
+            <div className="map-sidebar__zoom">
+              <input
+                id="ui-zoom"
+                type="range"
+                min={0.8}
+                max={1.5}
+                step={0.05}
+                value={uiZoom}
+                onChange={(e) => setUiZoom(parseFloat(e.target.value))}
+                className="map-sidebar__zoom-slider"
+              />
+              <button
+                type="button"
+                className="map-sidebar__zoom-value"
+                onClick={() => setUiZoom(1)}
+                title="Reset to 100%"
+              >
+                {Math.round(uiZoom * 100)}%
+              </button>
+            </div>
           </div>
         </CollapsibleSection>
 

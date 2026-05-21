@@ -15,6 +15,7 @@ export interface AuthUser {
   connectionThickness: string;
   routeMode: string;
   routeIncludeBridges: boolean;
+  uiZoom: number;
   panelOrder: string[];
   canViewReports: boolean;
 }

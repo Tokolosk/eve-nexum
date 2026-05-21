@@ -193,8 +193,8 @@ authRouter.get('/callback', async (req, res) => {
     await seedDemoMap(userId);
 
     // Snapshot prefs into the session so /auth/me can answer without a DB call.
-    const prefRows = await db.query<{ compact_mode: boolean; snap_to_grid: boolean; show_minimap: boolean; uniform_size: boolean; show_statics: boolean; connection_thickness: string; route_mode: string; route_include_bridges: boolean; panel_order: string[] }>(
-      `SELECT compact_mode, snap_to_grid, show_minimap, uniform_size, show_statics, connection_thickness, route_mode, route_include_bridges, panel_order FROM users WHERE id = $1`,
+    const prefRows = await db.query<{ compact_mode: boolean; snap_to_grid: boolean; show_minimap: boolean; uniform_size: boolean; show_statics: boolean; connection_thickness: string; route_mode: string; route_include_bridges: boolean; ui_zoom: string; panel_order: string[] }>(
+      `SELECT compact_mode, snap_to_grid, show_minimap, uniform_size, show_statics, connection_thickness, route_mode, route_include_bridges, ui_zoom, panel_order FROM users WHERE id = $1`,
       [userId],
     );
     const p = prefRows.rows[0];
@@ -219,6 +219,7 @@ authRouter.get('/callback', async (req, res) => {
       connectionThickness: p?.connection_thickness ?? 'standard',
       routeMode:   p?.route_mode ?? 'shortest',
       routeIncludeBridges: p?.route_include_bridges ?? false,
+      uiZoom:      p?.ui_zoom != null ? Number(p.ui_zoom) : 1,
       panelOrder:  p?.panel_order  ?? ['notes', 'signatures'],
     };
 
@@ -264,8 +265,8 @@ authRouter.get('/me', async (req, res) => {
   let prefs = req.session.prefs;
   let role  = req.session.role ?? 'readonly';
   if (!prefs) {
-    const { rows } = await db.query<{ compact_mode: boolean; snap_to_grid: boolean; show_minimap: boolean; uniform_size: boolean; show_statics: boolean; connection_thickness: string; route_mode: string; route_include_bridges: boolean; panel_order: string[]; role: string }>(
-      `SELECT compact_mode, snap_to_grid, show_minimap, uniform_size, show_statics, connection_thickness, route_mode, route_include_bridges, panel_order, role FROM users WHERE id = $1`,
+    const { rows } = await db.query<{ compact_mode: boolean; snap_to_grid: boolean; show_minimap: boolean; uniform_size: boolean; show_statics: boolean; connection_thickness: string; route_mode: string; route_include_bridges: boolean; ui_zoom: string; panel_order: string[]; role: string }>(
+      `SELECT compact_mode, snap_to_grid, show_minimap, uniform_size, show_statics, connection_thickness, route_mode, route_include_bridges, ui_zoom, panel_order, role FROM users WHERE id = $1`,
       [req.session.userId],
     );
     const row = rows[0];
@@ -278,6 +279,7 @@ authRouter.get('/me', async (req, res) => {
       connectionThickness: row?.connection_thickness ?? 'standard',
       routeMode:   row?.route_mode ?? 'shortest',
       routeIncludeBridges: row?.route_include_bridges ?? false,
+      uiZoom:      row?.ui_zoom != null ? Number(row.ui_zoom) : 1,
       panelOrder:  row?.panel_order  ?? ['notes', 'signatures'],
     };
     role = (row?.role as 'admin' | 'full' | 'edit' | 'readonly') ?? 'readonly';
@@ -303,6 +305,7 @@ authRouter.get('/me', async (req, res) => {
       connectionThickness: prefs.connectionThickness ?? 'standard',
       routeMode:     prefs.routeMode ?? 'shortest',
       routeIncludeBridges: prefs.routeIncludeBridges ?? false,
+      uiZoom:        prefs.uiZoom ?? 1,
       panelOrder:    prefs.panelOrder,
       canViewReports: config.reportsCharId !== null && req.session.characterId === config.reportsCharId,
     },
@@ -315,7 +318,7 @@ const MAX_PANEL_KEY_LEN = 64;
 
 authRouter.patch('/preferences', async (req, res) => {
   if (!req.session.userId) { res.status(401).json({ error: 'Not authenticated' }); return; }
-  const { compactMode, snapToGrid, showMinimap, uniformSize, showStatics, connectionThickness, routeMode, routeIncludeBridges, panelOrder } = req.body as { compactMode?: boolean; snapToGrid?: boolean; showMinimap?: boolean; uniformSize?: boolean; showStatics?: boolean; connectionThickness?: string; routeMode?: string; routeIncludeBridges?: boolean; panelOrder?: unknown };
+  const { compactMode, snapToGrid, showMinimap, uniformSize, showStatics, connectionThickness, routeMode, routeIncludeBridges, uiZoom, panelOrder } = req.body as { compactMode?: boolean; snapToGrid?: boolean; showMinimap?: boolean; uniformSize?: boolean; showStatics?: boolean; connectionThickness?: string; routeMode?: string; routeIncludeBridges?: boolean; uiZoom?: number; panelOrder?: unknown };
   const VALID_THICKNESS = new Set(['thin', 'standard', 'thick', 'extra']);
   const VALID_ROUTE_MODE = new Set(['shortest', 'secure']);
 
@@ -334,6 +337,10 @@ authRouter.patch('/preferences', async (req, res) => {
   }
   if (typeof routeIncludeBridges === 'boolean') {
     sets.push(`route_include_bridges = $${vals.length + 1}`); vals.push(routeIncludeBridges);
+  }
+  if (typeof uiZoom === 'number' && Number.isFinite(uiZoom)) {
+    const clamped = Math.min(1.5, Math.max(0.8, uiZoom));
+    sets.push(`ui_zoom = $${vals.length + 1}`); vals.push(clamped);
   }
   if (panelOrder !== undefined) {
     if (!Array.isArray(panelOrder) || panelOrder.length > MAX_PANELS ||
@@ -366,6 +373,9 @@ authRouter.patch('/preferences', async (req, res) => {
     }
     if (typeof routeIncludeBridges === 'boolean') {
       req.session.prefs.routeIncludeBridges = routeIncludeBridges;
+    }
+    if (typeof uiZoom === 'number' && Number.isFinite(uiZoom)) {
+      req.session.prefs.uiZoom = Math.min(1.5, Math.max(0.8, uiZoom));
     }
     if (Array.isArray(panelOrder))        req.session.prefs.panelOrder  = panelOrder as string[];
   }

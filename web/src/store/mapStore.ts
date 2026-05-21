@@ -96,6 +96,7 @@ interface MapStore {
   connectionThickness: 'thin' | 'standard' | 'thick' | 'extra';
   routeMode: 'shortest' | 'secure';
   routeIncludeBridges: boolean;
+  uiZoom: number;
   trackJumps: boolean;
   // Largest natural node dimensions seen so far — used as the min-width /
   // min-height for every node when uniformSize is on. Each SystemNode
@@ -105,6 +106,7 @@ interface MapStore {
   uniformHeight: number;
   reportNodeSize: (id: string, width: number, height: number, countHeight: boolean) => void;
   forgetNodeSize: (id: string) => void;
+  resetUniformSizes: () => void;
   easyConnect: boolean;
   mapOptionsOpen: boolean;
   edgeStyle: 'bezier' | 'straight' | 'smoothstep';
@@ -118,7 +120,7 @@ interface MapStore {
   undo: () => Promise<void>;
 
   panelOrder: string[];
-  applyPreferences: (prefs: { compactMode: boolean; snapToGrid: boolean; showMinimap: boolean; uniformSize: boolean; showStatics: boolean; connectionThickness: string; routeMode: string; routeIncludeBridges: boolean; panelOrder: string[] }) => void;
+  applyPreferences: (prefs: { compactMode: boolean; snapToGrid: boolean; showMinimap: boolean; uniformSize: boolean; showStatics: boolean; connectionThickness: string; routeMode: string; routeIncludeBridges: boolean; uiZoom: number; panelOrder: string[] }) => void;
   setPanelOrder: (order: string[]) => void;
   setShowMinimap: (v: boolean) => void;
   setUniformSize: (v: boolean) => void;
@@ -126,6 +128,7 @@ interface MapStore {
   setConnectionThickness: (v: 'thin' | 'standard' | 'thick' | 'extra') => void;
   setRouteMode: (v: 'shortest' | 'secure') => void;
   setRouteIncludeBridges: (v: boolean) => void;
+  setUiZoom: (v: number) => void;
   setTrackJumps: (v: boolean) => void;
   setEasyConnect: (v: boolean) => void;
   setMapOptionsOpen: (v: boolean) => void;
@@ -320,6 +323,7 @@ export const useMapStore = create<MapStore>()((set, get) => {
     connectionThickness: 'standard',
     routeMode:   'shortest',
     routeIncludeBridges: false,
+    uiZoom: 1,
     trackJumps:  (typeof localStorage !== 'undefined' ? localStorage.getItem('nexum.trackJumps') : null) !== 'false',
     uniformWidth:  0,
     uniformHeight: 0,
@@ -341,7 +345,7 @@ export const useMapStore = create<MapStore>()((set, get) => {
       await applyUndo(cmd);
     },
 
-    applyPreferences: ({ compactMode, snapToGrid, showMinimap, uniformSize, showStatics, connectionThickness, routeMode, routeIncludeBridges, panelOrder }) => {
+    applyPreferences: ({ compactMode, snapToGrid, showMinimap, uniformSize, showStatics, connectionThickness, routeMode, routeIncludeBridges, uiZoom, panelOrder }) => {
       // Whitelist of valid panel keys. `standings` was briefly a panel here
       // — kept in the filter so any persisted occurrence is silently
       // dropped on load now that standings live inline in the sov section.
@@ -354,7 +358,8 @@ export const useMapStore = create<MapStore>()((set, get) => {
       const safeThickness = (VALID_THICK.has(connectionThickness) ? connectionThickness : 'standard') as 'thin' | 'standard' | 'thick' | 'extra';
       const VALID_ROUTE = new Set(['shortest', 'secure']);
       const safeRouteMode = (VALID_ROUTE.has(routeMode) ? routeMode : 'shortest') as 'shortest' | 'secure';
-      set({ compactMode, snapToGrid, showMinimap, uniformSize, showStatics, connectionThickness: safeThickness, routeMode: safeRouteMode, routeIncludeBridges: Boolean(routeIncludeBridges), panelOrder: merged });
+      const safeZoom = Number.isFinite(uiZoom) ? Math.min(1.5, Math.max(0.8, uiZoom)) : 1;
+      set({ compactMode, snapToGrid, showMinimap, uniformSize, showStatics, connectionThickness: safeThickness, routeMode: safeRouteMode, routeIncludeBridges: Boolean(routeIncludeBridges), uiZoom: safeZoom, panelOrder: merged });
     },
 
     setPanelOrder: (order) => {
@@ -468,6 +473,12 @@ export const useMapStore = create<MapStore>()((set, get) => {
       api('/auth/preferences', { method: 'PATCH', body: JSON.stringify({ routeIncludeBridges: v }) }).catch(console.error);
     },
 
+    setUiZoom: (v) => {
+      const clamped = Math.min(1.5, Math.max(0.8, Number.isFinite(v) ? v : 1));
+      set({ uiZoom: clamped });
+      api('/auth/preferences', { method: 'PATCH', body: JSON.stringify({ uiZoom: clamped }) }).catch(console.error);
+    },
+
     setTrackJumps: (v) => {
       set({ trackJumps: v });
       localStorage.setItem('nexum.trackJumps', String(v));
@@ -495,6 +506,19 @@ export const useMapStore = create<MapStore>()((set, get) => {
       const cur = get();
       if (cur.uniformWidth !== w || cur.uniformHeight !== h) {
         set({ uniformWidth: w, uniformHeight: h });
+      }
+    },
+
+    // Drop every cached natural size and reset the broadcast uniform
+    // dimensions to 0. Every SystemNode unclamps for one render,
+    // ResizeObserver fires with the natural sizes, the store rebuilds
+    // the max, and the clamp reapplies — all within a couple of frames.
+    // Invoked when font scaling changes the natural sizes underneath us.
+    resetUniformSizes: () => {
+      nodeSizes.clear();
+      const cur = get();
+      if (cur.uniformWidth !== 0 || cur.uniformHeight !== 0) {
+        set({ uniformWidth: 0, uniformHeight: 0 });
       }
     },
 

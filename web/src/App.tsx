@@ -24,13 +24,32 @@ function MapApp() {
   const selectedConnectionId = useMapStore((s) => s.selectedConnectionId);
   const loadMaps            = useMapStore((s) => s.loadMaps);
   const applyPreferences    = useMapStore((s) => s.applyPreferences);
+  const uiZoom              = useMapStore((s) => s.uiZoom);
+  const resetUniformSizes   = useMapStore((s) => s.resetUniformSizes);
+
+  // Apply the user's UI scale as a CSS custom property. App.css `font-size`
+  // declarations multiply through `calc(Npx * var(--font-scale, 1))`, so
+  // only text scales — layout boxes stay the same size and React Flow /
+  // modal positioning math keeps working. Previously this used CSS
+  // `zoom`, which broke `getBoundingClientRect` for click hit-tests and
+  // shifted "centre on system" off-target.
+  //
+  // After the font scale changes, the natural width/height of every
+  // SystemNode is now different. Drop the cached natural sizes so the
+  // uniform-size clamp re-computes from fresh measurements; otherwise
+  // nodes stay pinned to the old max.
+  useEffect(() => {
+    document.documentElement.style.setProperty('--font-scale', String(uiZoom));
+    resetUniformSizes();
+    return () => { document.documentElement.style.removeProperty('--font-scale'); };
+  }, [uiZoom, resetUniformSizes]);
 
   // Only re-run when the user's identity changes, not on every shape mutation
   // of the user object (panel reorder, prefs toggle, etc).
   const userId = user?.id;
 
   useEffect(() => {
-    if (user) applyPreferences({ compactMode: user.compactMode, snapToGrid: user.snapToGrid, showMinimap: user.showMinimap, uniformSize: user.uniformSize, showStatics: user.showStatics, connectionThickness: user.connectionThickness, routeMode: user.routeMode, routeIncludeBridges: user.routeIncludeBridges, panelOrder: user.panelOrder });
+    if (user) applyPreferences({ compactMode: user.compactMode, snapToGrid: user.snapToGrid, showMinimap: user.showMinimap, uniformSize: user.uniformSize, showStatics: user.showStatics, connectionThickness: user.connectionThickness, routeMode: user.routeMode, routeIncludeBridges: user.routeIncludeBridges, uiZoom: user.uiZoom, panelOrder: user.panelOrder });
     loadMaps();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId, loadMaps, applyPreferences]);

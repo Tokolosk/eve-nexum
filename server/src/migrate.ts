@@ -58,6 +58,7 @@ export async function migrate() {
     ALTER TABLE users ADD COLUMN IF NOT EXISTS connection_thickness TEXT NOT NULL DEFAULT 'standard';
     ALTER TABLE users ADD COLUMN IF NOT EXISTS route_mode           TEXT NOT NULL DEFAULT 'shortest';
     ALTER TABLE users ADD COLUMN IF NOT EXISTS route_include_bridges BOOLEAN NOT NULL DEFAULT FALSE;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS ui_zoom NUMERIC(3,2) NOT NULL DEFAULT 1.00;
 
     -- Player-owned Ansiblex jump bridges. One row per Ansiblex structure;
     -- destination is parsed from the structure name (community convention:

@@ -25,6 +25,12 @@ const DEFAULT_HUBS: ReadonlyArray<{ id: number; name: string }> = [
 // Persist both the order AND the resolved names so the pane can label
 // custom systems without making an extra round-trip on every reload.
 const LIST_KEY = 'nexum.closestSystems.list';
+// IDs the user has explicitly hidden when they were the current home.
+// Lets someone keep their home set in-game without it cluttering this
+// pane. If they later change home to a different system, the new home
+// still auto-appears because its ID isn't in this set.
+const HIDDEN_HOME_KEY = 'nexum.closestSystems.hiddenHome';
+
 interface StoredEntry { id: number; name: string }
 
 function loadList(): StoredEntry[] {
@@ -44,11 +50,27 @@ function loadList(): StoredEntry[] {
   }
 }
 
+function loadHiddenHome(): Set<number> {
+  const raw = localStorage.getItem(HIDDEN_HOME_KEY);
+  if (!raw) return new Set();
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return new Set();
+    return new Set(parsed.filter((n): n is number => typeof n === 'number'));
+  } catch {
+    return new Set();
+  }
+}
+
 interface RowItem {
-  id:        number;
-  name:      string;
-  isHome:    boolean;
-  removable: boolean;
+  id:     number;
+  name:   string;
+  isHome: boolean;
+  // `true` when the row is in the user's saved list — removing it just
+  // takes it out of the list. The home auto-row (not in list) is also
+  // removable; its remove handler adds the system ID to hiddenHome so
+  // it stays gone until the user picks a different home.
+  inList: boolean;
 }
 
 interface RowProps {
@@ -146,6 +168,7 @@ export function ClosestSystemsPane() {
   }));
 
   const [list, setList]         = useState<StoredEntry[]>(loadList);
+  const [hiddenHome, setHiddenHome] = useState<Set<number>>(loadHiddenHome);
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
   const [adding, setAdding]     = useState(false);
   const [query, setQuery]       = useState('');
@@ -156,6 +179,7 @@ export function ClosestSystemsPane() {
   const addRowRef               = useRef<HTMLDivElement>(null);
 
   useEffect(() => { localStorage.setItem(LIST_KEY, JSON.stringify(list)); }, [list]);
+  useEffect(() => { localStorage.setItem(HIDDEN_HOME_KEY, JSON.stringify([...hiddenHome])); }, [hiddenHome]);
 
   useEffect(() => { if (adding) inputRef.current?.focus(); }, [adding]);
   useEffect(() => { setActiveIndex(-1); }, [results]);
@@ -185,22 +209,23 @@ export function ClosestSystemsPane() {
     location.system !== null &&
     KSPACE_CLASSES.has(location.system.systemClass);
 
-  // Items = home (auto, if present and not already in list) ++ user list.
-  // Home is non-removable because it's reactive to the map state; the
-  // user can drop the indicator by un-setting home on the system node.
+  // Items = home (auto, if present and not in list and not hidden) ++
+  // user list. Every row is removable. Removing the auto-home row hides
+  // it via the hiddenHome set; if the user later picks a different
+  // home, that new ID isn't in the set so it auto-appears.
   const items = useMemo<RowItem[]>(() => {
     const result: RowItem[] = [];
     const seen = new Set<number>();
     for (const entry of list) {
       const isHome = homeSystem?.id === entry.id;
-      result.push({ id: entry.id, name: entry.name, isHome, removable: true });
+      result.push({ id: entry.id, name: entry.name, isHome, inList: true });
       seen.add(entry.id);
     }
-    if (homeSystem && !seen.has(homeSystem.id)) {
-      result.unshift({ id: homeSystem.id, name: homeSystem.name, isHome: true, removable: false });
+    if (homeSystem && !seen.has(homeSystem.id) && !hiddenHome.has(homeSystem.id)) {
+      result.unshift({ id: homeSystem.id, name: homeSystem.name, isHome: true, inList: false });
     }
     return result;
-  }, [list, homeSystem]);
+  }, [list, homeSystem, hiddenHome]);
 
   const targetIds = useMemo(() => items.map((i) => i.id), [items]);
   const routes    = useRoute(canRoute ? location.system!.eveSystemId : null, targetIds);
@@ -212,7 +237,7 @@ export function ClosestSystemsPane() {
     if (!over || active.id === over.id) return;
     // Reorder only within the user list — the home auto-row (when not in
     // list) sits at the top regardless.
-    const draggable = items.filter((i) => i.removable);
+    const draggable = items.filter((i) => i.inList);
     const ids = draggable.map((i) => i.id);
     const a   = ids.indexOf(Number(active.id));
     const b   = ids.indexOf(Number(over.id));
@@ -230,12 +255,32 @@ export function ClosestSystemsPane() {
     });
   }
 
-  function removeFromList(id: number) {
+  function removeRow(id: number) {
     setList((prev) => prev.filter((e) => e.id !== id));
+    // If we just removed the current home (whether it was in the list
+    // or was the auto-row), hide it so it doesn't re-appear on the
+    // next render. Tracking by ID means a future home change still
+    // surfaces normally.
+    if (homeSystem?.id === id) {
+      setHiddenHome((prev) => {
+        const next = new Set(prev);
+        next.add(id);
+        return next;
+      });
+    }
   }
 
   function addSystem(id: number, name: string) {
     setList((prev) => prev.some((e) => e.id === id) ? prev : [...prev, { id, name }]);
+    // Adding a system explicitly clears the hidden-home flag for it —
+    // user wants it back in the list now.
+    if (hiddenHome.has(id)) {
+      setHiddenHome((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+    }
     setQuery('');
     setAdding(false);
   }
@@ -294,7 +339,7 @@ export function ClosestSystemsPane() {
               route={routes[String(i.id)]}
               isOpen={expanded.has(i.id)}
               onToggle={() => toggleExpanded(i.id)}
-              onRemove={i.removable ? () => removeFromList(i.id) : undefined}
+              onRemove={() => removeRow(i.id)}
               routeMode={routeMode}
             />
           ))}

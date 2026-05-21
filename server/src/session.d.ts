@@ -19,6 +19,7 @@ declare module 'express-session' {
       connectionThickness: string;
       routeMode: string;
       routeIncludeBridges: boolean;
+      uiZoom: number;
       panelOrder:  string[];
     };
   }

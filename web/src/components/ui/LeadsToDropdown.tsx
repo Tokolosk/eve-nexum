@@ -55,11 +55,11 @@ export function LeadsToDropdown({ value, onChange, connectedSystems = [] }: Prop
         {value ? (
           <span className="wh-picker__btn-inner">
             {isClass ? (
-              <span style={{ color: CLASS_COLORS[value as SystemClass], fontSize: '13px' }}>
+              <span style={{ color: CLASS_COLORS[value as SystemClass], fontSize: 'calc(13px * var(--font-scale, 1))' }}>
                 {CLASS_LABELS[value as SystemClass]}
               </span>
             ) : (
-              <span style={{ color: '#c0d0e8', fontSize: '13px' }}>{value}</span>
+              <span style={{ color: '#c0d0e8', fontSize: 'calc(13px * var(--font-scale, 1))' }}>{value}</span>
             )}
           </span>
         ) : (
