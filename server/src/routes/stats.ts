@@ -23,16 +23,6 @@ function emptyPeriod(): PeriodStats {
 type PeriodKey = 'forever' | 'year' | 'month' | 'week' | 'day';
 const PERIODS: PeriodKey[] = ['forever', 'year', 'month', 'week', 'day'];
 
-interface AggregatedRow {
-  event_type: string;
-  sig_type:   string | null;
-  forever:    string;
-  year:       string;
-  month:      string;
-  week:       string;
-  day:        string;
-}
-
 router.get('/', async (req, res) => {
   const userId = req.session.userId!;
 
@@ -41,23 +31,40 @@ router.get('/', async (req, res) => {
   const week  = new Date(now.getTime() - 7   * 24 * 60 * 60 * 1000);
   const month = new Date(now.getTime() - 30  * 24 * 60 * 60 * 1000);
   const year  = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000);
+  const bucketParams = [userId, year, month, week, day];
 
-  // One aggregate query — Postgres FILTER clauses give us all five buckets in
-  // a single pass, replacing the previous "pull every event into JS" approach.
-  const { rows } = await db.query<AggregatedRow>(
-    `SELECT
-       event_type,
-       sig_type,
-       COUNT(*)::text                                        AS forever,
-       COUNT(*) FILTER (WHERE created_at >= $2)::text       AS year,
-       COUNT(*) FILTER (WHERE created_at >= $3)::text       AS month,
-       COUNT(*) FILTER (WHERE created_at >= $4)::text       AS week,
-       COUNT(*) FILTER (WHERE created_at >= $5)::text       AS day
-     FROM user_events
-     WHERE user_id = $1
-     GROUP BY event_type, sig_type`,
-    [userId, year, month, week, day],
-  );
+  // Two parallel queries:
+  //   jumps  — append-only log in user_events; deleting a sig doesn't roll
+  //            jumps back, so we keep using the event log
+  //   sigs   — live count from map_signatures, so deletions are reflected.
+  //            Rows older than the created_by_user_id migration carry NULL
+  //            and won't attribute to anyone (acceptable).
+  const [jumpRes, sigRes] = await Promise.all([
+    db.query<{ forever: string; year: string; month: string; week: string; day: string }>(
+      `SELECT
+         COUNT(*)::text                                  AS forever,
+         COUNT(*) FILTER (WHERE created_at >= $2)::text AS year,
+         COUNT(*) FILTER (WHERE created_at >= $3)::text AS month,
+         COUNT(*) FILTER (WHERE created_at >= $4)::text AS week,
+         COUNT(*) FILTER (WHERE created_at >= $5)::text AS day
+       FROM user_events
+       WHERE user_id = $1 AND event_type = 'jump'`,
+      bucketParams,
+    ),
+    db.query<{ sig_type: string | null; forever: string; year: string; month: string; week: string; day: string }>(
+      `SELECT
+         sig_type,
+         COUNT(*)::text                                  AS forever,
+         COUNT(*) FILTER (WHERE created_at >= $2)::text AS year,
+         COUNT(*) FILTER (WHERE created_at >= $3)::text AS month,
+         COUNT(*) FILTER (WHERE created_at >= $4)::text AS week,
+         COUNT(*) FILTER (WHERE created_at >= $5)::text AS day
+       FROM map_signatures
+       WHERE created_by_user_id = $1
+       GROUP BY sig_type`,
+      bucketParams,
+    ),
+  ]);
 
   const result: Record<PeriodKey, PeriodStats> = {
     forever: emptyPeriod(),
@@ -67,7 +74,12 @@ router.get('/', async (req, res) => {
     day:     emptyPeriod(),
   };
 
-  for (const row of rows) {
+  const j = jumpRes.rows[0];
+  if (j) {
+    for (const p of PERIODS) result[p].jumps = parseInt(j[p], 10);
+  }
+
+  for (const row of sigRes.rows) {
     const counts: Record<PeriodKey, number> = {
       forever: parseInt(row.forever, 10),
       year:    parseInt(row.year,    10),
@@ -75,16 +87,11 @@ router.get('/', async (req, res) => {
       week:    parseInt(row.week,    10),
       day:     parseInt(row.day,     10),
     };
-
-    if (row.event_type === 'jump') {
-      for (const p of PERIODS) result[p].jumps += counts[p];
-    } else if (row.event_type === 'signature') {
-      const t = (row.sig_type ?? 'unknown') as SigType;
-      const bucket: SigType = SIG_TYPES.includes(t) ? t : 'unknown';
-      for (const p of PERIODS) {
-        result[p].signatures.total += counts[p];
-        result[p].signatures[bucket] += counts[p];
-      }
+    const t = (row.sig_type ?? 'unknown') as SigType;
+    const bucket: SigType = SIG_TYPES.includes(t) ? t : 'unknown';
+    for (const p of PERIODS) {
+      result[p].signatures.total  += counts[p];
+      result[p].signatures[bucket] += counts[p];
     }
   }
 

@@ -2559,6 +2559,18 @@ div.system-node__easy-handle {
   }
 }
 
+/* Native <select> uses the page background for the dropdown panel and OS
+   defaults for option rows — both render as light on a dark theme. Force
+   the dark palette explicitly. */
+select.sig-toolbar-btn {
+  background: #0d1117;
+  color: #c0ccde;
+}
+select.sig-toolbar-btn option {
+  background: #0d1117;
+  color: #c0ccde;
+}
+
 .sig-notes-cell {
   vertical-align: top;
   padding: 2px 4px;

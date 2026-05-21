@@ -158,7 +158,9 @@ export function SignaturePane({ systemId }: { systemId: string }) {
   const [sigs, setSigs]               = useState<Signature[]>([]);
   const [selected, setSelected]       = useState<Set<string>>(new Set());
   const [pendingAction, setPendingAction] = useState<{ message: string; fn: () => void; confirmLabel?: string; showDontAskAgain?: boolean } | null>(null);
-  const [sortCol, setSortCol]         = useState<SortCol | null>(null);
+  // Default sort is by Sig ID ascending so freshly-pasted rows slot into
+  // alphabetical position. User clicks on column headers override this.
+  const [sortCol, setSortCol]         = useState<SortCol | null>('sigId');
   const [sortDir, setSortDir]         = useState<'asc' | 'desc'>('asc');
   const [colWidths, setColWidths]     = useState<Record<ColKey, number>>(DEFAULT_WIDTHS);
 
@@ -222,7 +224,6 @@ export function SignaturePane({ systemId }: { systemId: string }) {
   const processPaste = useCallback(async (parsed: ParsedSig[]) => {
     if (!activeMapId) return;
     const existing = sigsRef.current;
-    const pastedIds = new Set(parsed.map((p) => p.sigId));
     const toUpdate: { id: string; updates: Partial<Signature> }[] = [];
     const toCreate: ParsedSig[] = [];
 
@@ -238,10 +239,8 @@ export function SignaturePane({ systemId }: { systemId: string }) {
       }
     }
 
-    // Remove sigs no longer present in the scanner paste
-    for (const sig of existing) {
-      if (!pastedIds.has(sig.sigId)) deleteSig(sig.id);
-    }
+    // Sigs not present in the paste are left alone — pastes are additive.
+    // If you want to clear stale sigs, use the toolbar's delete buttons.
 
     for (const { id, updates } of toUpdate) updateSig(id, updates);
 

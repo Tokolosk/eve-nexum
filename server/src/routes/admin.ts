@@ -556,10 +556,17 @@ reportsRouter.get('/users', async (req, res) => {
       GROUP BY st.created_by_user_id
     ),
     sig_breakdown AS (
-      SELECT user_id, sig_type, COUNT(*)::int AS cnt
-      FROM user_events
-      WHERE event_type = 'signature' AND sig_type IS NOT NULL
-      GROUP BY user_id, sig_type
+      -- Count live signatures (not the historical event log) so deletions
+      -- are reflected. corp scope applies via the maps join so an admin
+      -- viewing the report only sees activity on their corp's maps.
+      SELECT s.created_by_user_id AS user_id, s.sig_type, COUNT(*)::int AS cnt
+      FROM map_signatures s
+      JOIN map_systems sys ON sys.id = s.system_id
+      JOIN maps         m  ON m.id   = sys.map_id
+      WHERE s.created_by_user_id IS NOT NULL
+        AND s.sig_type IS NOT NULL
+        AND ${corpSql}
+      GROUP BY s.created_by_user_id, s.sig_type
     ),
     corp_system_events AS (
       SELECT e.user_id, e.event_type, COUNT(*)::int AS cnt
