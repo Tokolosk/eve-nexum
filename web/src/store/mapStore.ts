@@ -484,13 +484,14 @@ export const useMapStore = create<MapStore>()((set, get) => {
       const id = uuid();
 
       set((s) => {
-        // Allow the same K-space hub to appear multiple times on a map (users
-        // do this to represent different paths into the same hub). Only block
-        // wormhole sigs that collide — those are genuinely the same wormhole.
+        // No duplicates on a map — enforced server-side too via a partial
+        // unique index on (map_id, eve_system_id). Resolved-system nodes
+        // dedupe by eve_system_id; placeholder nodes (no eve id) dedupe by
+        // name so the user can't accidentally add "Unknown" twice either.
         const duplicate = s.map.systems.some((sys) =>
-          eveSystemId === null
-            ? sys.eveSystemId === null && sys.name.toLowerCase() === name.toLowerCase()
-            : false,
+          eveSystemId !== null
+            ? sys.eveSystemId === eveSystemId
+            : sys.eveSystemId === null && sys.name.toLowerCase() === name.toLowerCase(),
         );
         if (duplicate) return {};
         return {

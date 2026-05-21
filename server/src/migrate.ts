@@ -210,6 +210,72 @@ export async function migrate() {
 
     CREATE INDEX IF NOT EXISTS idx_maps_user             ON maps (user_id);
     CREATE INDEX IF NOT EXISTS idx_map_systems_map       ON map_systems (map_id);
+
+    -- Enforce one node per (map, eve_system). Run a one-shot dedup of any
+    -- pre-existing duplicates first — re-point connections / sigs /
+    -- structures at the survivor (oldest row wins), then drop the losers.
+    -- The dedup is a no-op once the constraint is in place.
+    DO $migration$
+    BEGIN
+      IF EXISTS (
+        SELECT 1 FROM map_systems
+        WHERE eve_system_id IS NOT NULL
+        GROUP BY map_id, eve_system_id
+        HAVING COUNT(*) > 1
+      ) THEN
+        CREATE TEMP TABLE _system_dups ON COMMIT DROP AS
+        SELECT
+          loser.id AS loser_id,
+          winner.id AS winner_id
+        FROM (
+          SELECT id, map_id, eve_system_id,
+                 ROW_NUMBER() OVER (PARTITION BY map_id, eve_system_id
+                                    ORDER BY created_at, id) AS rn
+          FROM map_systems WHERE eve_system_id IS NOT NULL
+        ) loser
+        JOIN (
+          SELECT id, map_id, eve_system_id,
+                 ROW_NUMBER() OVER (PARTITION BY map_id, eve_system_id
+                                    ORDER BY created_at, id) AS rn
+          FROM map_systems WHERE eve_system_id IS NOT NULL
+        ) winner
+          ON loser.map_id        = winner.map_id
+         AND loser.eve_system_id = winner.eve_system_id
+         AND winner.rn = 1
+        WHERE loser.rn > 1;
+
+        UPDATE map_connections SET source_id = d.winner_id
+          FROM _system_dups d WHERE source_id = d.loser_id;
+        UPDATE map_connections SET target_id = d.winner_id
+          FROM _system_dups d WHERE target_id = d.loser_id;
+        UPDATE map_signatures  SET system_id = d.winner_id
+          FROM _system_dups d WHERE system_id = d.loser_id;
+        UPDATE map_structures  SET system_id = d.winner_id
+          FROM _system_dups d WHERE system_id = d.loser_id;
+
+        -- A connection re-pointed onto itself is no longer a connection.
+        DELETE FROM map_connections WHERE source_id = target_id;
+
+        -- After re-pointing, two distinct connections may now point at the
+        -- same (src,tgt) pair. Keep the oldest.
+        DELETE FROM map_connections c
+        WHERE EXISTS (
+          SELECT 1 FROM map_connections c2
+          WHERE c2.id <> c.id
+            AND c2.map_id = c.map_id
+            AND LEAST(c2.source_id, c2.target_id)    = LEAST(c.source_id, c.target_id)
+            AND GREATEST(c2.source_id, c2.target_id) = GREATEST(c.source_id, c.target_id)
+            AND c2.created_at < c.created_at
+        );
+
+        DELETE FROM map_systems WHERE id IN (SELECT loser_id FROM _system_dups);
+      END IF;
+    END
+    $migration$;
+
+    CREATE UNIQUE INDEX IF NOT EXISTS uq_map_systems_eve_system
+      ON map_systems (map_id, eve_system_id)
+      WHERE eve_system_id IS NOT NULL;
     CREATE INDEX IF NOT EXISTS idx_map_connections_map   ON map_connections (map_id);
     CREATE INDEX IF NOT EXISTS idx_map_signatures_system ON map_signatures (system_id);
     CREATE INDEX IF NOT EXISTS idx_map_structures_system ON map_structures (system_id);

@@ -274,37 +274,58 @@ mapsRouter.post('/import', async (req, res) => {
 
     // Remap old system UUIDs → fresh ones to avoid any collisions on re-import.
     // Build the rows up first, then bulk-insert in one round-trip each.
+    // Dedupe input by eve_system_id — a legacy export may carry the same
+    // K-space system twice. First occurrence wins; later refs get aliased
+    // to the same new UUID so connections that pointed at the duplicate
+    // re-attach correctly to the survivor.
     const idMap = new Map<string, string>();
     if (systems.length > 0) {
+      const eveToNewId = new Map<number, string>();
       const sysCols = 15;
       const sysPlaceholders: string[] = [];
       const sysValues: unknown[] = [];
       for (const sys of systems) {
+        const eveId = (sys.eveSystemId as number | null | undefined) ?? null;
+        if (eveId != null && eveToNewId.has(eveId)) {
+          // Already inserted for this map — alias the old UUID to the winner.
+          idMap.set(String(sys.id), eveToNewId.get(eveId)!);
+          continue;
+        }
         const newId = crypto.randomUUID();
         idMap.set(String(sys.id), newId);
+        if (eveId != null) eveToNewId.set(eveId, newId);
         const pos = (sys.position as { x: number; y: number }) ?? { x: 0, y: 0 };
         const base = sysValues.length;
         sysPlaceholders.push(`(${Array.from({ length: sysCols }, (_, i) => `$${base + i + 1}`).join(',')})`);
         sysValues.push(
-          newId, mapId, sys.eveSystemId ?? null, sys.name, sys.systemClass,
+          newId, mapId, eveId, sys.name, sys.systemClass,
           sys.effect ?? 'none', sys.statics ?? [], sys.regionName ?? null, sys.npcType ?? null,
           pos.x, pos.y, sys.status ?? 'unknown', sys.isHome ?? false, sys.locked ?? false, sys.notes ?? '',
         );
       }
-      await client.query(
-        `INSERT INTO map_systems
-           (id, map_id, eve_system_id, name, system_class, effect, statics, region_name, npc_type,
-            position_x, position_y, status, is_home, locked, notes)
-         VALUES ${sysPlaceholders.join(',')}`,
-        sysValues,
-      );
+      if (sysPlaceholders.length > 0) {
+        await client.query(
+          `INSERT INTO map_systems
+             (id, map_id, eve_system_id, name, system_class, effect, statics, region_name, npc_type,
+              position_x, position_y, status, is_home, locked, notes)
+           VALUES ${sysPlaceholders.join(',')}`,
+          sysValues,
+        );
+      }
     }
 
+    // After eve_system_id dedup above, two distinct old UUIDs may alias to
+    // the same new UUID. Drop self-loops, and dedupe by undirected pair so
+    // we don't insert two connections between the same pair of nodes.
+    const seenPair = new Set<string>();
     const validConns = connections
       .map((conn) => {
         const srcId = idMap.get(String(conn.sourceId));
         const tgtId = idMap.get(String(conn.targetId));
-        if (!srcId || !tgtId) return null;
+        if (!srcId || !tgtId || srcId === tgtId) return null;
+        const key = srcId < tgtId ? `${srcId}|${tgtId}` : `${tgtId}|${srcId}`;
+        if (seenPair.has(key)) return null;
+        seenPair.add(key);
         return { conn, srcId, tgtId };
       })
       .filter((c): c is { conn: Record<string, unknown>; srcId: string; tgtId: string } => c !== null);
@@ -444,17 +465,33 @@ mapsRouter.post('/:mapId/systems', async (req, res) => {
 
   const { id, eveSystemId, name, systemClass, effect, statics, regionName, npcType, position, status, isHome, locked, notes } = req.body;
 
-  await db.query(
-    `INSERT INTO map_systems
-       (id, map_id, eve_system_id, name, system_class, effect, statics, region_name, npc_type,
-        position_x, position_y, status, is_home, locked, notes)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
-     ON CONFLICT (id) DO NOTHING`,
-    [id, mapId, eveSystemId ?? null, name, systemClass, effect ?? 'none',
-     statics ?? [], regionName ?? null, npcType ?? null,
-     position?.x ?? 0, position?.y ?? 0,
-     status ?? 'unknown', isHome ?? false, locked ?? false, notes ?? ''],
-  );
+  try {
+    await db.query(
+      `INSERT INTO map_systems
+         (id, map_id, eve_system_id, name, system_class, effect, statics, region_name, npc_type,
+          position_x, position_y, status, is_home, locked, notes)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+       ON CONFLICT (id) DO NOTHING`,
+      [id, mapId, eveSystemId ?? null, name, systemClass, effect ?? 'none',
+       statics ?? [], regionName ?? null, npcType ?? null,
+       position?.x ?? 0, position?.y ?? 0,
+       status ?? 'unknown', isHome ?? false, locked ?? false, notes ?? ''],
+    );
+  } catch (err) {
+    // Unique-constraint violation on (map_id, eve_system_id) — caller is
+    // trying to add a system that's already on the map. Return the
+    // canonical id so the client can swap its local placeholder for the
+    // real node instead of producing a duplicate.
+    if ((err as { code?: string }).code === '23505' && eveSystemId != null) {
+      const { rows } = await db.query<{ id: string }>(
+        `SELECT id FROM map_systems WHERE map_id = $1 AND eve_system_id = $2`,
+        [mapId, eveSystemId],
+      );
+      res.status(409).json({ error: 'System already on map', existingId: rows[0]?.id });
+      return;
+    }
+    throw err;
+  }
   db.query(
     `INSERT INTO user_events (user_id, event_type, map_id) VALUES ($1, 'system_add', $2)`,
     [req.session.userId, mapId],
