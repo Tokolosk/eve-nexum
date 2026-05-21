@@ -8,6 +8,12 @@ import { UserStatsModal } from './UserStatsModal';
 import { ConfirmModal } from './ConfirmModal';
 import { PromptModal } from './PromptModal';
 import { useProximityAlerts } from '../../hooks/useProximityAlerts';
+import {
+  WarningIcon, SkullIcon, XCircleIcon, QuestionIcon,
+  ShieldStarIcon, ChartBarIcon, SlidersHorizontalIcon, FootprintsIcon,
+  SignOutIcon, PlanetIcon, LinkSimpleIcon,
+} from '@phosphor-icons/react';
+import type { Icon as PhosphorIcon } from '@phosphor-icons/react';
 
 interface EveStatus {
   players:    number;
@@ -122,17 +128,17 @@ function ProximityChip() {
   const { nearest, threshold } = useProximityAlerts();
   if (!nearest) return null;
   const inZone = nearest.jumps <= threshold;
-  const { label, icon } =
-    nearest.kind === 'incursion'   ? { label: 'Incursion',   icon: '⚠' } :
-    nearest.kind === 'insurgency'  ? { label: 'Insurgency',  icon: '☠' } :
-    nearest.kind === 'hostile-sov' ? { label: 'Hostile sov', icon: '✖' } :
-    { label: 'Threat', icon: '?' };
+  const { label, Icon }: { label: string; Icon: PhosphorIcon } =
+    nearest.kind === 'incursion'   ? { label: 'Incursion',   Icon: WarningIcon } :
+    nearest.kind === 'insurgency'  ? { label: 'Insurgency',  Icon: SkullIcon } :
+    nearest.kind === 'hostile-sov' ? { label: 'Hostile sov', Icon: XCircleIcon } :
+    { label: 'Threat', Icon: QuestionIcon };
   return (
     <span
       className={`toolbar__proximity${inZone ? ' toolbar__proximity--alert' : ''}`}
       data-tooltip={`Closest ${label.toLowerCase()} system`}
     >
-      <span className="toolbar__proximity-icon">{icon}</span>
+      <span className="toolbar__proximity-icon"><Icon size={14} weight="bold" /></span>
       <span className="toolbar__proximity-text">
         {nearest.jumps === 0 ? 'IN' : `${nearest.jumps} jumps`} - {label}
       </span>
@@ -280,8 +286,14 @@ export function Toolbar() {
       <div className="toolbar__spacer" />
 
       <div className="toolbar__stats">
-        <span>{systemCount} systems</span>
-        <span>{connectionCount} connections</span>
+        <span className="toolbar__stat" data-tooltip="Total Systems">
+          <PlanetIcon size={16} weight="regular" />
+          <span className="toolbar__stat-count">{systemCount}</span>
+        </span>
+        <span className="toolbar__stat" data-tooltip="Total Connections">
+          <LinkSimpleIcon size={16} weight="regular" />
+          <span className="toolbar__stat-count">{connectionCount}</span>
+        </span>
       </div>
 
       <ProximityChip />
@@ -290,39 +302,31 @@ export function Toolbar() {
 
       {user && (user.canViewReports || (user.role === 'admin' && user.corpMode)) && (
         <button
-          className="toolbar__toggle"
+          className="toolbar__toggle toolbar__toggle--icon toolbar__toggle--prominent"
           onClick={() => { window.location.hash = '#/admin/users'; }}
+          data-tooltip="Admin"
+          aria-label="Admin"
         >
-          Admin
+          <ShieldStarIcon size={18} weight="regular" />
         </button>
       )}
       <button
-        className="toolbar__toggle"
+        className="toolbar__toggle toolbar__toggle--icon toolbar__toggle--prominent"
         onClick={() => setShowStats(true)}
+        data-tooltip="User stats"
+        aria-label="User stats"
       >
-        User Stats
+        <ChartBarIcon size={18} weight="regular" />
       </button>
 
-
-
       <button
-        className={`toolbar__toggle${mapOptionsOpen ? ' toolbar__toggle--on' : ''}`}
+        className={`toolbar__toggle toolbar__toggle--icon toolbar__toggle--prominent${mapOptionsOpen ? ' toolbar__toggle--on' : ''}`}
         onClick={() => setMapOptionsOpen(!mapOptionsOpen)}
         aria-pressed={mapOptionsOpen}
+        data-tooltip="Map options"
+        aria-label="Map options"
       >
-        Map Options
-      </button>
-
-      <button
-        className={`toolbar__toggle${trackJumps ? ' toolbar__toggle--on' : ''}`}
-        onClick={() => setTrackJumps(!trackJumps)}
-        aria-pressed={trackJumps}
-        title={trackJumps
-          ? 'Tracking jumps: new systems are added to the map as you move'
-          : 'Not tracking jumps: only existing systems on the map get the you-are-here indicator'}
-      >
-        <span className={`toolbar__toggle-led${trackJumps ? ' toolbar__toggle-led--on' : ' toolbar__toggle-led--off'}`} />
-        Track Jumps
+        <SlidersHorizontalIcon size={18} weight="regular" />
       </button>
 
       <div className="toolbar__server-status">
@@ -359,6 +363,19 @@ export function Toolbar() {
         </div>
       </div>
 
+      <button
+        className={`toolbar__toggle toolbar__toggle--icon toolbar__toggle--prominent${trackJumps ? ' toolbar__toggle--on' : ''}`}
+        onClick={() => setTrackJumps(!trackJumps)}
+        aria-pressed={trackJumps}
+        aria-label={trackJumps ? 'Track jumps: on' : 'Track jumps: off'}
+        data-tooltip={trackJumps
+          ? 'Tracking jumps — new systems are added as you move'
+          : 'Not tracking jumps — only existing systems get the you-are-here indicator'}
+      >
+        <FootprintsIcon size={18} weight="regular" />
+        <span className={`toolbar__toggle-led${trackJumps ? ' toolbar__toggle-led--on' : ' toolbar__toggle-led--off'}`} />
+      </button>
+
       {user && (
         <div className="toolbar__user">
           <span
@@ -387,7 +404,14 @@ export function Toolbar() {
             </span>
             {checkedAt && <CheckedAtLabel checkedAt={checkedAt} />}
           </div>
-          <button className="btn btn--ghost btn--sm" onClick={logout}>Logout</button>
+          <button
+            className="toolbar__toggle toolbar__toggle--icon toolbar__toggle--prominent"
+            onClick={logout}
+            data-tooltip="Sign out"
+            aria-label="Sign out"
+          >
+            <SignOutIcon size={18} weight="regular" />
+          </button>
         </div>
       )}
     </header>

@@ -193,8 +193,8 @@ authRouter.get('/callback', async (req, res) => {
     await seedDemoMap(userId);
 
     // Snapshot prefs into the session so /auth/me can answer without a DB call.
-    const prefRows = await db.query<{ compact_mode: boolean; snap_to_grid: boolean; show_minimap: boolean; uniform_size: boolean; show_statics: boolean; panel_order: string[] }>(
-      `SELECT compact_mode, snap_to_grid, show_minimap, uniform_size, show_statics, panel_order FROM users WHERE id = $1`,
+    const prefRows = await db.query<{ compact_mode: boolean; snap_to_grid: boolean; show_minimap: boolean; uniform_size: boolean; show_statics: boolean; connection_thickness: string; route_mode: string; route_include_bridges: boolean; panel_order: string[] }>(
+      `SELECT compact_mode, snap_to_grid, show_minimap, uniform_size, show_statics, connection_thickness, route_mode, route_include_bridges, panel_order FROM users WHERE id = $1`,
       [userId],
     );
     const p = prefRows.rows[0];
@@ -214,8 +214,11 @@ authRouter.get('/callback', async (req, res) => {
       compactMode: p?.compact_mode ?? false,
       snapToGrid:  p?.snap_to_grid ?? false,
       showMinimap: p?.show_minimap ?? true,
-      uniformSize: p?.uniform_size ?? false,
+      uniformSize: p?.uniform_size ?? true,
       showStatics: p?.show_statics ?? true,
+      connectionThickness: p?.connection_thickness ?? 'standard',
+      routeMode:   p?.route_mode ?? 'shortest',
+      routeIncludeBridges: p?.route_include_bridges ?? false,
       panelOrder:  p?.panel_order  ?? ['notes', 'signatures'],
     };
 
@@ -261,8 +264,8 @@ authRouter.get('/me', async (req, res) => {
   let prefs = req.session.prefs;
   let role  = req.session.role ?? 'readonly';
   if (!prefs) {
-    const { rows } = await db.query<{ compact_mode: boolean; snap_to_grid: boolean; show_minimap: boolean; uniform_size: boolean; show_statics: boolean; panel_order: string[]; role: string }>(
-      `SELECT compact_mode, snap_to_grid, show_minimap, uniform_size, show_statics, panel_order, role FROM users WHERE id = $1`,
+    const { rows } = await db.query<{ compact_mode: boolean; snap_to_grid: boolean; show_minimap: boolean; uniform_size: boolean; show_statics: boolean; connection_thickness: string; route_mode: string; route_include_bridges: boolean; panel_order: string[]; role: string }>(
+      `SELECT compact_mode, snap_to_grid, show_minimap, uniform_size, show_statics, connection_thickness, route_mode, route_include_bridges, panel_order, role FROM users WHERE id = $1`,
       [req.session.userId],
     );
     const row = rows[0];
@@ -270,8 +273,11 @@ authRouter.get('/me', async (req, res) => {
       compactMode: row?.compact_mode ?? false,
       snapToGrid:  row?.snap_to_grid ?? false,
       showMinimap: row?.show_minimap ?? true,
-      uniformSize: row?.uniform_size ?? false,
+      uniformSize: row?.uniform_size ?? true,
       showStatics: row?.show_statics ?? true,
+      connectionThickness: row?.connection_thickness ?? 'standard',
+      routeMode:   row?.route_mode ?? 'shortest',
+      routeIncludeBridges: row?.route_include_bridges ?? false,
       panelOrder:  row?.panel_order  ?? ['notes', 'signatures'],
     };
     role = (row?.role as 'admin' | 'full' | 'edit' | 'readonly') ?? 'readonly';
@@ -289,11 +295,14 @@ authRouter.get('/me', async (req, res) => {
       compactMode:   prefs.compactMode,
       snapToGrid:    prefs.snapToGrid,
       showMinimap:   prefs.showMinimap,
-      uniformSize:   prefs.uniformSize ?? false,
+      uniformSize:   prefs.uniformSize ?? true,
       // Default to true for sessions that predate this field — the cached
       // prefs object on disk doesn't carry it, so the literal value would
       // be undefined and the UI would mistakenly read it as "off".
       showStatics:   prefs.showStatics ?? true,
+      connectionThickness: prefs.connectionThickness ?? 'standard',
+      routeMode:     prefs.routeMode ?? 'shortest',
+      routeIncludeBridges: prefs.routeIncludeBridges ?? false,
       panelOrder:    prefs.panelOrder,
       canViewReports: config.reportsCharId !== null && req.session.characterId === config.reportsCharId,
     },
@@ -306,7 +315,9 @@ const MAX_PANEL_KEY_LEN = 64;
 
 authRouter.patch('/preferences', async (req, res) => {
   if (!req.session.userId) { res.status(401).json({ error: 'Not authenticated' }); return; }
-  const { compactMode, snapToGrid, showMinimap, uniformSize, showStatics, panelOrder } = req.body as { compactMode?: boolean; snapToGrid?: boolean; showMinimap?: boolean; uniformSize?: boolean; showStatics?: boolean; panelOrder?: unknown };
+  const { compactMode, snapToGrid, showMinimap, uniformSize, showStatics, connectionThickness, routeMode, routeIncludeBridges, panelOrder } = req.body as { compactMode?: boolean; snapToGrid?: boolean; showMinimap?: boolean; uniformSize?: boolean; showStatics?: boolean; connectionThickness?: string; routeMode?: string; routeIncludeBridges?: boolean; panelOrder?: unknown };
+  const VALID_THICKNESS = new Set(['thin', 'standard', 'thick', 'extra']);
+  const VALID_ROUTE_MODE = new Set(['shortest', 'secure']);
 
   const sets: string[] = [];
   const vals: unknown[] = [];
@@ -315,6 +326,15 @@ authRouter.patch('/preferences', async (req, res) => {
   if (typeof showMinimap === 'boolean') { sets.push(`show_minimap = $${vals.length + 1}`); vals.push(showMinimap); }
   if (typeof uniformSize === 'boolean') { sets.push(`uniform_size = $${vals.length + 1}`); vals.push(uniformSize); }
   if (typeof showStatics === 'boolean') { sets.push(`show_statics = $${vals.length + 1}`); vals.push(showStatics); }
+  if (typeof connectionThickness === 'string' && VALID_THICKNESS.has(connectionThickness)) {
+    sets.push(`connection_thickness = $${vals.length + 1}`); vals.push(connectionThickness);
+  }
+  if (typeof routeMode === 'string' && VALID_ROUTE_MODE.has(routeMode)) {
+    sets.push(`route_mode = $${vals.length + 1}`); vals.push(routeMode);
+  }
+  if (typeof routeIncludeBridges === 'boolean') {
+    sets.push(`route_include_bridges = $${vals.length + 1}`); vals.push(routeIncludeBridges);
+  }
   if (panelOrder !== undefined) {
     if (!Array.isArray(panelOrder) || panelOrder.length > MAX_PANELS ||
         !panelOrder.every((p) => typeof p === 'string' && p.length > 0 && p.length <= MAX_PANEL_KEY_LEN)) {
@@ -338,6 +358,15 @@ authRouter.patch('/preferences', async (req, res) => {
     if (typeof showMinimap === 'boolean') req.session.prefs.showMinimap = showMinimap;
     if (typeof uniformSize === 'boolean') req.session.prefs.uniformSize = uniformSize;
     if (typeof showStatics === 'boolean') req.session.prefs.showStatics = showStatics;
+    if (typeof connectionThickness === 'string' && VALID_THICKNESS.has(connectionThickness)) {
+      req.session.prefs.connectionThickness = connectionThickness;
+    }
+    if (typeof routeMode === 'string' && VALID_ROUTE_MODE.has(routeMode)) {
+      req.session.prefs.routeMode = routeMode;
+    }
+    if (typeof routeIncludeBridges === 'boolean') {
+      req.session.prefs.routeIncludeBridges = routeIncludeBridges;
+    }
     if (Array.isArray(panelOrder))        req.session.prefs.panelOrder  = panelOrder as string[];
   }
 

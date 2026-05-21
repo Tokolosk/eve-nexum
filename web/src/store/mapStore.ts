@@ -93,6 +93,9 @@ interface MapStore {
   showMinimap: boolean;
   uniformSize: boolean;
   showStatics: boolean;
+  connectionThickness: 'thin' | 'standard' | 'thick' | 'extra';
+  routeMode: 'shortest' | 'secure';
+  routeIncludeBridges: boolean;
   trackJumps: boolean;
   // Largest natural node dimensions seen so far — used as the min-width /
   // min-height for every node when uniformSize is on. Each SystemNode
@@ -115,11 +118,14 @@ interface MapStore {
   undo: () => Promise<void>;
 
   panelOrder: string[];
-  applyPreferences: (prefs: { compactMode: boolean; snapToGrid: boolean; showMinimap: boolean; uniformSize: boolean; showStatics: boolean; panelOrder: string[] }) => void;
+  applyPreferences: (prefs: { compactMode: boolean; snapToGrid: boolean; showMinimap: boolean; uniformSize: boolean; showStatics: boolean; connectionThickness: string; routeMode: string; routeIncludeBridges: boolean; panelOrder: string[] }) => void;
   setPanelOrder: (order: string[]) => void;
   setShowMinimap: (v: boolean) => void;
   setUniformSize: (v: boolean) => void;
   setShowStatics: (v: boolean) => void;
+  setConnectionThickness: (v: 'thin' | 'standard' | 'thick' | 'extra') => void;
+  setRouteMode: (v: 'shortest' | 'secure') => void;
+  setRouteIncludeBridges: (v: boolean) => void;
   setTrackJumps: (v: boolean) => void;
   setEasyConnect: (v: boolean) => void;
   setMapOptionsOpen: (v: boolean) => void;
@@ -309,8 +315,11 @@ export const useMapStore = create<MapStore>()((set, get) => {
     snapToGrid: false,
     compactMode: false,
     showMinimap: true,
-    uniformSize: false,
+    uniformSize: true,
     showStatics: true,
+    connectionThickness: 'standard',
+    routeMode:   'shortest',
+    routeIncludeBridges: false,
     trackJumps:  (typeof localStorage !== 'undefined' ? localStorage.getItem('nexum.trackJumps') : null) !== 'false',
     uniformWidth:  0,
     uniformHeight: 0,
@@ -332,7 +341,7 @@ export const useMapStore = create<MapStore>()((set, get) => {
       await applyUndo(cmd);
     },
 
-    applyPreferences: ({ compactMode, snapToGrid, showMinimap, uniformSize, showStatics, panelOrder }) => {
+    applyPreferences: ({ compactMode, snapToGrid, showMinimap, uniformSize, showStatics, connectionThickness, routeMode, routeIncludeBridges, panelOrder }) => {
       // Whitelist of valid panel keys. `standings` was briefly a panel here
       // — kept in the filter so any persisted occurrence is silently
       // dropped on load now that standings live inline in the sov section.
@@ -341,7 +350,11 @@ export const useMapStore = create<MapStore>()((set, get) => {
         ...panelOrder.filter((p) => all.includes(p)),
         ...all.filter((p) => !panelOrder.includes(p)),
       ];
-      set({ compactMode, snapToGrid, showMinimap, uniformSize, showStatics, panelOrder: merged });
+      const VALID_THICK = new Set(['thin', 'standard', 'thick', 'extra']);
+      const safeThickness = (VALID_THICK.has(connectionThickness) ? connectionThickness : 'standard') as 'thin' | 'standard' | 'thick' | 'extra';
+      const VALID_ROUTE = new Set(['shortest', 'secure']);
+      const safeRouteMode = (VALID_ROUTE.has(routeMode) ? routeMode : 'shortest') as 'shortest' | 'secure';
+      set({ compactMode, snapToGrid, showMinimap, uniformSize, showStatics, connectionThickness: safeThickness, routeMode: safeRouteMode, routeIncludeBridges: Boolean(routeIncludeBridges), panelOrder: merged });
     },
 
     setPanelOrder: (order) => {
@@ -438,6 +451,21 @@ export const useMapStore = create<MapStore>()((set, get) => {
     setShowStatics: (v) => {
       set({ showStatics: v });
       api('/auth/preferences', { method: 'PATCH', body: JSON.stringify({ showStatics: v }) }).catch(console.error);
+    },
+
+    setConnectionThickness: (v) => {
+      set({ connectionThickness: v });
+      api('/auth/preferences', { method: 'PATCH', body: JSON.stringify({ connectionThickness: v }) }).catch(console.error);
+    },
+
+    setRouteMode: (v) => {
+      set({ routeMode: v });
+      api('/auth/preferences', { method: 'PATCH', body: JSON.stringify({ routeMode: v }) }).catch(console.error);
+    },
+
+    setRouteIncludeBridges: (v) => {
+      set({ routeIncludeBridges: v });
+      api('/auth/preferences', { method: 'PATCH', body: JSON.stringify({ routeIncludeBridges: v }) }).catch(console.error);
     },
 
     setTrackJumps: (v) => {

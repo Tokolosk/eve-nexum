@@ -13,6 +13,10 @@ import { SystemNode } from './SystemNode';
 import { ConnectionEdge } from './ConnectionEdge';
 import { AddSystemModal } from '../ui/AddSystemModal';
 import { ContextMenu } from '../ui/ContextMenu';
+import {
+  PathIcon, MapPinSimpleIcon, HouseIcon, LockIcon, LockOpenIcon,
+  XIcon, CheckIcon, PlusIcon, SelectionAllIcon,
+} from '@phosphor-icons/react';
 import type { MapSystem } from '../../types';
 import { CLASS_COLORS } from '../../data/wormholes';
 import { pickHandles } from './edgeUtils';
@@ -85,6 +89,7 @@ export function MapCanvas() {
   const easyConnect          = useMapStore((s) => s.easyConnect);
   const mapOptionsOpen       = useMapStore((s) => s.mapOptionsOpen);
   const edgeStyle            = useMapStore((s) => s.edgeStyle);
+  const connectionThickness  = useMapStore((s) => s.connectionThickness);
   const addConnection        = useMapStore((s) => s.addConnection);
   const moveSystem           = useMapStore((s) => s.moveSystem);
   const lockSystem           = useMapStore((s) => s.lockSystem);
@@ -299,10 +304,10 @@ export function MapCanvas() {
         sourceHandle: c.sourceHandle ?? undefined,
         targetHandle: c.targetHandle ?? undefined,
         type: 'connection',
-        data: { ...c, edgeStyle } as unknown as Record<string, unknown>,
+        data: { ...c, edgeStyle, connectionThickness } as unknown as Record<string, unknown>,
         selected: c.id === selectedConnectionId,
       })),
-    [connections, selectedConnectionId, edgeStyle],
+    [connections, selectedConnectionId, edgeStyle, connectionThickness],
   );
 
   const onEdgesChange = useCallback(
@@ -318,14 +323,23 @@ export function MapCanvas() {
     (params: Connection) => {
       if (!canEdit) return;
       if (!params.source || !params.target) return;
-      // Strip easy-connect handle IDs — they don't exist in normal mode,
-      // which would cause the edge to render from the wrong position after toggling.
+      // Always route the edge through the optimal handle pair based on the
+      // two nodes' current positions, regardless of which handles the user
+      // dragged from. Falls back to whatever ReactFlow handed us if either
+      // node is missing from the store (shouldn't happen).
+      const src = systems.find((s) => s.id === params.source);
+      const tgt = systems.find((s) => s.id === params.target);
+      if (src && tgt) {
+        const { sourceHandle, targetHandle } = pickHandles(src.position, tgt.position);
+        addConnection(params.source, params.target, sourceHandle, targetHandle);
+        return;
+      }
       const EASY = new Set(['easy-source', 'easy-target']);
       const srcH = params.sourceHandle && !EASY.has(params.sourceHandle) ? params.sourceHandle : null;
       const tgtH = params.targetHandle && !EASY.has(params.targetHandle) ? params.targetHandle : null;
       addConnection(params.source, params.target, srcH, tgtH);
     },
-    [addConnection, canEdit],
+    [addConnection, canEdit, systems],
   );
 
   const onNodeDragStop = useCallback(
@@ -424,12 +438,12 @@ export function MapCanvas() {
         return [
           {
             label: 'Set Destination',
-            icon: '🎯',
+            icon: <MapPinSimpleIcon size={16} weight="regular" color="#3ddc84" />,
             action: () => setDestination(sys.eveSystemId!).catch(() => toast.error('Failed to set destination')),
           },
           {
             label: 'Add Waypoint',
-            icon: '📍',
+            icon: <PathIcon size={16} weight="regular" color="#5a9af8" />,
             action: () => addWaypoint(sys.eveSystemId!).catch(() => toast.error('Failed to add waypoint')),
           },
         ];
@@ -438,7 +452,7 @@ export function MapCanvas() {
       return [
         {
           label: 'Select All',
-          icon: '⊞',
+          icon: <SelectionAllIcon size={16} weight="regular" />,
           action: () => setNodes((ns) => ns.map((n) => ({ ...n, selected: true }))),
           disabled: nodes.length === 0,
         },
@@ -454,7 +468,7 @@ export function MapCanvas() {
       return [
         {
           label: 'Disconnect',
-          icon: '✕',
+          icon: <XIcon size={16} weight="regular" color="#e25a5a" />,
           action: () => removeConnection(eid),
         },
         { separator: true as const },
@@ -546,12 +560,12 @@ export function MapCanvas() {
         { separator: true as const },
         {
           label: 'Set Destination',
-          icon: '🎯',
+          icon: <MapPinSimpleIcon size={16} weight="regular" color="#3ddc84" />,
           action: () => setDestination(sys.eveSystemId!).catch(() => toast.error('Failed to set destination')),
         },
         {
           label: 'Add Waypoint',
-          icon: '📍',
+          icon: <PathIcon size={16} weight="regular" color="#5a9af8" />,
           action: () => addWaypoint(sys.eveSystemId!).catch(() => toast.error('Failed to add waypoint')),
         },
       ] : [];
@@ -560,17 +574,17 @@ export function MapCanvas() {
         { separator: true as const },
         {
           label: `Lock ${selectedNodes.length} Selected`,
-          icon: '🔒',
+          icon: <LockIcon size={16} weight="regular" color="#f5c518" />,
           action: () => selectedNodes.forEach((n) => updateSystem(n.id, { locked: true })),
         },
         {
           label: `Unlock ${selectedNodes.length} Selected`,
-          icon: '🔓',
+          icon: <LockOpenIcon size={16} weight="regular" color="#f5c518" />,
           action: () => selectedNodes.forEach((n) => updateSystem(n.id, { locked: false })),
         },
         {
           label: `Mark ${selectedNodes.length} as Cleared`,
-          icon: '✓',
+          icon: <CheckIcon size={16} weight="regular" />,
           action: () => selectedNodes.forEach((n) => updateSystem(n.id, { status: 'cleared' })),
         },
       ] : [];
@@ -581,12 +595,12 @@ export function MapCanvas() {
         sys?.isHome
           ? {
               label: 'Unset home',
-              icon:  '⌂',
+              icon:  <HouseIcon size={16} weight="regular" color="#f0a040" />,
               action: () => updateSystem(contextMenu.nodeId!, { isHome: false }),
             }
           : {
               label: 'Set as home (H to centre)',
-              icon:  '⌂',
+              icon:  <HouseIcon size={16} weight="regular" color="#f0a040" />,
               action: () => {
                 // Clear any previously-set home so only one exists at a time.
                 const oldHome = systems.find((s) => s.isHome);
@@ -600,12 +614,14 @@ export function MapCanvas() {
       return [
         {
           label: sys?.locked ? 'Unlock System' : 'Lock System',
-          icon:  sys?.locked ? '🔓' : '🔒',
+          icon:  sys?.locked
+            ? <LockOpenIcon size={16} weight="regular" color="#f5c518" />
+            : <LockIcon     size={16} weight="regular" color="#f5c518" />,
           action: () => lockSystem(contextMenu.nodeId!),
         },
         ...(!sys?.locked ? [{
           label: multiSelected ? `Remove ${selectedNodes.filter((n) => !systems.find((s) => s.id === n.id)?.locked).length} Systems` : 'Remove System',
-          icon: '✕',
+          icon: <XIcon size={16} weight="regular" color="#e25a5a" />,
           action: () => {
             if (multiSelected) {
               selectedNodes
@@ -625,12 +641,12 @@ export function MapCanvas() {
     return [
       {
         label: 'Add System',
-        icon: '+',
+        icon: <PlusIcon size={16} weight="regular" />,
         action: () => setPendingPosition({ x: contextMenu.flowX - 75, y: contextMenu.flowY - 40 }),
       },
       {
         label: 'Select All',
-        icon: '⊞',
+        icon: <SelectionAllIcon size={14} weight="regular" />,
         action: () => setNodes((ns) => ns.map((n) => ({ ...n, selected: true }))),
         disabled: nodes.length === 0,
       },

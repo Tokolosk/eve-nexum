@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { NpcStation } from '../../types';
 import { ContextMenu } from './ContextMenu';
+import { PathIcon, MapPinSimpleIcon } from '@phosphor-icons/react';
 import { setDestination, addWaypoint } from '../../api/waypoint';
 import { loadSystem } from '../../hooks/useEsiSystem';
 
@@ -142,12 +143,12 @@ export function NpcStationsPane({ eveSystemId }: { eveSystemId: number | null })
           items={[
             {
               label: 'Set Destination',
-              icon: '🎯',
+              icon: <MapPinSimpleIcon size={16} weight="regular" color="#3ddc84" />,
               action: () => setDestination(ctx.station.id).catch(console.error),
             },
             {
               label: 'Add Waypoint',
-              icon: '📍',
+              icon: <PathIcon size={16} weight="regular" color="#5a9af8" />,
               action: () => addWaypoint(ctx.station.id).catch(console.error),
             },
           ]}

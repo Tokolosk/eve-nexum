@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
+import type { ReactNode } from 'react';
+import { CaretRightIcon, CheckIcon } from '@phosphor-icons/react';
 
 export type ContextMenuItem =
   | { separator: true }
   | {
       separator?: false;
       label: string;
-      icon?: string;
+      icon?: ReactNode;
       action?: () => void;
       disabled?: boolean;
       checked?: boolean;
@@ -40,7 +42,9 @@ function SubMenu({ items, onClose }: { items: ContextMenuItem[]; onClose: () => 
                 }
               }}
             >
-              <span className="context-menu__check">{checked ? '✓' : ''}</span>
+              {typeof checked === 'boolean' && (
+                <span className="context-menu__check">{checked ? <CheckIcon size={14} weight="bold" /> : ''}</span>
+              )}
               {icon && <span className="context-menu__icon">{icon}</span>}
               {label}
             </button>
@@ -101,10 +105,12 @@ export function ContextMenu({ x, y, items, onClose }: Props) {
                 }
               }}
             >
-              <span className="context-menu__check">{checked ? '✓' : ''}</span>
+              {typeof checked === 'boolean' && (
+                <span className="context-menu__check">{checked ? <CheckIcon size={14} weight="bold" /> : ''}</span>
+              )}
               {icon && <span className="context-menu__icon">{icon}</span>}
               {label}
-              {submenu && <span className="context-menu__arrow">›</span>}
+              {submenu && <span className="context-menu__arrow"><CaretRightIcon size={12} weight="bold" /></span>}
             </button>
             {submenu && openSubmenu === i && (
               <SubMenu items={submenu} onClose={onClose} />

@@ -16,6 +16,9 @@ declare module 'express-session' {
       showMinimap: boolean;
       uniformSize: boolean;
       showStatics: boolean;
+      connectionThickness: string;
+      routeMode: string;
+      routeIncludeBridges: boolean;
       panelOrder:  string[];
     };
   }

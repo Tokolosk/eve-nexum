@@ -49,7 +49,7 @@ export const ConnectionEdge = memo(({
   id, sourceX, sourceY, targetX, targetY,
   sourcePosition, targetPosition, data, selected,
 }: EdgeProps) => {
-  const conn = data as unknown as MapConnection & { edgeStyle?: string };
+  const conn = data as unknown as MapConnection & { edgeStyle?: string; connectionThickness?: 'thin' | 'standard' | 'thick' | 'extra' };
   const selectConnection = useMapStore((s) => s.selectConnection);
   const now = useNow30s();
 
@@ -71,7 +71,17 @@ export const ConnectionEdge = memo(({
   const color = isJumpgate
     ? JUMPGATE_COLOR
     : (eolState?.color ?? TIME_COLORS[timeStatus ?? ''] ?? STANDARD_COLOR);
-  const strokeWidth = selected ? 6 : 4;
+  // Per-user thickness preference. Standard = the historical 4 / 6 pair;
+  // other steps scale around that. Selected always renders 2px thicker
+  // than unselected so the selection highlight stays visible at every
+  // size. See MapSidebar's Connection Thickness dropdown.
+  const baseWidth = (
+    conn?.connectionThickness === 'thin'  ? 2 :
+    conn?.connectionThickness === 'thick' ? 6 :
+    conn?.connectionThickness === 'extra' ? 8 :
+    4
+  );
+  const strokeWidth = selected ? baseWidth + 2 : baseWidth;
   const massLabel   = !isJumpgate && conn?.massStatus ? (MASS_LABELS[conn.massStatus] ?? null) : null;
 
   // Prefer the live countdown label; fall back to the static category label

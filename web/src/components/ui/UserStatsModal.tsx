@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { XIcon } from '@phosphor-icons/react';
 import { useStats, type StatPeriod, type SigBreakdown } from '../../hooks/useStats';
 
 const PERIODS: { key: StatPeriod; label: string }[] = [
@@ -32,7 +33,7 @@ export function UserStatsModal({ onClose }: Props) {
 
         <div className="modal__header">
           <h2 className="modal__title">User Stats</h2>
-          <button className="modal__close" onClick={onClose}>✕</button>
+          <button className="modal__close" onClick={onClose}><XIcon size={14} weight="bold" /></button>
         </div>
 
         <div className="stats-modal__periods">

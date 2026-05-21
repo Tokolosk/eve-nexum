@@ -1,4 +1,5 @@
 import { useMemo, useRef, useState } from 'react';
+import { ArrowRightIcon, CaretDownIcon, CaretUpIcon } from '@phosphor-icons/react';
 import type { MapSystem, SystemClass } from '../../types';
 import { CLASS_COLORS, CLASS_LABELS } from '../../data/wormholes';
 import { usePopover } from '../../hooks/usePopover';
@@ -64,7 +65,9 @@ export function LeadsToDropdown({ value, onChange, connectedSystems = [] }: Prop
         ) : (
           <span className="wh-picker__placeholder">Unknown</span>
         )}
-        <span className="wh-picker__chevron">{open ? '▲' : '▼'}</span>
+        <span className="wh-picker__chevron">
+          {open ? <CaretUpIcon size={11} weight="bold" /> : <CaretDownIcon size={11} weight="bold" />}
+        </span>
       </button>
 
       {open && (
@@ -104,7 +107,7 @@ export function LeadsToDropdown({ value, onChange, connectedSystems = [] }: Prop
                     <span className="wh-picker__code" style={{ color: '#c0d0e8', minWidth: 'auto', marginRight: 4 }}>
                       {sys.name || 'Unknown'}
                     </span>
-                    <span className="wh-picker__arrow">→</span>
+                    <span className="wh-picker__arrow"><ArrowRightIcon size={11} weight="bold" /></span>
                     <span className="wh-picker__dest" style={{ color: CLASS_COLORS[sys.systemClass] }}>
                       {CLASS_LABELS[sys.systemClass]}
                     </span>

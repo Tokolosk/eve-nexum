@@ -1,5 +1,9 @@
 import { memo, useEffect, useMemo, useRef } from 'react';
 import { Handle, Position, useConnection } from '@xyflow/react';
+import {
+  HouseIcon, LockIcon, WarningIcon, SkullIcon, LightningIcon,
+  SunIcon, SnowflakeIcon, SwordIcon, SparkleIcon,
+} from '@phosphor-icons/react';
 import type { NodeProps } from '@xyflow/react';
 import type { MapSystem } from '../../types';
 import { CLASS_COLORS, CLASS_LABELS, EFFECT_ICONS, EFFECT_LABELS, EFFECT_MODIFIERS, WORMHOLE_DESTINATIONS } from '../../data/wormholes';
@@ -161,15 +165,9 @@ export const SystemNode = memo(({ data, selected }: NodeProps) => {
       <div className="system-node__header">
         {isCurrent && <span className="system-node__current-dot" />}
         {sys.isHome && (
-          <svg
-            className="system-node__home-icon"
-            viewBox="0 0 16 16"
-            width="13"
-            height="13"
-            aria-label="Home system"
-          >
-            <path d="M8 2 L2 7 L2 14 L6 14 L6 10 L10 10 L10 14 L14 14 L14 7 Z" fill="currentColor" />
-          </svg>
+          <span className="system-node__home-icon" aria-label="Home system">
+            <HouseIcon size={14} weight="regular" />
+          </span>
         )}
         <span className="system-node__name">{sys.name || 'Unknown'}</span>
         {esiSys?.securityStatus != null && (
@@ -193,7 +191,7 @@ export const SystemNode = memo(({ data, selected }: NodeProps) => {
         <div className="system-node__icons">
           {hotKills && myKills && (
             <span className="system-node__kill-icon">
-              ⚔
+              <SwordIcon size={14} weight="regular" />
               <span className="system-node__kill-tooltip">
                 {myKills.shipKills} ship · {myKills.podKills} pod kills this hour
               </span>
@@ -201,25 +199,25 @@ export const SystemNode = memo(({ data, selected }: NodeProps) => {
           )}
           {isA0 && (
             <span className="system-node__a0-icon">
-              ★
+              <SunIcon size={14} weight="regular" />
               <span className="system-node__a0-tooltip">A0 sun</span>
             </span>
           )}
           {isIceBelt && (
             <span className="system-node__ice-icon">
-              ❄
+              <SnowflakeIcon size={14} weight="regular" />
               <span className="system-node__ice-tooltip">Ice belt system</span>
             </span>
           )}
           {incursion && (
             <span className="system-node__incursion-icon">
-              ⚠
+              <WarningIcon size={14} weight="regular" />
               <span className="system-node__incursion-tooltip">Incursion System</span>
             </span>
           )}
           {storm && (
             <span className={`system-node__storm-icon system-node__storm-icon--${storm.stormType}`}>
-              ⚡
+              <LightningIcon size={14} weight="regular" />
               <span className="system-node__storm-tooltip">
                 <span className="system-node__storm-tooltip__title">{storm.stormName} storm</span>
                 <span>Last report: {storm.lastReport}</span>
@@ -227,16 +225,20 @@ export const SystemNode = memo(({ data, selected }: NodeProps) => {
               </span>
             </span>
           )}
-          {sys.locked && <span className="system-node__lock-icon">🔒</span>}
+          {sys.locked && (
+            <span className="system-node__lock-icon">
+              <LockIcon size={14} weight="regular" />
+            </span>
+          )}
           {insurgency && (
             <span className="system-node__insurgency-icon">
-              ☠
+              <SkullIcon size={14} weight="regular" />
               <span className="system-node__insurgency-tooltip">Insurgency System</span>
             </span>
           )}
           {scoutMatches.length > 0 && (
             <span className="system-node__scout-icon">
-              ✦
+              <SparkleIcon size={14} weight="regular" />
               <span className="system-node__scout-tooltip">{scoutLabel}</span>
             </span>
           )}

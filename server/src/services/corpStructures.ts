@@ -1,6 +1,7 @@
 import { db } from '../db.js';
 import { decryptToken } from '../utils/tokenCrypto.js';
 import { createLogger } from '../utils/logger.js';
+import { refreshBridgeIndex } from './ansiblexBridges.js';
 
 const log = createLogger('corpStructures');
 
@@ -104,6 +105,11 @@ export async function refreshCorpStructures(corpId: number, opts: { force?: bool
   await upsertStructures(corpId, structs);
   lastRunByCorpId.set(corpId, Date.now());
   log.info(`corp ${corpId}: refreshed ${structs.length} structures`);
+
+  // Re-derive the Ansiblex bridge index from the freshly-cached structures.
+  // Cheap (single SELECT + bulk UPSERT) so we don't bother debouncing.
+  refreshBridgeIndex().catch((err) => log.warn('bridge re-index failed:', err));
+
   return { ok: true, count: structs.length };
 }
 

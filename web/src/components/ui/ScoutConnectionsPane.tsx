@@ -4,6 +4,8 @@ import { useCharacterLocation } from '../../hooks/useCharacterLocation';
 import { useRoute } from '../../hooks/useRoute';
 import { setWaypoint, RouteSquares, KSPACE_CLASSES } from './routeUi';
 import { truesecColor } from '../../utils/truesec';
+import { useMapStore } from '../../store/mapStore';
+import { MapPinSimpleIcon, PathIcon } from '@phosphor-icons/react';
 
 interface Props {
   scoutSystem: 'Thera' | 'Turnur';
@@ -46,6 +48,7 @@ function formatRemaining(hours: number): string {
 export function ScoutConnectionsPane({ scoutSystem }: Props) {
   const all      = useScoutConnections();
   const location = useCharacterLocation();
+  const routeMode = useMapStore((s) => s.routeMode);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
   const filtered = useMemo(
@@ -122,17 +125,21 @@ export function ScoutConnectionsPane({ scoutSystem }: Props) {
                 <>
                   <button
                     type="button"
-                    className="sys-btn scout-row__btn"
+                    className="sys-btn scout-row__btn scout-row__btn--icon"
                     onClick={() => setWaypoint(c.inSystemId, c.inSystemName, true)}
+                    aria-label="Set Destination"
+                    data-tooltip="Set Destination"
                   >
-                    Set Destination
+                    <MapPinSimpleIcon size={14} weight="regular" color="#3ddc84" />
                   </button>
                   <button
                     type="button"
-                    className="sys-btn scout-row__btn"
+                    className="sys-btn scout-row__btn scout-row__btn--icon"
                     onClick={() => setWaypoint(c.inSystemId, c.inSystemName, false)}
+                    aria-label="Add Waypoint"
+                    data-tooltip="Add Waypoint"
                   >
-                    + Waypoint
+                    <PathIcon size={14} weight="regular" color="#5a9af8" />
                   </button>
                 </>
               )}
@@ -143,7 +150,7 @@ export function ScoutConnectionsPane({ scoutSystem }: Props) {
                   onClick={() => toggleExpanded(c.id)}
                   aria-expanded={isOpen}
                 >
-                  {isOpen ? 'Hide route' : 'Show route'}
+                  {isOpen ? `Hide ${routeMode} route` : `Show ${routeMode} route`}
                 </button>
               )}
             </div>

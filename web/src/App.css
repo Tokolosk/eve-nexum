@@ -147,6 +147,111 @@
   color: #b8d4ff;
 }
 
+.scout-row__class--home {
+  color: #f0c040;
+}
+
+/* Home indicator on a Closest Systems row — inline-flex so the SVG
+   sits centred next to the system name without a baseline gap. */
+.scout-row__home {
+  display: inline-flex;
+  align-items: center;
+
+  svg { display: block; }
+}
+
+/* "Add System" affordance at the bottom of the Closest Systems pane. */
+.scout-pane__add {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+
+  svg { display: block; }
+}
+
+.scout-pane__add-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.scout-pane__add-input {
+  flex: 1;
+  background: #0d1117;
+  border: 1px solid #2e4a7a;
+  border-radius: 4px;
+  color: #c8d0e0;
+  font-size: 13px;
+  padding: 4px 8px;
+
+  &:focus { border-color: #5a9af8; outline: none; }
+}
+
+.scout-pane__add-results {
+  /* Portaled to <body>; inline style sets `position: fixed` + top/left/width */
+  z-index: 2000;
+  background: #0d1117;
+  border: 1px solid #2e4a7a;
+  border-radius: 4px;
+  list-style: none;
+  margin: 0;
+  padding: 4px 0;
+  max-height: 240px;
+  overflow-y: auto;
+  box-shadow: 0 6px 18px rgba(0,0,0,0.45);
+}
+
+.scout-pane__add-result {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 4px 10px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.scout-pane__add-result--active {
+  background: #1a2a4a;
+}
+
+.scout-pane__add-result--disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.scout-pane__add-result-name   { color: #e2e8f8; }
+.scout-pane__add-result-region { color: #8a9ab8; font-size: 12px; }
+
+.scout-pane__add-empty {
+  /* Portaled — see .scout-pane__add-results */
+  z-index: 2000;
+  background: #0d1117;
+  border: 1px solid #2e4a7a;
+  border-radius: 4px;
+  color: #8a9ab8;
+  font-size: 12px;
+  padding: 6px 10px;
+}
+
+/* Drag-handle for reorderable scout rows (Closest Systems). Sits before
+   the system name; cursor flips to grab so the affordance is obvious. */
+.scout-row__drag {
+  background: transparent;
+  border: none;
+  color: #5a6a8a;
+  cursor: grab;
+  padding: 0 4px 0 0;
+  font-size: 14px;
+  line-height: 1;
+
+  &:hover { color: #c8d0e0; }
+  &:active { cursor: grabbing; }
+}
+
 .scout-row__time {
   margin-left: auto;
   color: #8a9ab8;
@@ -285,6 +390,29 @@
     border-color: #2e5a9a;
     color: #7ab4f0;
   }
+
+  /* Square icon-only variant — sized to fit the 18px Phosphor SVGs. The
+   * inline-flex centring keeps the icon optically middle of the button
+   * regardless of font line-height. */
+  &.toolbar__toggle--icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 5px;
+    line-height: 1;
+  }
+
+  &.toolbar__toggle--icon svg { display: block; }
+
+  /* Brighter variant — for buttons we want to read more prominently
+   * against the dark toolbar (e.g. Sign out). */
+  &.toolbar__toggle--prominent {
+    background: #2a3a5a;
+    border-color: #3a5a8a;
+    color: #c8d8f0;
+
+    &:hover { background: #3a4d72; color: #ffffff; }
+  }
 }
 
 .toolbar__map-name {
@@ -310,7 +438,17 @@
   color: #e2e8f8;
 
   span { display: flex; align-items: center; gap: 4px; }
-  color:
+}
+
+.toolbar__stat {
+  cursor: default;
+  color: #c0ccde;
+
+  svg { display: block; color: #7ab4f0; }
+}
+
+.toolbar__stat-count {
+  font-variant-numeric: tabular-nums;
 }
 
 .toolbar__spacer { flex: 1; }
@@ -444,16 +582,24 @@
   &.toolbar__status-dot--off { background: #e05a5a; box-shadow: 0 0 4px #e05a5a66; }
 }
 
-/* Inline indicator LED for toolbar toggle buttons whose on/off state
-   isn't obvious from the active styling alone (e.g. Track Jumps). */
+/* Status LED for toolbar toggle buttons whose on/off state isn't obvious
+   from the active styling alone (e.g. Track Jumps). On icon-only
+   buttons it overlays the bottom-right corner so the button stays
+   square; on text buttons it would sit inline (legacy positioning). */
 .toolbar__toggle-led {
-  display: inline-block;
-  width: 7px;
-  height: 7px;
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
-  margin-right: 6px;
-  vertical-align: middle;
   flex-shrink: 0;
+}
+
+.toolbar__toggle--icon {
+  position: relative;
+}
+.toolbar__toggle--icon > .toolbar__toggle-led {
+  position: absolute;
+  right: 2px;
+  bottom: 2px;
 }
 
 .toolbar__toggle-led--on  { background: #3ddc84; box-shadow: 0 0 4px #3ddc8466; }
@@ -1039,8 +1185,18 @@
 .system-node__home-icon {
   color: #f0c040;
   margin-right: 4px;
-  display: inline-block;
-  vertical-align: middle;
+  display: inline-flex;
+  align-items: center;
+}
+
+/* SVGs default to `vertical-align: baseline`, leaving a sub-pixel gap at
+   the bottom of their inline box. In a flex row that translates to the
+   icon visually sitting slightly above the text. Forcing block layout on
+   every SVG inside the header / meta rows removes the gap so icons line
+   up exactly with the truesec digits / system name. */
+.system-node__header svg,
+.system-node__meta-row svg {
+  display: block;
 }
 
 .system-node__current-dot {
@@ -3662,18 +3818,25 @@ select.sig-toolbar-btn option {
 }
 
 .context-menu__check {
-  width: 14px;
-  font-size: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
   color: #4d9de0;
   flex-shrink: 0;
 }
 
 .context-menu__icon {
-  font-size: 13px;
-  width: 14px;
-  text-align: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
   color: #4d9de0;
   flex-shrink: 0;
+}
+
+.context-menu__icon svg,
+.context-menu__check svg {
+  display: block;
 }
 
 .context-menu__arrow {

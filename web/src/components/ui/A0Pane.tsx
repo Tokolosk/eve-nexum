@@ -1,13 +1,16 @@
 import { useMemo, useState } from 'react';
+import { MapPinSimpleIcon, PathIcon } from '@phosphor-icons/react';
 import { useA0Systems } from '../../hooks/useA0Systems';
 import { useCharacterLocation } from '../../hooks/useCharacterLocation';
 import { useRoute } from '../../hooks/useRoute';
 import { setWaypoint, RouteSquares, KSPACE_CLASSES } from './routeUi';
+import { useMapStore } from '../../store/mapStore';
 
 const TOP_N = 10;
 
 export function A0Pane() {
   const all      = useA0Systems();
+  const routeMode = useMapStore((s) => s.routeMode);
   const location = useCharacterLocation();
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
 
@@ -71,17 +74,21 @@ export function A0Pane() {
               <span className="scout-row__jumps">{s.jumps} jumps</span>
               <button
                 type="button"
-                className="sys-btn scout-row__btn"
+                className="sys-btn scout-row__btn scout-row__btn--icon"
                 onClick={() => setWaypoint(s.id, s.name, true)}
+                aria-label="Set Destination"
+                data-tooltip="Set Destination"
               >
-                Set Destination
+                <MapPinSimpleIcon size={14} weight="regular" color="#3ddc84" />
               </button>
               <button
                 type="button"
-                className="sys-btn scout-row__btn"
+                className="sys-btn scout-row__btn scout-row__btn--icon"
                 onClick={() => setWaypoint(s.id, s.name, false)}
+                aria-label="Add Waypoint"
+                data-tooltip="Add Waypoint"
               >
-                + Waypoint
+                <PathIcon size={14} weight="regular" color="#5a9af8" />
               </button>
               {route && (
                 <button
@@ -90,7 +97,7 @@ export function A0Pane() {
                   onClick={() => toggleExpanded(s.id)}
                   aria-expanded={isOpen}
                 >
-                  {isOpen ? 'Hide route' : 'Show route'}
+                  {isOpen ? `Hide ${routeMode} route` : `Show ${routeMode} route`}
                 </button>
               )}
             </div>

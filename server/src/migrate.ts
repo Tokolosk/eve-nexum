@@ -37,8 +37,45 @@ export async function migrate() {
     ALTER TABLE users ADD COLUMN IF NOT EXISTS compact_mode  BOOLEAN NOT NULL DEFAULT FALSE;
     ALTER TABLE users ADD COLUMN IF NOT EXISTS snap_to_grid  BOOLEAN NOT NULL DEFAULT FALSE;
     ALTER TABLE users ADD COLUMN IF NOT EXISTS show_minimap  BOOLEAN NOT NULL DEFAULT TRUE;
-    ALTER TABLE users ADD COLUMN IF NOT EXISTS uniform_size  BOOLEAN NOT NULL DEFAULT FALSE;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS uniform_size  BOOLEAN NOT NULL DEFAULT TRUE;
+
+    -- One-time: uniform_size shipped with a FALSE default originally;
+    -- product decision later was that ON should be the out-of-the-box
+    -- behaviour. Flip every existing FALSE row to TRUE and update the
+    -- column default. Idempotent via the column-default sentinel: once
+    -- the default is already TRUE, the inner block is skipped, so a user
+    -- who later toggles OFF stays OFF.
+    DO $uniform$
+    BEGIN
+      IF (SELECT column_default FROM information_schema.columns
+           WHERE table_name = 'users' AND column_name = 'uniform_size') = 'false' THEN
+        UPDATE users SET uniform_size = TRUE WHERE uniform_size = FALSE;
+        ALTER TABLE users ALTER COLUMN uniform_size SET DEFAULT TRUE;
+      END IF;
+    END
+    $uniform$;
     ALTER TABLE users ADD COLUMN IF NOT EXISTS show_statics  BOOLEAN NOT NULL DEFAULT TRUE;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS connection_thickness TEXT NOT NULL DEFAULT 'standard';
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS route_mode           TEXT NOT NULL DEFAULT 'shortest';
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS route_include_bridges BOOLEAN NOT NULL DEFAULT FALSE;
+
+    -- Player-owned Ansiblex jump bridges. One row per Ansiblex structure;
+    -- destination is parsed from the structure name (community convention:
+    -- "Source » Destination"). to_system_id is nullable for bridges whose
+    -- name we can't parse — those stay registered but aren't used by the
+    -- router until renamed. Populated from known_structures by the
+    -- ansiblexBridges service after every corp-structures refresh.
+    CREATE TABLE IF NOT EXISTS ansiblex_bridges (
+      structure_id     BIGINT      PRIMARY KEY,
+      from_system_id   INTEGER     NOT NULL,
+      to_system_id     INTEGER,
+      to_system_name   TEXT,
+      owner_corp_id    INTEGER     NOT NULL,
+      name             TEXT        NOT NULL DEFAULT '',
+      updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_ansiblex_owner ON ansiblex_bridges (owner_corp_id);
+    CREATE INDEX IF NOT EXISTS idx_ansiblex_from  ON ansiblex_bridges (from_system_id);
     ALTER TABLE users ADD COLUMN IF NOT EXISTS panel_order   TEXT[]  NOT NULL DEFAULT '{notes,signatures,structures,npcStations}';
     ALTER TABLE users ADD COLUMN IF NOT EXISTS role          TEXT    NOT NULL DEFAULT 'readonly';
     UPDATE users SET role = 'readonly' WHERE role = 'standard';

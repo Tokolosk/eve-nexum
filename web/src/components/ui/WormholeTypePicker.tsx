@@ -1,4 +1,5 @@
 import { useMemo, useRef, useState } from 'react';
+import { ArrowRightIcon, CaretDownIcon, CaretUpIcon } from '@phosphor-icons/react';
 import { CLASS_COLORS, CLASS_LABELS, WORMHOLE_DESTINATIONS } from '../../data/wormholes';
 import { useWormholeTypes } from '../../hooks/useWormholeTypes';
 import { usePopover } from '../../hooks/usePopover';
@@ -49,7 +50,7 @@ function DestBadge({ code, types }: { code: string; types: ReturnType<typeof use
   if (!dest) return null;
   return (
     <>
-      <span className="wh-picker__arrow">→</span>
+      <span className="wh-picker__arrow"><ArrowRightIcon size={11} weight="bold" /></span>
       <span className="wh-picker__dest" style={{ color: CLASS_COLORS[dest] }}>
         {CLASS_LABELS[dest] ?? dest}
       </span>
@@ -143,7 +144,9 @@ export function WormholeTypePicker({ value, onChange, statics = [] }: Props) {
         ) : (
           <span className="wh-picker__placeholder">Unknown</span>
         )}
-        <span className="wh-picker__chevron">{open ? '▲' : '▼'}</span>
+        <span className="wh-picker__chevron">
+          {open ? <CaretUpIcon size={11} weight="bold" /> : <CaretDownIcon size={11} weight="bold" />}
+        </span>
       </button>
 
       {open && (

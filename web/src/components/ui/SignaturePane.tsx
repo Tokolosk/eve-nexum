@@ -6,6 +6,7 @@ import type { Signature, SigType } from '../../types';
 import { ConfirmModal, shouldSkipConfirm } from './ConfirmModal';
 import { NotesEditor } from './NotesEditor';
 import { WormholeTypePicker } from './WormholeTypePicker';
+import { XIcon } from '@phosphor-icons/react';
 import { LeadsToDropdown } from './LeadsToDropdown';
 import { toast } from './Toaster';
 import { reevaluateConnectionsForSystem } from '../../utils/whAutoDetect';
@@ -574,7 +575,7 @@ export function SignaturePane({ systemId }: { systemId: string }) {
                       className="icon-btn icon-btn--danger"
                       onClick={() => deleteSig(sig.id)}
                       title="Delete"
-                    >✕</button>
+                    ><XIcon size={12} weight="bold" /></button>
                   )}
                 </td>
               </tr>

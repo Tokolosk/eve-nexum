@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { CaretLeftIcon, CaretRightIcon } from '@phosphor-icons/react';
 import { useKillboard } from '../../hooks/useKillboard';
 import { useStandings } from '../../hooks/useStandings';
 import type { ZkbKill } from '../../hooks/useKillboard';
@@ -226,14 +227,14 @@ export function KillboardPane({ eveSystemId }: Props) {
               className="zkb-page-btn"
               onClick={() => setPage((p) => Math.max(0, p - 1))}
               disabled={safePage === 0}
-            >‹</button>
+            ><CaretLeftIcon size={14} weight="bold" /></button>
             <span className="zkb-pane__page-label">{safePage + 1} / {totalPages}</span>
             <button
               type="button"
               className="zkb-page-btn"
               onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
               disabled={safePage === totalPages - 1}
-            >›</button>
+            ><CaretRightIcon size={14} weight="bold" /></button>
           </span>
         )}
       </div>

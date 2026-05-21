@@ -6,6 +6,8 @@ import { SortableContext, verticalListSortingStrategy, arrayMove } from '@dnd-ki
 import { DraggableCard } from './DraggableCard';
 import { ScoutConnectionsPane } from './ScoutConnectionsPane';
 import { A0Pane } from './A0Pane';
+import { ClosestSystemsPane } from './ClosestSystemsPane';
+import { CaretLeftIcon, CaretRightIcon, ArrowLineLeftIcon, ArrowLineRightIcon } from '@phosphor-icons/react';
 
 const SIDE_KEY      = 'nexum.sidebar.side';
 const COLLAPSED_KEY = 'nexum.sidebar.collapsed';
@@ -25,13 +27,14 @@ function loadWidth(): number {
 }
 
 type Side    = 'left' | 'right';
-type PanelId = 'thera' | 'turnur' | 'a0';
+type PanelId = 'thera' | 'turnur' | 'a0' | 'closest';
 
-const DEFAULT_ORDER: PanelId[] = ['thera', 'turnur', 'a0'];
+const DEFAULT_ORDER: PanelId[] = ['closest', 'thera', 'turnur', 'a0'];
 const PANEL_TITLES: Record<PanelId, string> = {
-  thera:  'Thera Connections',
-  turnur: 'Turnur Connections',
-  a0:     'Nearby A0 Suns',
+  thera:   'Thera Connections',
+  turnur:  'Turnur Connections',
+  a0:      'Nearby A0 Suns',
+  closest: 'Closest Systems',
 };
 const VALID_PANEL_IDS: ReadonlySet<PanelId> = new Set(DEFAULT_ORDER);
 
@@ -113,16 +116,19 @@ export function Sidebar() {
           data-tooltip="Expand sidebar"
           aria-label="Expand sidebar"
         >
-          {side === 'left' ? '▶' : '◀'}
+          {side === 'left'
+            ? <CaretRightIcon size={14} weight="bold" />
+            : <CaretLeftIcon  size={14} weight="bold" />}
         </button>
       </aside>
     );
   }
 
   const cards: Record<PanelId, ReactNode> = {
-    thera:  <ScoutConnectionsPane scoutSystem="Thera" />,
-    turnur: <ScoutConnectionsPane scoutSystem="Turnur" />,
-    a0:     <A0Pane />,
+    thera:   <ScoutConnectionsPane scoutSystem="Thera" />,
+    turnur:  <ScoutConnectionsPane scoutSystem="Turnur" />,
+    a0:      <A0Pane />,
+    closest: <ClosestSystemsPane />,
   };
 
   return (
@@ -142,7 +148,9 @@ export function Sidebar() {
           data-tooltip={`Move sidebar to ${side === 'left' ? 'right' : 'left'}`}
           aria-label={`Move sidebar to ${side === 'left' ? 'right' : 'left'}`}
         >
-          {side === 'left' ? '⇥' : '⇤'}
+          {side === 'left'
+            ? <ArrowLineRightIcon size={14} weight="bold" />
+            : <ArrowLineLeftIcon  size={14} weight="bold" />}
         </button>
         <button
           type="button"
@@ -151,7 +159,9 @@ export function Sidebar() {
           data-tooltip="Collapse sidebar"
           aria-label="Collapse sidebar"
         >
-          {side === 'left' ? '◀' : '▶'}
+          {side === 'left'
+            ? <CaretLeftIcon  size={14} weight="bold" />
+            : <CaretRightIcon size={14} weight="bold" />}
         </button>
       </div>
 

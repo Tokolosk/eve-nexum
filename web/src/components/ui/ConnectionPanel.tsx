@@ -4,6 +4,7 @@ import { useWormholeTypes } from '../../hooks/useWormholeTypes';
 import { useNow30s } from '../../hooks/useNow30s';
 import { useCanEdit } from '../../hooks/useCanEdit';
 import { WHTypeInfo } from './WHTypeInfo';
+import { XIcon } from '@phosphor-icons/react';
 import { api } from '../../api/client';
 import type { MassStatus, TimeStatus, ConnectionSize, Signature, SystemClass } from '../../types';
 
@@ -127,7 +128,7 @@ export function ConnectionPanel() {
         <h2 className="system-panel__title">
           {src?.name ?? '?'} → {tgt?.name ?? '?'}
         </h2>
-        <button className="icon-btn" onClick={() => selectConnection(null)} title="Close">✕</button>
+        <button className="icon-btn" onClick={() => selectConnection(null)} title="Close"><XIcon size={14} weight="bold" /></button>
       </div>
 
       <label className="field">

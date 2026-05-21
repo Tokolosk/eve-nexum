@@ -8,6 +8,7 @@ import { pickHandles } from '../map/edgeUtils';
 import { useProximityThreshold } from '../../hooks/useProximityAlerts';
 import { useStaleThreshold } from '../../hooks/useStaleThreshold';
 import { toPng } from 'html-to-image';
+import { CaretLeftIcon, CaretRightIcon } from '@phosphor-icons/react';
 import type { WormholeMap } from '../../types';
 
 // Collapsible group inside the map sidebar. Open/closed state is persisted to
@@ -117,6 +118,10 @@ export function MapSidebar() {
   const setMapOptionsOpen = useMapStore((s) => s.setMapOptionsOpen);
   const edgeStyle        = useMapStore((s) => s.edgeStyle);
   const setEdgeStyle     = useMapStore((s) => s.setEdgeStyle);
+  const connectionThickness    = useMapStore((s) => s.connectionThickness);
+  const setConnectionThickness = useMapStore((s) => s.setConnectionThickness);
+  const routeMode              = useMapStore((s) => s.routeMode);
+  const setRouteMode           = useMapStore((s) => s.setRouteMode);
   const updateConnection = useMapStore((s) => s.updateConnection);
   const requestAutoLayout = useMapStore((s) => s.requestAutoLayout);
   const connectionCount  = useMapStore((s) => s.map.connections.length);
@@ -183,7 +188,7 @@ export function MapSidebar() {
         onClick={() => setMapOptionsOpen(!mapOptionsOpen)}
         title={mapOptionsOpen ? 'Close map options' : 'Map options'}
       >
-        {mapOptionsOpen ? '›' : '‹'}
+        {mapOptionsOpen ? <CaretRightIcon size={14} weight="bold" /> : <CaretLeftIcon size={14} weight="bold" />}
       </button>
 
       <div className="map-sidebar__content">
@@ -275,6 +280,21 @@ export function MapSidebar() {
             ))}
           </div>
 
+          <div className="map-sidebar__row">
+            <label className="map-sidebar__label" htmlFor="connection-thickness">Connection Thickness</label>
+            <select
+              id="connection-thickness"
+              className="map-sidebar__select"
+              value={connectionThickness}
+              onChange={(e) => setConnectionThickness(e.target.value as 'thin' | 'standard' | 'thick' | 'extra')}
+            >
+              <option value="thin">Thin</option>
+              <option value="standard">Standard</option>
+              <option value="thick">Thick</option>
+              <option value="extra">Extra Thick</option>
+            </select>
+          </div>
+
           {!hideTopologyTools && (
             <>
               <button
@@ -294,6 +314,26 @@ export function MapSidebar() {
               </button>
             </>
           )}
+        </CollapsibleSection>
+
+        <CollapsibleSection title="Route" storageKey="nexum.mapSidebar.route">
+          <div className="map-sidebar__row">
+            <label className="map-sidebar__label" htmlFor="route-mode">Route Preference</label>
+            <select
+              id="route-mode"
+              className="map-sidebar__select"
+              value={routeMode}
+              onChange={(e) => setRouteMode(e.target.value as 'shortest' | 'secure')}
+            >
+              <option value="shortest">Shortest</option>
+              <option value="secure">Secure</option>
+            </select>
+          </div>
+          <p className="map-sidebar__hint">
+            Shortest: fewest jumps regardless of security.
+            Secure: prefer high-sec, detour through low/null only when no
+            high-sec path is available.
+          </p>
         </CollapsibleSection>
 
         <CollapsibleSection title="Proximity Alerts" storageKey="nexum.mapSidebar.proximity">

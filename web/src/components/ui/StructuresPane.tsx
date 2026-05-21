@@ -6,6 +6,7 @@ import type { Structure, StructureType } from '../../types';
 import { NotesEditor } from './NotesEditor';
 import { ConfirmModal, shouldSkipConfirm } from './ConfirmModal';
 import { ContextMenu } from './ContextMenu';
+import { XIcon, PathIcon, MapPinSimpleIcon } from '@phosphor-icons/react';
 import { setDestination, addWaypoint } from '../../api/waypoint';
 import { toast } from './Toaster';
 import { useCanEditContent } from '../../hooks/useCanEditContent';
@@ -306,7 +307,7 @@ export function StructuresPane({ systemId }: { systemId: string }) {
                         className="icon-btn icon-btn--danger"
                         onClick={() => deleteStructure(s.id)}
                         title="Delete"
-                      >✕</button>
+                      ><XIcon size={12} weight="bold" /></button>
                     )}
                   </td>
                 </tr>
@@ -330,12 +331,12 @@ export function StructuresPane({ systemId }: { systemId: string }) {
           items={[
             {
               label: 'Set Destination',
-              icon: '🎯',
+              icon: <MapPinSimpleIcon size={16} weight="regular" color="#3ddc84" />,
               action: () => setDestination(ctx.structure.eveId!).catch(console.error),
             },
             {
               label: 'Add Waypoint',
-              icon: '📍',
+              icon: <PathIcon size={16} weight="regular" color="#5a9af8" />,
               action: () => addWaypoint(ctx.structure.eveId!).catch(console.error),
             },
           ]}

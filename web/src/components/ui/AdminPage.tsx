@@ -9,6 +9,7 @@ import {
   PointElement, LineElement, Tooltip, Legend, Filler,
 } from 'chart.js';
 import { Doughnut, Line } from 'react-chartjs-2';
+import { CaretUpIcon, CaretDownIcon } from '@phosphor-icons/react';
 
 // Register only the chart pieces we actually use — keeps the bundle lean.
 ChartJS.register(ArcElement, CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Legend, Filler);
@@ -761,7 +762,6 @@ function SortHeader<K extends string>({
   align?: 'center';
 }) {
   const active = sort.key === colKey;
-  const arrow  = active ? (sort.dir === 'asc' ? '▲' : '▼') : '';
   const cls =
     'admin-page__sort-th' +
     (active ? ' admin-page__sort-th--active' : '') +
@@ -769,7 +769,11 @@ function SortHeader<K extends string>({
   return (
     <th className={cls} onClick={() => onSort(colKey)}>
       <span>{label}</span>
-      <span className="admin-page__sort-arrow">{arrow}</span>
+      <span className="admin-page__sort-arrow">
+        {active && (sort.dir === 'asc'
+          ? <CaretUpIcon   size={12} weight="bold" />
+          : <CaretDownIcon size={12} weight="bold" />)}
+      </span>
     </th>
   );
 }
