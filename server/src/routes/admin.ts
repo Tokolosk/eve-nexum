@@ -62,6 +62,44 @@ async function resolveCorps(ids: number[]): Promise<Map<number, CorpInfo | null>
   return out;
 }
 
+// Same shape + cache pattern as resolveCorps, but for alliances. ESI uses
+// `name` + `ticker` here too.
+const allianceCache = new Map<number, { value: CorpInfo | null; at: number }>();
+async function resolveAlliances(ids: number[]): Promise<Map<number, CorpInfo | null>> {
+  const unique = [...new Set(ids)].filter((n) => Number.isInteger(n) && n > 0);
+  const now    = Date.now();
+  const out    = new Map<number, CorpInfo | null>();
+  const todo: number[] = [];
+
+  for (const id of unique) {
+    const cached = allianceCache.get(id);
+    if (cached && now - cached.at < CORP_TTL_MS) out.set(id, cached.value);
+    else todo.push(id);
+  }
+
+  await Promise.all(todo.map(async (id) => {
+    try {
+      const r = await fetch(`https://esi.evetech.net/v3/alliances/${id}/`);
+      if (!r.ok) {
+        allianceCache.set(id, { value: null, at: now });
+        out.set(id, null);
+        return;
+      }
+      const data = await r.json() as { name?: string; ticker?: string };
+      const info: CorpInfo | null = (data.ticker && data.name)
+        ? { ticker: data.ticker, name: data.name }
+        : null;
+      allianceCache.set(id, { value: info, at: now });
+      out.set(id, info);
+    } catch (err) {
+      log.error(`alliance lookup failed for ${id}:`, err);
+      out.set(id, null);
+    }
+  }));
+
+  return out;
+}
+
 // Helper: write an audit entry. Wraps the verbose 6-column insert.
 async function audit(
   req: { session: { userId?: number; characterId?: number } },
@@ -537,6 +575,7 @@ reportsRouter.get('/users', async (req, res) => {
       u.character_name AS "characterName",
       u.role,
       u.corp_id        AS "corpId",
+      u.alliance_id    AS "allianceId",
       u.updated_at     AS "lastLogin",
       lcs.ts           AS "lastCorpSigAt",
       lcst.ts          AS "lastCorpStructAt",
@@ -563,15 +602,21 @@ reportsRouter.get('/users', async (req, res) => {
     ORDER BY u.character_name
   `, params);
 
-  const corpInfo = await resolveCorps(
-    rows.map((r) => r.corpId).filter((id): id is number => id !== null),
-  );
-  const users = rows.map((r) => {
-    const info = r.corpId !== null ? corpInfo.get(r.corpId) : null;
+  const corpIds      = (rows as { corpId: number | null }[]).map((r) => r.corpId).filter((id): id is number => id !== null);
+  const allianceIds  = (rows as { allianceId?: number | null }[]).map((r) => r.allianceId ?? null).filter((id): id is number => id !== null);
+  const [corpInfo, allianceInfo] = await Promise.all([
+    resolveCorps(corpIds),
+    resolveAlliances(allianceIds),
+  ]);
+  const users = (rows as Array<Record<string, unknown> & { corpId: number | null; allianceId: number | null }>).map((r) => {
+    const cInfo = r.corpId     !== null ? corpInfo.get(r.corpId)         : null;
+    const aInfo = r.allianceId !== null ? allianceInfo.get(r.allianceId) : null;
     return {
       ...r,
-      corpTicker: info?.ticker ?? null,
-      corpName:   info?.name   ?? null,
+      corpTicker:     cInfo?.ticker ?? null,
+      corpName:       cInfo?.name   ?? null,
+      allianceTicker: aInfo?.ticker ?? null,
+      allianceName:   aInfo?.name   ?? null,
     };
   });
 

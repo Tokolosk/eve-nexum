@@ -497,6 +497,9 @@ interface UserReportRow {
   corpId:               number | null;
   corpTicker:           string | null;
   corpName:             string | null;
+  allianceId:           number | null;
+  allianceTicker:       string | null;
+  allianceName:         string | null;
   lastLogin:            string | null;
   lastCorpSigAt:        string | null;
   lastCorpStructAt:     string | null;
@@ -517,7 +520,7 @@ const SIG_TYPE_ORDER: { key: string; label: string }[] = [
 ];
 
 type UserReportFixedKey =
-  | 'name' | 'corp' | 'lastLogin' | 'lastCorpSig' | 'lastCorpStruct'
+  | 'name' | 'corp' | 'alliance' | 'lastLogin' | 'lastCorpSig' | 'lastCorpStruct'
   | 'sigTotal' | 'structTotal' | 'systemsAdded' | 'systemsDeleted';
 type UserReportSortKey  = UserReportFixedKey | `sig:${string}`;
 type SortDir = 'asc' | 'desc';
@@ -528,7 +531,8 @@ type SortDir = 'asc' | 'desc';
 // users don't dominate the top of an ascending sort.
 const USER_REPORT_FIXED_ACCESSORS: Record<UserReportFixedKey, (r: UserReportRow) => string | number | null> = {
   name:           (r) => r.characterName.toLowerCase(),
-  corp:           (r) => r.corpTicker ?? (r.corpId !== null ? String(r.corpId) : ''),
+  corp:           (r) => r.corpTicker     ?? (r.corpId     !== null ? String(r.corpId)     : ''),
+  alliance:       (r) => r.allianceTicker ?? (r.allianceId !== null ? String(r.allianceId) : ''),
   lastLogin:      (r) => r.lastLogin        ? new Date(r.lastLogin).getTime()        : null,
   lastCorpSig:    (r) => r.lastCorpSigAt    ? new Date(r.lastCorpSigAt).getTime()    : null,
   lastCorpStruct: (r) => r.lastCorpStructAt ? new Date(r.lastCorpStructAt).getTime() : null,
@@ -589,7 +593,7 @@ function UsersReport() {
   function downloadCsv() {
     if (!sortedRows) return;
     const header = [
-      'Character', 'Character ID', 'Corp ticker', 'Corp ID', 'Role',
+      'Character', 'Character ID', 'Corp ticker', 'Corp ID', 'Alliance ticker', 'Alliance ID', 'Role',
       'Last login (ISO)',
       'Systems added', 'Systems deleted',
       'Last corp structure (ISO)', 'Total structures',
@@ -603,6 +607,8 @@ function UsersReport() {
         String(u.characterId),
         u.corpTicker ?? '',
         u.corpId !== null ? String(u.corpId) : '',
+        u.allianceTicker ?? '',
+        u.allianceId !== null ? String(u.allianceId) : '',
         u.role,
         u.lastLogin        ?? '',
         String(u.systemsAdded),
@@ -669,6 +675,7 @@ function UsersReport() {
         <tr>
           <SortHeader label="Character"          colKey="name"           sort={sort} onSort={handleSort} />
           <SortHeader label="Corp"               colKey="corp"           sort={sort} onSort={handleSort} />
+          <SortHeader label="Alliance"           colKey="alliance"       sort={sort} onSort={handleSort} />
           <SortHeader label="Last login"           colKey="lastLogin"      sort={sort} onSort={handleSort} />
           <SortHeader label="Systems added"        colKey="systemsAdded"   sort={sort} onSort={handleSort} />
           <SortHeader label="Systems deleted"      colKey="systemsDeleted" sort={sort} onSort={handleSort} />
@@ -706,6 +713,13 @@ function UsersReport() {
                   ? <span className="admin-modal__ticker">[{u.corpTicker}]</span>
                   : <span className="admin-modal__mono">{u.corpId ?? '—'}</span>}
               </td>
+              <td title={u.allianceName ?? undefined}>
+                {u.allianceTicker
+                  ? <span className="admin-modal__ticker">[{u.allianceTicker}]</span>
+                  : u.allianceId !== null
+                    ? <span className="admin-modal__mono">{u.allianceId}</span>
+                    : '—'}
+              </td>
               <td className="admin-modal__when">{u.lastLogin ? formatRelative(u.lastLogin) : '—'}</td>
               <td className="admin-modal__num">{u.systemsAdded   > 0 ? u.systemsAdded   : '—'}</td>
               <td className="admin-modal__num">{u.systemsDeleted > 0 ? u.systemsDeleted : '—'}</td>
@@ -734,7 +748,7 @@ function UsersReport() {
 // per-sig-type column) default to descending — that's what an admin usually
 // wants on first click.
 function defaultDirFor(key: UserReportSortKey): SortDir {
-  return key === 'name' || key === 'corp' ? 'asc' : 'desc';
+  return key === 'name' || key === 'corp' || key === 'alliance' ? 'asc' : 'desc';
 }
 
 function SortHeader<K extends string>({

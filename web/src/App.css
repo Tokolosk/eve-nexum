@@ -2446,6 +2446,13 @@ div.system-node__easy-handle {
 .sig-row--wh-eol  td { background: rgba(245,140,35,0.12); }
 .sig-row--wh-past td { background: rgba(231,76,60,0.14); }
 
+/* Untyped signatures get a subtle red tint so a paste-and-forget pile is
+   obvious at a glance. Aging tints take precedence (they're added after
+   this rule in the className join, so they cascade and win when both
+   apply on a wormhole row that's also flagged unknown — unusual but
+   possible). Selected rows still override via !important. */
+.sig-row--unknown td { background: rgba(231,76,60,0.06); }
+
 /* Structures pane row tints, mirroring the EVE standings palette used
    by the sov pills and killboard rows. owner_corp_id is resolved via
    ESI on insert (and only when an eve_id was supplied), so rows without

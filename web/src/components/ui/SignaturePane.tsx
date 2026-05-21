@@ -500,7 +500,7 @@ export function SignaturePane({ systemId }: { systemId: string }) {
           </thead>
           <tbody>
             {sortedSigs.map((sig) => (
-              <tr key={sig.id} className={`${selected.has(sig.id) ? 'sig-row--selected' : ''} ${whAgeRowClass(sig.sigType, sig.whType, sig.createdAt, tickNow)}`}>
+              <tr key={sig.id} className={`${selected.has(sig.id) ? 'sig-row--selected' : ''} ${sig.sigType === 'unknown' ? 'sig-row--unknown' : ''} ${whAgeRowClass(sig.sigType, sig.whType, sig.createdAt, tickNow)}`}>
                 <td>
                   <input
                     type="checkbox"
