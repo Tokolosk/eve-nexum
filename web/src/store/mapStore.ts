@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { readUserSetting, writeUserSetting } from '../hooks/useUserSetting';
 import { v4 as uuid } from 'uuid';
 import { api } from '../api/client';
 import { enqueue } from './pendingQueue';
@@ -324,7 +325,10 @@ export const useMapStore = create<MapStore>()((set, get) => {
     routeMode:   'shortest',
     routeIncludeBridges: false,
     uiZoom: 1,
-    trackJumps:  (typeof localStorage !== 'undefined' ? localStorage.getItem('nexum.trackJumps') : null) !== 'false',
+    // Initial value is read from localStorage (pre-hydration) and then
+    // updated by the user-settings hydrate when /auth/me arrives. The
+    // setter writes through to both, keeping cross-tab + cross-device.
+    trackJumps:  readUserSetting<boolean>('nexum.trackJumps', true),
     uniformWidth:  0,
     uniformHeight: 0,
     easyConnect: false,
@@ -481,7 +485,7 @@ export const useMapStore = create<MapStore>()((set, get) => {
 
     setTrackJumps: (v) => {
       set({ trackJumps: v });
-      localStorage.setItem('nexum.trackJumps', String(v));
+      writeUserSetting('nexum.trackJumps', v);
     },
 
     reportNodeSize: (id, width, height, countHeight) => {

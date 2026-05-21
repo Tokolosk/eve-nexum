@@ -10,6 +10,7 @@ import { useCharacterLocation } from '../../hooks/useCharacterLocation';
 import { useRoute, type RouteEntry } from '../../hooks/useRoute';
 import { useEsiSearch } from '../../hooks/useEsiSearch';
 import { useMapStore } from '../../store/mapStore';
+import { useUserSetting } from '../../hooks/useUserSetting';
 import { setWaypoint, RouteSquares, KSPACE_CLASSES } from './routeUi';
 
 // EVE system IDs for the major trade hubs. Used as the initial seed only —
@@ -33,33 +34,16 @@ const HIDDEN_HOME_KEY = 'nexum.closestSystems.hiddenHome';
 
 interface StoredEntry { id: number; name: string }
 
-function loadList(): StoredEntry[] {
-  const raw = localStorage.getItem(LIST_KEY);
-  if (!raw) return DEFAULT_HUBS.map((h) => ({ id: h.id, name: h.name }));
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    if (!Array.isArray(parsed)) return DEFAULT_HUBS.map((h) => ({ id: h.id, name: h.name }));
-    return parsed
-      .filter((e): e is StoredEntry =>
-        typeof e === 'object' && e !== null
-          && typeof (e as StoredEntry).id === 'number'
-          && typeof (e as StoredEntry).name === 'string')
-      .map((e) => ({ id: e.id, name: e.name }));
-  } catch {
-    return DEFAULT_HUBS.map((h) => ({ id: h.id, name: h.name }));
-  }
-}
+const HUB_DEFAULTS: StoredEntry[] = DEFAULT_HUBS.map((h) => ({ id: h.id, name: h.name }));
 
-function loadHiddenHome(): Set<number> {
-  const raw = localStorage.getItem(HIDDEN_HOME_KEY);
-  if (!raw) return new Set();
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    if (!Array.isArray(parsed)) return new Set();
-    return new Set(parsed.filter((n): n is number => typeof n === 'number'));
-  } catch {
-    return new Set();
-  }
+function sanitiseList(raw: unknown): StoredEntry[] {
+  if (!Array.isArray(raw)) return HUB_DEFAULTS;
+  return raw
+    .filter((e): e is StoredEntry =>
+      typeof e === 'object' && e !== null
+        && typeof (e as StoredEntry).id === 'number'
+        && typeof (e as StoredEntry).name === 'string')
+    .map((e) => ({ id: e.id, name: e.name }));
 }
 
 interface RowItem {
@@ -167,8 +151,10 @@ export function ClosestSystemsPane() {
     return found ? { id: found.eveSystemId as number, name: found.name } : null;
   }));
 
-  const [list, setList]         = useState<StoredEntry[]>(loadList);
-  const [hiddenHome, setHiddenHome] = useState<Set<number>>(loadHiddenHome);
+  const [listRaw, setList]      = useUserSetting<StoredEntry[]>(LIST_KEY, HUB_DEFAULTS);
+  const list = useMemo(() => sanitiseList(listRaw), [listRaw]);
+  const [hiddenHomeArr, setHiddenHomeArr] = useUserSetting<number[]>(HIDDEN_HOME_KEY, []);
+  const hiddenHome = useMemo(() => new Set(hiddenHomeArr), [hiddenHomeArr]);
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
   const [adding, setAdding]     = useState(false);
   const [query, setQuery]       = useState('');
@@ -177,9 +163,6 @@ export function ClosestSystemsPane() {
   const { results, loading }    = useEsiSearch(query);
   const inputRef                = useRef<HTMLInputElement>(null);
   const addRowRef               = useRef<HTMLDivElement>(null);
-
-  useEffect(() => { localStorage.setItem(LIST_KEY, JSON.stringify(list)); }, [list]);
-  useEffect(() => { localStorage.setItem(HIDDEN_HOME_KEY, JSON.stringify([...hiddenHome])); }, [hiddenHome]);
 
   useEffect(() => { if (adding) inputRef.current?.focus(); }, [adding]);
   useEffect(() => { setActiveIndex(-1); }, [results]);
@@ -262,11 +245,7 @@ export function ClosestSystemsPane() {
     // next render. Tracking by ID means a future home change still
     // surfaces normally.
     if (homeSystem?.id === id) {
-      setHiddenHome((prev) => {
-        const next = new Set(prev);
-        next.add(id);
-        return next;
-      });
+      setHiddenHomeArr((prev) => Array.from(new Set([...prev, id])));
     }
   }
 
@@ -275,11 +254,7 @@ export function ClosestSystemsPane() {
     // Adding a system explicitly clears the hidden-home flag for it —
     // user wants it back in the list now.
     if (hiddenHome.has(id)) {
-      setHiddenHome((prev) => {
-        const next = new Set(prev);
-        next.delete(id);
-        return next;
-      });
+      setHiddenHomeArr((prev) => prev.filter((x) => x !== id));
     }
     setQuery('');
     setAdding(false);

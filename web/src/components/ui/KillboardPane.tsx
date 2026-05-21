@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { CaretLeftIcon, CaretRightIcon } from '@phosphor-icons/react';
 import { useKillboard } from '../../hooks/useKillboard';
 import { useStandings } from '../../hooks/useStandings';
+import { useUserSetting } from '../../hooks/useUserSetting';
 import type { ZkbKill } from '../../hooks/useKillboard';
 
 const NPC_TOGGLE_KEY = 'nexum.killboardIncludeNpc';
@@ -169,14 +170,7 @@ interface Props {
 }
 
 export function KillboardPane({ eveSystemId }: Props) {
-  const [includeNpc, setIncludeNpc] = useState<boolean>(() => {
-    try { return localStorage.getItem(NPC_TOGGLE_KEY) === '1'; }
-    catch { return false; }
-  });
-  useEffect(() => {
-    try { localStorage.setItem(NPC_TOGGLE_KEY, includeNpc ? '1' : '0'); }
-    catch { /* quota / private mode */ }
-  }, [includeNpc]);
+  const [includeNpc, setIncludeNpc] = useUserSetting<boolean>(NPC_TOGGLE_KEY, false);
 
   const { kills, loading, error, lastUpdated, npcCount, refresh } = useKillboard(eveSystemId, { includeNpc });
   const standings = useStandings();

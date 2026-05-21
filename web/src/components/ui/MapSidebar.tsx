@@ -7,6 +7,7 @@ import { toast } from './Toaster';
 import { pickHandles } from '../map/edgeUtils';
 import { useProximityThreshold } from '../../hooks/useProximityAlerts';
 import { useStaleThreshold } from '../../hooks/useStaleThreshold';
+import { useUserSetting } from '../../hooks/useUserSetting';
 import { toPng } from 'html-to-image';
 import { CaretLeftIcon, CaretRightIcon } from '@phosphor-icons/react';
 import type { WormholeMap } from '../../types';
@@ -25,16 +26,9 @@ function CollapsibleSection({
   defaultOpen?: boolean;
   children: ReactNode;
 }) {
-  const [open, setOpen] = useState<boolean>(() => {
-    try {
-      const v = localStorage.getItem(storageKey);
-      return v === null ? defaultOpen : v === '1';
-    } catch { return defaultOpen; }
-  });
-
-  useEffect(() => {
-    try { localStorage.setItem(storageKey, open ? '1' : '0'); } catch { /* quota / private mode */ }
-  }, [open, storageKey]);
+  // useUserSetting stores `true|false` as JSON; legacy localStorage rows
+  // were '0'/'1', migrated transparently by seedUserSettings.
+  const [open, setOpen] = useUserSetting<boolean>(storageKey, defaultOpen);
 
   return (
     <div className={`map-sidebar__section${open ? '' : ' map-sidebar__section--collapsed'}`}>

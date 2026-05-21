@@ -20,6 +20,7 @@ declare module 'express-session' {
       routeMode: string;
       routeIncludeBridges: boolean;
       uiZoom: number;
+      uiSettings: Record<string, unknown>;
       panelOrder:  string[];
     };
   }

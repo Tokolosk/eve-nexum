@@ -16,6 +16,7 @@ export interface AuthUser {
   routeMode: string;
   routeIncludeBridges: boolean;
   uiZoom: number;
+  uiSettings: Record<string, unknown>;
   panelOrder: string[];
   canViewReports: boolean;
 }

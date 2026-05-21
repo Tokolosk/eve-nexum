@@ -60,6 +60,12 @@ export async function migrate() {
     ALTER TABLE users ADD COLUMN IF NOT EXISTS route_include_bridges BOOLEAN NOT NULL DEFAULT FALSE;
     ALTER TABLE users ADD COLUMN IF NOT EXISTS ui_zoom NUMERIC(3,2) NOT NULL DEFAULT 1.00;
 
+    -- Cross-device UI settings (sidebar order, panel collapsed states,
+    -- closestSystems list, etc). One opaque JSONB blob so we do not add
+    -- a column per setting. Client-side useUserSetting(key, default)
+    -- hook reads from /auth/me and PATCHes via /auth/settings.
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS ui_settings JSONB NOT NULL DEFAULT '{}'::jsonb;
+
     -- Player-owned Ansiblex jump bridges. One row per Ansiblex structure;
     -- destination is parsed from the structure name (community convention:
     -- "Source » Destination"). to_system_id is nullable for bridges whose

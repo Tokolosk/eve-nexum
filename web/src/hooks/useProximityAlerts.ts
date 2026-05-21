@@ -5,6 +5,7 @@ import { useInsurgency } from './useInsurgency';
 import { useRoute } from './useRoute';
 import { useStandings } from './useStandings';
 import { ensureSovLoaded, getSovEntries } from './useSovData';
+import { useUserSetting, readUserSetting, writeUserSetting } from './useUserSetting';
 
 export type ThreatKind = 'incursion' | 'insurgency' | 'hostile-sov';
 
@@ -17,31 +18,24 @@ export interface NearestThreat {
 const THRESHOLD_KEY = 'nexum.proximityThreshold';
 const DEFAULT_THRESHOLD = 2;
 
+function clamp(n: number): number {
+  return Math.max(0, Math.min(5, Math.floor(n)));
+}
+
 export function readThreshold(): number {
-  const raw = localStorage.getItem(THRESHOLD_KEY);
-  if (!raw) return DEFAULT_THRESHOLD;
-  const n = parseInt(raw, 10);
-  if (!Number.isFinite(n) || n < 0 || n > 5) return DEFAULT_THRESHOLD;
-  return n;
+  return readUserSetting<number>(THRESHOLD_KEY, DEFAULT_THRESHOLD);
 }
 
 export function writeThreshold(n: number): void {
-  localStorage.setItem(THRESHOLD_KEY, String(Math.max(0, Math.min(5, Math.floor(n)))));
+  writeUserSetting(THRESHOLD_KEY, clamp(n));
 }
 
 /** Threshold-watching hook. Returns the current threshold and a setter. */
 export function useProximityThreshold(): [number, (n: number) => void] {
-  const [threshold, setThreshold] = useState<number>(() => readThreshold());
-  useEffect(() => {
-    const onStorage = (e: StorageEvent) => {
-      if (e.key === THRESHOLD_KEY) setThreshold(readThreshold());
-    };
-    window.addEventListener('storage', onStorage);
-    return () => window.removeEventListener('storage', onStorage);
-  }, []);
+  const [threshold, setThreshold] = useUserSetting<number>(THRESHOLD_KEY, DEFAULT_THRESHOLD);
   return [
-    threshold,
-    (n: number) => { writeThreshold(n); setThreshold(readThreshold()); },
+    Number.isFinite(threshold) && threshold >= 0 && threshold <= 5 ? threshold : DEFAULT_THRESHOLD,
+    (n: number) => setThreshold(clamp(n)),
   ];
 }
 

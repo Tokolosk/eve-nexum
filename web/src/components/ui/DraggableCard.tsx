@@ -1,7 +1,7 @@
-import { useState } from 'react';
 import type { ReactNode } from 'react';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
+import { useUserSetting } from '../../hooks/useUserSetting';
 
 interface Props {
   id: string;
@@ -14,15 +14,8 @@ function storageKey(id: string) { return `nexum.panel.collapsed.${id}`; }
 export function DraggableCard({ id, title, children }: Props) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
 
-  const [collapsed, setCollapsed] = useState(() => {
-    return localStorage.getItem(storageKey(id)) === 'true';
-  });
-
-  const toggle = () => {
-    const next = !collapsed;
-    setCollapsed(next);
-    localStorage.setItem(storageKey(id), String(next));
-  };
+  const [collapsed, setCollapsed] = useUserSetting<boolean>(storageKey(id), false);
+  const toggle = () => setCollapsed(!collapsed);
 
   return (
     <div

@@ -8,6 +8,7 @@ import { ScoutConnectionsPane } from './ScoutConnectionsPane';
 import { A0Pane } from './A0Pane';
 import { ClosestSystemsPane } from './ClosestSystemsPane';
 import { CaretLeftIcon, CaretRightIcon, ArrowLineLeftIcon, ArrowLineRightIcon } from '@phosphor-icons/react';
+import { useUserSetting } from '../../hooks/useUserSetting';
 
 const SIDE_KEY      = 'nexum.sidebar.side';
 const COLLAPSED_KEY = 'nexum.sidebar.collapsed';
@@ -38,37 +39,28 @@ const PANEL_TITLES: Record<PanelId, string> = {
 };
 const VALID_PANEL_IDS: ReadonlySet<PanelId> = new Set(DEFAULT_ORDER);
 
-function loadOrder(): PanelId[] {
-  const raw = localStorage.getItem(ORDER_KEY);
-  if (!raw) return DEFAULT_ORDER;
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    if (!Array.isArray(parsed)) return DEFAULT_ORDER;
-    const valid: PanelId[] = parsed.filter(
-      (id): id is PanelId => typeof id === 'string' && VALID_PANEL_IDS.has(id as PanelId),
-    );
-    for (const id of DEFAULT_ORDER) if (!valid.includes(id)) valid.push(id);
-    return valid;
-  } catch {
-    return DEFAULT_ORDER;
-  }
+function sanitiseOrder(raw: unknown): PanelId[] {
+  if (!Array.isArray(raw)) return DEFAULT_ORDER;
+  const valid: PanelId[] = raw.filter(
+    (id): id is PanelId => typeof id === 'string' && VALID_PANEL_IDS.has(id as PanelId),
+  );
+  for (const id of DEFAULT_ORDER) if (!valid.includes(id)) valid.push(id);
+  return valid;
 }
 
 export function Sidebar() {
-  const [side, setSide] = useState<Side>(() =>
-    localStorage.getItem(SIDE_KEY) === 'right' ? 'right' : 'left',
-  );
-  const [collapsed, setCollapsed] = useState(() =>
-    localStorage.getItem(COLLAPSED_KEY) === 'true',
-  );
-  const [order, setOrder] = useState<PanelId[]>(loadOrder);
+  // Cross-device prefs via useUserSetting (server-backed JSONB).
+  const [sideRaw,      setSide]      = useUserSetting<Side>(SIDE_KEY, 'left');
+  const side: Side = sideRaw === 'right' ? 'right' : 'left';
+  const [collapsed,    setCollapsed] = useUserSetting<boolean>(COLLAPSED_KEY, false);
+  const [orderRaw,     setOrder]     = useUserSetting<PanelId[]>(ORDER_KEY, DEFAULT_ORDER);
+  const order = sanitiseOrder(orderRaw);
+  // Width stays per-device — different monitors / window widths want
+  // different sizes.
   const [width, setWidth] = useState<number>(loadWidth);
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
 
-  useEffect(() => { localStorage.setItem(SIDE_KEY, side); }, [side]);
-  useEffect(() => { localStorage.setItem(COLLAPSED_KEY, String(collapsed)); }, [collapsed]);
-  useEffect(() => { localStorage.setItem(ORDER_KEY, JSON.stringify(order)); }, [order]);
   useEffect(() => { localStorage.setItem(WIDTH_KEY, String(width)); }, [width]);
 
   const startResize = (e: React.PointerEvent<HTMLDivElement>) => {

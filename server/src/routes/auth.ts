@@ -193,8 +193,8 @@ authRouter.get('/callback', async (req, res) => {
     await seedDemoMap(userId);
 
     // Snapshot prefs into the session so /auth/me can answer without a DB call.
-    const prefRows = await db.query<{ compact_mode: boolean; snap_to_grid: boolean; show_minimap: boolean; uniform_size: boolean; show_statics: boolean; connection_thickness: string; route_mode: string; route_include_bridges: boolean; ui_zoom: string; panel_order: string[] }>(
-      `SELECT compact_mode, snap_to_grid, show_minimap, uniform_size, show_statics, connection_thickness, route_mode, route_include_bridges, ui_zoom, panel_order FROM users WHERE id = $1`,
+    const prefRows = await db.query<{ compact_mode: boolean; snap_to_grid: boolean; show_minimap: boolean; uniform_size: boolean; show_statics: boolean; connection_thickness: string; route_mode: string; route_include_bridges: boolean; ui_zoom: string; ui_settings: Record<string, unknown>; panel_order: string[] }>(
+      `SELECT compact_mode, snap_to_grid, show_minimap, uniform_size, show_statics, connection_thickness, route_mode, route_include_bridges, ui_zoom, ui_settings, panel_order FROM users WHERE id = $1`,
       [userId],
     );
     const p = prefRows.rows[0];
@@ -220,6 +220,7 @@ authRouter.get('/callback', async (req, res) => {
       routeMode:   p?.route_mode ?? 'shortest',
       routeIncludeBridges: p?.route_include_bridges ?? false,
       uiZoom:      p?.ui_zoom != null ? Number(p.ui_zoom) : 1,
+      uiSettings:  p?.ui_settings ?? {},
       panelOrder:  p?.panel_order  ?? ['notes', 'signatures'],
     };
 
@@ -265,8 +266,8 @@ authRouter.get('/me', async (req, res) => {
   let prefs = req.session.prefs;
   let role  = req.session.role ?? 'readonly';
   if (!prefs) {
-    const { rows } = await db.query<{ compact_mode: boolean; snap_to_grid: boolean; show_minimap: boolean; uniform_size: boolean; show_statics: boolean; connection_thickness: string; route_mode: string; route_include_bridges: boolean; ui_zoom: string; panel_order: string[]; role: string }>(
-      `SELECT compact_mode, snap_to_grid, show_minimap, uniform_size, show_statics, connection_thickness, route_mode, route_include_bridges, ui_zoom, panel_order, role FROM users WHERE id = $1`,
+    const { rows } = await db.query<{ compact_mode: boolean; snap_to_grid: boolean; show_minimap: boolean; uniform_size: boolean; show_statics: boolean; connection_thickness: string; route_mode: string; route_include_bridges: boolean; ui_zoom: string; ui_settings: Record<string, unknown>; panel_order: string[]; role: string }>(
+      `SELECT compact_mode, snap_to_grid, show_minimap, uniform_size, show_statics, connection_thickness, route_mode, route_include_bridges, ui_zoom, ui_settings, panel_order, role FROM users WHERE id = $1`,
       [req.session.userId],
     );
     const row = rows[0];
@@ -280,6 +281,7 @@ authRouter.get('/me', async (req, res) => {
       routeMode:   row?.route_mode ?? 'shortest',
       routeIncludeBridges: row?.route_include_bridges ?? false,
       uiZoom:      row?.ui_zoom != null ? Number(row.ui_zoom) : 1,
+      uiSettings:  row?.ui_settings ?? {},
       panelOrder:  row?.panel_order  ?? ['notes', 'signatures'],
     };
     role = (row?.role as 'admin' | 'full' | 'edit' | 'readonly') ?? 'readonly';
@@ -306,6 +308,7 @@ authRouter.get('/me', async (req, res) => {
       routeMode:     prefs.routeMode ?? 'shortest',
       routeIncludeBridges: prefs.routeIncludeBridges ?? false,
       uiZoom:        prefs.uiZoom ?? 1,
+      uiSettings:    prefs.uiSettings ?? {},
       panelOrder:    prefs.panelOrder,
       canViewReports: config.reportsCharId !== null && req.session.characterId === config.reportsCharId,
     },
@@ -381,4 +384,63 @@ authRouter.patch('/preferences', async (req, res) => {
   }
 
   res.json({ ok: true });
+});
+
+// PATCH /auth/settings — cross-device UI settings stored as JSONB.
+// Body: { entries: { [key]: <any JSON> } }. Each key in entries is
+// shallow-merged into users.ui_settings via Postgres' `||` operator,
+// so unrelated keys are preserved. Allow-list keeps junk out.
+const SETTINGS_ALLOWLIST = new Set<string>([
+  'nexum.closestSystems.hiddenHome',
+  'nexum.closestSystems.list',
+  'nexum.killboardIncludeNpc',
+  'nexum.mapSidebar.connections',
+  'nexum.mapSidebar.export',
+  'nexum.mapSidebar.mapOptions',
+  'nexum.mapSidebar.proximity',
+  'nexum.mapSidebar.route',
+  'nexum.mapSidebar.shortcuts',
+  'nexum.mapSidebar.stale',
+  'nexum.mapSidebar.systemOptions',
+  'nexum.panel.collapsed.a0',
+  'nexum.panel.collapsed.closest',
+  'nexum.panel.collapsed.notes',
+  'nexum.panel.collapsed.signatures',
+  'nexum.panel.collapsed.structures',
+  'nexum.panel.collapsed.thera',
+  'nexum.panel.collapsed.turnur',
+  'nexum.proximityThreshold',
+  'nexum.sidebar.collapsed',
+  'nexum.sidebar.order',
+  'nexum.sidebar.side',
+  'nexum.staleThresholdH',
+  'nexum.trackJumps',
+]);
+
+authRouter.patch('/settings', async (req, res) => {
+  if (!req.session.userId) { res.status(401).json({ error: 'Not authenticated' }); return; }
+  const body = req.body as { entries?: Record<string, unknown> };
+  const entries = body?.entries;
+  if (!entries || typeof entries !== 'object' || Array.isArray(entries)) {
+    res.status(400).json({ error: 'entries must be an object' });
+    return;
+  }
+  const filtered: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(entries)) {
+    if (SETTINGS_ALLOWLIST.has(k)) filtered[k] = v;
+  }
+  if (Object.keys(filtered).length === 0) {
+    res.json({ ok: true, applied: 0 });
+    return;
+  }
+  await db.query(
+    `UPDATE users SET ui_settings = ui_settings || $1::jsonb, updated_at = NOW() WHERE id = $2`,
+    [JSON.stringify(filtered), req.session.userId],
+  );
+  // Keep the session cache in sync so /auth/me on the same session sees
+  // the same data without a DB round-trip.
+  if (req.session.prefs) {
+    req.session.prefs.uiSettings = { ...(req.session.prefs.uiSettings ?? {}), ...filtered };
+  }
+  res.json({ ok: true, applied: Object.keys(filtered).length });
 });

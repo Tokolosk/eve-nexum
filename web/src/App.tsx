@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { ReactFlowProvider } from '@xyflow/react';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { seedUserSettings, readUserSetting } from './hooks/useUserSetting';
 import { MapCanvas } from './components/map/MapCanvas';
 import { SystemPanel } from './components/ui/SystemPanel';
 import { ConnectionPanel } from './components/ui/ConnectionPanel';
@@ -49,7 +50,14 @@ function MapApp() {
   const userId = user?.id;
 
   useEffect(() => {
-    if (user) applyPreferences({ compactMode: user.compactMode, snapToGrid: user.snapToGrid, showMinimap: user.showMinimap, uniformSize: user.uniformSize, showStatics: user.showStatics, connectionThickness: user.connectionThickness, routeMode: user.routeMode, routeIncludeBridges: user.routeIncludeBridges, uiZoom: user.uiZoom, panelOrder: user.panelOrder });
+    if (user) {
+      applyPreferences({ compactMode: user.compactMode, snapToGrid: user.snapToGrid, showMinimap: user.showMinimap, uniformSize: user.uniformSize, showStatics: user.showStatics, connectionThickness: user.connectionThickness, routeMode: user.routeMode, routeIncludeBridges: user.routeIncludeBridges, uiZoom: user.uiZoom, panelOrder: user.panelOrder });
+      seedUserSettings(user.uiSettings ?? {});
+      // Push the now-canonical trackJumps from the hydrated user-settings
+      // cache into the map store. (mapStore's init runs before /auth/me
+      // resolves, so it pulled from localStorage only.)
+      useMapStore.setState({ trackJumps: readUserSetting<boolean>('nexum.trackJumps', true) });
+    }
     loadMaps();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId, loadMaps, applyPreferences]);
