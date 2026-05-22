@@ -459,7 +459,11 @@ export function SignaturePane({ systemId }: { systemId: string }) {
       ) : (
         <table className="sig-table">
           <colgroup>
-            <col className="sig-col--check" />
+            {/* In share mode the checkbox and per-row delete cells are
+                gone, so their <col> entries must drop too — otherwise
+                table-layout:fixed maps them onto the wrong cells and
+                the ID column inherits the 24px checkbox width. */}
+            {!isShareMode && <col className="sig-col--check" />}
             <col style={{ width: colWidths.id }} />
             <col style={{ width: colWidths.type }} />
             <col style={{ width: colWidths.whtype }} className="sig-col--whtype" />
@@ -468,7 +472,7 @@ export function SignaturePane({ systemId }: { systemId: string }) {
             <col style={{ width: colWidths.notes }} />
             <col style={{ width: colWidths.created }} />
             <col style={{ width: colWidths.updated }} />
-            <col className="sig-col--actions" />
+            {!isShareMode && <col className="sig-col--actions" />}
           </colgroup>
           <thead>
             <tr>
