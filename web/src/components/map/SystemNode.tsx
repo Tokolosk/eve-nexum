@@ -11,6 +11,9 @@ import { useMapStore } from '../../store/mapStore';
 import { useSovData } from '../../hooks/useSovData';
 import { useStandings } from '../../hooks/useStandings';
 import { useEsiSystem } from '../../hooks/useEsiSystem';
+import { useFleet } from '../../hooks/useFleet';
+import { useAuth } from '../../context/AuthContext';
+import { useUserSetting } from '../../hooks/useUserSetting';
 import { useIncursions, findIncursion } from '../../hooks/useIncursions';
 import { useInsurgency, findInsurgency } from '../../hooks/useInsurgency';
 import { useStorms, findStorm } from '../../hooks/useStorms';
@@ -42,6 +45,21 @@ export const SystemNode = memo(({ data, selected }: NodeProps) => {
   const sov             = useSovData(sys.eveSystemId);
   const standings       = useStandings();
   const esiSys          = useEsiSystem(sys.eveSystemId);
+  const fleet                = useFleet();
+  const { user }             = useAuth();
+  const [showFleetMembers]   = useUserSetting<boolean>('nexum.fleet.showMembers', true);
+  // Fleet members in this exact system, minus the logged-in user — the
+  // green you-are-here dot already represents them, so a purple dot
+  // alongside would just be noise. When the only member here is the user,
+  // this list is empty and the dot is suppressed entirely.
+  const fleetHere       = useMemo(() => {
+    if (!showFleetMembers)      return undefined;
+    if (sys.eveSystemId == null) return undefined;
+    const all = fleet.bySystem.get(sys.eveSystemId);
+    if (!all || all.length === 0) return undefined;
+    const myId = user?.characterId;
+    return myId ? all.filter((m) => m.characterId !== myId) : all;
+  }, [showFleetMembers, fleet.bySystem, sys.eveSystemId, user?.characterId]);
 
   // Halo around any sov-holder system based on the user's contact bands.
   // Threshold is just "negative or positive" rather than the strict ≤-5
@@ -164,6 +182,18 @@ export const SystemNode = memo(({ data, selected }: NodeProps) => {
 
       <div className="system-node__header">
         {isCurrent && <span className="system-node__current-dot" />}
+        {fleetHere && fleetHere.length > 0 && (
+          <span className="system-node__fleet-dot-wrap">
+            <span className="system-node__fleet-dot" />
+            <span className="system-node__fleet-tooltip">
+              {fleetHere.map((m) => (
+                <span key={m.characterId} className="system-node__fleet-tooltip-row">
+                  {m.characterName ?? `Character ${m.characterId}`}
+                </span>
+              ))}
+            </span>
+          </span>
+        )}
         {sys.isHome && (
           <span className="system-node__home-icon" aria-label="Home system">
             <HouseIcon size={14} weight="regular" />

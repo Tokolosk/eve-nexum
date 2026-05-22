@@ -12,18 +12,26 @@ export interface CharacterLocationSystem {
   npcType:     string | null;
 }
 
+export interface CharacterShip {
+  typeId:   number;
+  typeName: string;
+  shipName: string;
+}
+
 export interface CharacterLocation {
   online: boolean;
   system: CharacterLocationSystem | null;
+  ship:   CharacterShip | null;
 }
 
 interface RawLocationResponse {
   online: boolean;
   system: CharacterLocationSystem | null;
+  ship:   CharacterShip | null;
 }
 
 const POLL_MS = 10_000;
-const EMPTY: CharacterLocation = { online: false, system: null };
+const EMPTY: CharacterLocation = { online: false, system: null, ship: null };
 
 let moduleCache: { data: CharacterLocation; fetchedAt: number } | null = null;
 let inflight: Promise<CharacterLocation> | null = null;
@@ -38,7 +46,7 @@ function load() {
   if (inflight) return inflight;
   inflight = api<RawLocationResponse>('/api/character/location')
     .then(r => {
-      const data: CharacterLocation = { online: r.online, system: r.system };
+      const data: CharacterLocation = { online: r.online, system: r.system, ship: r.ship ?? null };
       moduleCache = { data, fetchedAt: Date.now() };
       inflight = null;
       // Successful round-trip — give the offline-write queue a chance to drain.

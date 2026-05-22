@@ -125,6 +125,7 @@ When registering your application at [developers.eveonline.com](https://develope
 | `esi-corporations.read_contacts.v1` | Read the **corporation's** shared contact list. Only succeeds for characters with the in-game **Contact Manager** role; the call is gracefully skipped for anyone else. When it does succeed, the entire corp benefits from the pulled standings until the next refresh. |
 | `esi-alliances.read_contacts.v1` | Read the **alliance's** shared contact list. Requires the character to be in the alliance executor corp with the right role; almost always denied for normal members, and that's fine — the call no-ops without breaking login. |
 | `esi-corporations.read_structures.v1` | Read the **corporation's** owned structures (citadels, refineries, etc.). Requires the in-game **Station Manager** or **Director** role. When granted, structures auto-populate per system in the structures pane; when denied (the common case), the call no-ops silently. |
+| `esi-fleets.read_fleet.v1` | Read the character's current fleet composition (members + their solar systems) so fleet-mates show up as purple dots on the map with a hover tooltip listing names. Member-list reads require the character to be the **fleet boss**; wing/squad commanders see "in a fleet, no member visibility" and the UI degrades silently. |
 
 **2. Build images and import the SDE**
 

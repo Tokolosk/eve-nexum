@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useMapStore } from '../../store/mapStore';
 import { useAuth } from '../../context/AuthContext';
 import { useOnlineStatus } from '../../hooks/useOnlineStatus';
+import { useCharacterLocation } from '../../hooks/useCharacterLocation';
 import { useCanEdit } from '../../hooks/useCanEdit';
 import { useCanCreateMaps } from '../../hooks/useCanCreateMaps';
 import { UserStatsModal } from './UserStatsModal';
@@ -171,6 +172,9 @@ export function Toolbar() {
   const canEdit       = useCanEdit();
   const canManageMaps = useCanCreateMaps();
   const { online, checkedAt } = useOnlineStatus(!!user);
+  // Ship comes from the same poll that drives passive location tracking, so
+  // no extra ESI traffic — we just surface a field that's already on hand.
+  const { ship } = useCharacterLocation();
   const eveStatus = useEveServerStatus();
   const [showMaps, setShowMaps]   = useState(false);
   const [showStats, setShowStats] = useState(false);
@@ -387,6 +391,20 @@ export function Toolbar() {
             src={`https://images.evetech.net/characters/${user.characterId}/portrait?size=64`}
             alt={user.characterName}
           />
+          {ship && (
+            <span
+              className="toolbar__ship-wrap"
+              data-tooltip={ship.shipName && ship.shipName !== ship.typeName
+                ? `${ship.typeName} — ${ship.shipName}`
+                : ship.typeName}
+            >
+              <img
+                className="toolbar__ship"
+                src={`https://images.evetech.net/types/${ship.typeId}/icon?size=64`}
+                alt={ship.typeName}
+              />
+            </span>
+          )}
           <div className="toolbar__char-info">
             <span className="toolbar__char-name">
               {user.characterName}

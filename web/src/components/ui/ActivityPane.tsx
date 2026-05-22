@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api } from '../../api/client';
+import { useUserSetting } from '../../hooks/useUserSetting';
 
 interface HoverState { index: number; xPct: number; yPct: number; value: number }
 
@@ -21,25 +22,40 @@ const SLOTS  = 24; // always render a 24-slot x-axis
 // Fixed x-axis tick positions (hours-ago, right-anchored)
 const X_TICKS = [0, 4, 8, 12, 16, 20];
 
-function MiniLineChart({ title, values, color }: {
-  title:  string;
-  values: number[];
-  color:  string;
+function MiniLineChart({ title, values, color, signed = false }: {
+  title:   string;
+  values:  number[];
+  color:   string;
+  /** When true, the y-axis is symmetric around 0 — negatives plot below a
+   *  zero baseline instead of the usual average line. Used for delta-style
+   *  series where the sign carries meaning. */
+  signed?: boolean;
 }) {
   const [hover, setHover] = useState<HoverState | null>(null);
   const n      = values.length;
-  const maxVal = Math.max(...values, 1);
   const avg    = n > 0 ? values.reduce((s, v) => s + v, 0) / n : 0;
 
   // slot 0 = oldest (left), slot SLOTS-1 = current hour (right)
   // data is right-aligned: data point i maps to slot (SLOTS - n + i)
   const xOfSlot = (slot: number) => PAD.left + (slot / (SLOTS - 1)) * IW;
   const xOfIdx  = (i:    number) => xOfSlot(SLOTS - n + i);
-  const yOf     = (v:    number) => PAD.top + IH - (v / maxVal) * IH;
   const slotOfIdx = (i: number) => SLOTS - n + i;
 
-  const avgY   = n > 0 ? yOf(avg) : PAD.top + IH;
-  const yTicks = [0, 1, 2, 3].map((t) => Math.round((maxVal / 3) * t));
+  // Two y-axis modes:
+  //   unsigned (default) — 0..maxVal, classic line over zero
+  //   signed             — −maxAbs..+maxAbs, zero line in the middle
+  const maxVal = signed
+    ? Math.max(...values.map(Math.abs), 1)
+    : Math.max(...values, 1);
+  const minVal = signed ? -maxVal : 0;
+  const span   = maxVal - minVal;
+  const yOf    = (v: number) => PAD.top + IH - ((v - minVal) / span) * IH;
+
+  const baselineY = signed ? yOf(0)   : (n > 0 ? yOf(avg) : PAD.top + IH);
+  const baselineColor = signed ? '#3a4a68' : '#f0a030';
+  const yTicks = signed
+    ? [-maxVal, -maxVal / 2, 0, maxVal / 2, maxVal].map((v) => Math.round(v))
+    : [0, 1, 2, 3].map((t) => Math.round((maxVal / 3) * t));
   const polyline = values.map((v, i) => `${xOfIdx(i).toFixed(1)},${yOf(v).toFixed(1)}`).join(' ');
 
   return (
@@ -65,11 +81,12 @@ function MiniLineChart({ title, values, color }: {
           </g>
         ))}
 
-        {/* Average line */}
+        {/* Baseline — average (orange dashed) for unsigned series, zero
+            line (neutral) for signed delta series. */}
         {n > 0 && (
           <line
-            x1={PAD.left} y1={avgY} x2={PAD.left + IW} y2={avgY}
-            stroke="#f0a030" strokeWidth={1} strokeDasharray="4 3" opacity={0.8}
+            x1={PAD.left} y1={baselineY} x2={PAD.left + IW} y2={baselineY}
+            stroke={baselineColor} strokeWidth={1} strokeDasharray="4 3" opacity={0.8}
           />
         )}
 
@@ -153,6 +170,70 @@ function hoursAgoLabel(h: number): string {
   return `${h}h ago`;
 }
 
+function ActivityChartsView({ data }: { data: HourlyPoint[] }) {
+  // Per-chart visibility — defaults on, persisted cross-device via
+  // users.ui_settings. Keys mirror the toggle labels in Map Options.
+  const [showJumps]     = useUserSetting<boolean>('nexum.activity.showJumps',     true);
+  const [showShipKills] = useUserSetting<boolean>('nexum.activity.showShipKills', true);
+  const [showPodKills]  = useUserSetting<boolean>('nexum.activity.showPodKills',  true);
+  const [showNpcKills]  = useUserSetting<boolean>('nexum.activity.showNpcKills',  true);
+  const [showNpcDelta]  = useUserSetting<boolean>('nexum.activity.showNpcDelta',  true);
+
+  // NPC delta = each hour's NPC kill count minus the 24h mean. Positive
+  // values mark hours of above-baseline rattering (ganking opportunity);
+  // negative values mark unusually quiet hours. Same baseline approach
+  // Dotlan uses on /map/<region>/<system>#npc_delta.
+  const npcKills = data.map((p) => p.npcKills);
+  const npcMean  = npcKills.length > 0 ? npcKills.reduce((s, v) => s + v, 0) / npcKills.length : 0;
+  const npcDelta = npcKills.map((v) => v - npcMean);
+
+  const anyVisible = showJumps || showShipKills || showPodKills || showNpcKills || showNpcDelta;
+  if (!anyVisible) {
+    return <div className="sig-pane__empty">All charts hidden. Toggle them on in Map Options → Activity.</div>;
+  }
+
+  return (
+    <div className="activity-pane">
+      {showJumps && (
+        <MiniLineChart
+          title="Jumps"
+          values={data.map((p) => p.jumps)}
+          color="#4dd9ac"
+        />
+      )}
+      {showShipKills && (
+        <MiniLineChart
+          title="Ship Kills"
+          values={data.map((p) => p.shipKills)}
+          color="#e05a5a"
+        />
+      )}
+      {showPodKills && (
+        <MiniLineChart
+          title="Pod Kills"
+          values={data.map((p) => p.podKills)}
+          color="#c084fc"
+        />
+      )}
+      {showNpcKills && (
+        <MiniLineChart
+          title="NPC Kills"
+          values={data.map((p) => p.npcKills)}
+          color="#5a9af8"
+        />
+      )}
+      {showNpcDelta && (
+        <MiniLineChart
+          title="NPC Delta"
+          values={npcDelta}
+          color="#f59e0b"
+          signed
+        />
+      )}
+    </div>
+  );
+}
+
 export function ActivityPane({ eveSystemId }: { eveSystemId: number | null }) {
   const [data, setData]       = useState<HourlyPoint[]>([]);
   const [loading, setLoading] = useState(false);
@@ -176,23 +257,5 @@ export function ActivityPane({ eveSystemId }: { eveSystemId: number | null }) {
   if (!eveSystemId) return <div className="sig-pane__empty">No EVE system linked</div>;
   if (loading)      return <div className="sig-pane__empty">Loading activity…</div>;
 
-  return (
-    <div className="activity-pane">
-      <MiniLineChart
-        title="Jumps"
-        values={data.map((p) => p.jumps)}
-        color="#4dd9ac"
-      />
-      <MiniLineChart
-        title="Ship / Pod Kills"
-        values={data.map((p) => p.shipKills + p.podKills)}
-        color="#e05a5a"
-      />
-      <MiniLineChart
-        title="NPC Kills"
-        values={data.map((p) => p.npcKills)}
-        color="#5a9af8"
-      />
-    </div>
-  );
+  return <ActivityChartsView data={data} />;
 }

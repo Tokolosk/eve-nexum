@@ -345,7 +345,12 @@
   background: #0d1117;
   border-bottom: 1px solid #1e2740;
   flex-shrink: 0;
-  z-index: 10;
+  /* Sits above the map sidebar (z-index 20) so tooltips dropping down from
+     toolbar buttons aren't clipped when the sidebar is open. The toolbar
+     header itself doesn't overlap the sidebar visually, so this is purely
+     about giving its absolutely-positioned descendants the right z-context. */
+  z-index: 30;
+  position: relative;
 }
 
 .toolbar__brand {
@@ -504,6 +509,23 @@
   border: 1px solid #2e4a7a;
   object-fit: cover;
   flex-shrink: 0;
+}
+
+/* Current-ship icon — wrapped in a <span> so the generic [data-tooltip]
+   ::after pseudo-element can render (it can't on <img> directly). */
+.toolbar__ship-wrap {
+  display: inline-flex;
+  flex-shrink: 0;
+  line-height: 0;
+}
+
+.toolbar__ship {
+  width: 40px;
+  height: 40px;
+  border-radius: 4px;
+  border: 1px solid #2e4a7a;
+  background: #0d1117;
+  object-fit: cover;
 }
 
 .toolbar__char-info {
@@ -1028,6 +1050,16 @@
   color: #c0ccde;
 }
 
+.map-sidebar__toggle-row {
+  cursor: pointer;
+}
+
+.map-sidebar__toggle-input {
+  accent-color: #5b9bff;
+  cursor: pointer;
+  margin: 0;
+}
+
 .map-sidebar__divider {
   height: 1px;
   background: #1e2740;
@@ -1234,6 +1266,56 @@
   box-shadow: 0 0 5px #3ddc84;
   margin-right: 4px;
   flex-shrink: 0;
+}
+
+/* Fleet-presence dot — purple variant of the you-are-here green dot.
+   Wrapper carries the hover state for the names tooltip; pointer cursor
+   hints that hovering does something. */
+.system-node__fleet-dot-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  margin-right: 4px;
+}
+
+.system-node__fleet-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #c084fc;
+  box-shadow: 0 0 5px #c084fc;
+  flex-shrink: 0;
+  cursor: help;
+}
+
+.system-node__fleet-tooltip {
+  display: none;
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  background: #111827;
+  border: 1px solid #2e3f60;
+  border-radius: 6px;
+  padding: 5px 8px;
+  white-space: nowrap;
+  z-index: 9999;
+  flex-direction: column;
+  gap: 2px;
+  pointer-events: none;
+  font-size: calc(13px * var(--font-scale, 1));
+  color: #c8d4f0;
+}
+
+.system-node__fleet-dot-wrap:hover .system-node__fleet-tooltip {
+  display: flex;
+}
+
+.react-flow__node:has(.system-node__fleet-dot-wrap:hover) {
+  z-index: 9999 !important;
+}
+
+.system-node__fleet-tooltip-row {
+  display: block;
 }
 
 .system-node__lock-icon {
@@ -2106,8 +2188,8 @@ div.system-node__easy-handle {
 }
 
 .sys-info__ext-icon {
-  width:  calc(16px * var(--font-scale, 1));
-  height: calc(16px * var(--font-scale, 1));
+  width:  calc(22px * var(--font-scale, 1));
+  height: calc(22px * var(--font-scale, 1));
   display: block;
 }
 
@@ -2909,25 +2991,31 @@ select.sig-toolbar-btn option {
 
 /* ── Activity pane ───────────────────────────────────────── */
 .activity-pane {
-  width: 50%;
-  
+  width: 100%;
   height: auto;
   display: flex;
   flex-direction: row;
-  justify-content: space-evenly;
+  flex-wrap: wrap;
+  justify-content: flex-start;
   gap: 8px;
   padding: 8px;
-  
+  box-sizing: border-box;
 }
 
+/* Each chart grows to share row width with its siblings, but never wider
+   than a 24h chart actually needs to read well (~480px) and never narrower
+   than its labels survive (~220px). flex-basis 240px combined with wrap
+   lets the row pack: 4-up on wide screens, 2-up on mid, 1-up on narrow. */
 .activity-chart {
-  flex: 1;
-  min-width: 400px;
+  flex: 1 1 240px;
+  min-width: 220px;
+  max-width: 100%;
   display: flex;
   flex-direction: column;
   border: 1px solid #1a2535;
   border-radius: 4px;
   padding: 0 6px 6px;
+  box-sizing: border-box;
 }
 
 .activity-chart:last-child {

@@ -50,6 +50,11 @@ authRouter.get('/login', (req, res) => {
           // Station Manager or Director role; the puller silently no-ops
           // for everyone else.
           'esi-corporations.read_structures.v1',
+          // Fleet member tracking — show fleet-mate locations on the map as
+          // purple dots. Requires the character to be the fleet boss or a
+          // wing/squad commander; ESI returns 403 to everyone else and the
+          // UI degrades silently to "no fleet visibility".
+          'esi-fleets.read_fleet.v1',
         ].join(' '),
     state,
   });

@@ -3,6 +3,8 @@ import { db } from '../db.js';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { getValidToken } from '../utils/eveToken.js';
 import { createLogger } from '../utils/logger.js';
+import { TtlCache } from '../utils/cache.js';
+import { resolveEntityNames } from '../services/entityNames.js';
 
 export const characterRouter = Router();
 characterRouter.use(requireAuth);
@@ -38,14 +40,34 @@ characterRouter.get('/location', async (req, res) => {
       res.json({ online: false }); return;
     }
 
-    // Fetch current location
-    const locRes = await fetch(
-      `https://esi.evetech.net/latest/characters/${characterId}/location/`,
-      { headers: { Authorization: `Bearer ${token}` } },
-    );
-    if (!locRes.ok) { res.json({ online: true, system: null }); return; }
+    // Fetch current location + ship in parallel — both gated on the same
+    // token and online check, no point serialising them.
+    const [locRes, shipRes] = await Promise.all([
+      fetch(`https://esi.evetech.net/latest/characters/${characterId}/location/`,
+        { headers: { Authorization: `Bearer ${token}` } }),
+      fetch(`https://esi.evetech.net/latest/characters/${characterId}/ship/`,
+        { headers: { Authorization: `Bearer ${token}` } }),
+    ]);
+    if (!locRes.ok) { res.json({ online: true, system: null, ship: null }); return; }
 
     const loc = await locRes.json() as { solar_system_id: number };
+
+    // Ship is best-effort — a transient ESI hiccup on /ship/ shouldn't
+    // hide the rest of the location payload. Look up the type name from
+    // the SDE-seeded item_types so the client gets a ready-to-render label.
+    let ship: { typeId: number; typeName: string; shipName: string } | null = null;
+    if (shipRes.ok) {
+      const shipData = await shipRes.json() as { ship_type_id: number; ship_name: string };
+      const { rows: typeRows } = await db.query<{ name: string }>(
+        `SELECT name FROM item_types WHERE id = $1`,
+        [shipData.ship_type_id],
+      );
+      ship = {
+        typeId:   shipData.ship_type_id,
+        typeName: typeRows[0]?.name ?? `Type ${shipData.ship_type_id}`,
+        shipName: shipData.ship_name,
+      };
+    }
 
     // Record a jump when the system changes
     const userId  = req.session.userId!;
@@ -69,8 +91,8 @@ characterRouter.get('/location', async (req, res) => {
       [loc.solar_system_id],
     );
 
-    if (!rows.length) { res.json({ online: true, system: null }); return; }
-    res.json({ online: true, system: rows[0] });
+    if (!rows.length) { res.json({ online: true, system: null, ship }); return; }
+    res.json({ online: true, system: rows[0], ship });
   } catch (err) {
     log.error('Location check failed:', err);
     res.status(500).json({ error: 'Failed to get location' });
@@ -151,5 +173,121 @@ characterRouter.get('/online', async (req, res) => {
   } catch (err) {
     log.error('Online check failed:', err);
     res.status(500).json({ error: 'Failed to check online status' });
+  }
+});
+
+// ── Fleet ─────────────────────────────────────────────────────────────────
+
+interface FleetMember {
+  character_id:    number;
+  character_name?: string;
+  solar_system_id: number;
+}
+
+// Cache of /fleets/{id}/members keyed by fleet_id.
+//
+// ESI's /fleets/{id}/members endpoint is fleet-boss-only. Wing/squad
+// commanders and regular members get 403. So in a fleet where only the
+// boss is using Nexum, the boss's poll populates this cache and every
+// other fleet member's request reads from it — even though their own
+// ESI call would have been rejected.
+//
+// TTL is short (matches ESI's cache header) but stale entries are kept
+// around longer via .peek() so non-boss members still see fleet positions
+// between the boss's polls.
+// FRESH = "trust without re-fetching". STALE = "still usable when a
+// re-fetch isn't an option". Constructor TTL is set to STALE so the
+// cache's built-in 2×TTL sweep keeps entries around long enough for
+// non-boss members to read them; freshness within that window is
+// decided manually via fetchedAt below.
+const FLEET_FRESH_MS = 5_000;
+const FLEET_STALE_MS = 120_000;
+const fleetMembersCache = new TtlCache<string, FleetMember[]>(FLEET_STALE_MS, 5 * 60 * 1000);
+
+// GET /api/character/fleet
+// Returns the character's current fleet members + their systems if in one.
+// Falls back to { inFleet: false, members: [] } when the character isn't
+// in a fleet or hasn't granted the esi-fleets.read_fleet.v1 scope.
+characterRouter.get('/fleet', async (req, res) => {
+  try {
+    const { rows: userRows } = await db.query<{ character_id: number }>(
+      `SELECT character_id FROM users WHERE id = $1`,
+      [req.session.userId],
+    );
+    if (!userRows.length) { res.status(404).json({ error: 'User not found' }); return; }
+
+    const token       = await getValidToken(req.session.userId!);
+    const characterId = userRows[0].character_id;
+
+    // 1) Which fleet (if any) is this character in? ESI returns 404 when
+    //    the character isn't in a fleet — that's expected, not an error.
+    const fleetRes = await fetch(
+      `https://esi.evetech.net/latest/characters/${characterId}/fleet/`,
+      { headers: { Authorization: `Bearer ${token}` } },
+    );
+    if (fleetRes.status === 404) { res.json({ inFleet: false, members: [] }); return; }
+    if (!fleetRes.ok) {
+      // 403 = scope not granted or role insufficient; either way, just
+      // hand back an empty fleet so the UI degrades silently.
+      if (fleetRes.status === 403) { res.json({ inFleet: false, members: [] }); return; }
+      log.warn(`fleet lookup failed: ${fleetRes.status}`);
+      res.json({ inFleet: false, members: [] }); return;
+    }
+    const fleetInfo = await fleetRes.json() as { fleet_id: number; role?: string };
+    const fleetKey  = String(fleetInfo.fleet_id);
+    const isBoss    = fleetInfo.role === 'fleet_commander';
+
+    // 2) Members. Two paths:
+    //    - Boss: refresh from ESI when cache is stale, otherwise serve fresh.
+    //    - Non-boss: serve whatever's in the cache (fresh or stale), don't
+    //      try to refresh — ESI will 403. The boss's polling keeps the
+    //      cache warm for everyone.
+    let members: FleetMember[] | null = null;
+    const entry  = fleetMembersCache.peek(fleetKey);
+    const age    = entry ? Date.now() - entry.fetchedAt : Infinity;
+    const isFresh = entry !== null && age < FLEET_FRESH_MS;
+    const isStale = entry !== null && age < FLEET_STALE_MS;
+
+    if (isFresh && entry) {
+      members = entry.value;
+    } else if (isBoss) {
+      const memRes = await fetch(
+        `https://esi.evetech.net/latest/fleets/${fleetInfo.fleet_id}/members/`,
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+      if (memRes.ok) {
+        const raw = await memRes.json() as Array<{ character_id: number; solar_system_id: number }>;
+        members = raw.map((m) => ({
+          character_id:    m.character_id,
+          solar_system_id: m.solar_system_id,
+        }));
+        fleetMembersCache.set(fleetKey, members);
+      } else {
+        if (memRes.status !== 403 && memRes.status !== 404) {
+          log.warn(`fleet members lookup failed: ${memRes.status}`);
+        }
+        // ESI hiccup — fall back to stale if we still have it.
+        if (isStale && entry) members = entry.value;
+      }
+    } else if (isStale && entry) {
+      // Non-boss path: ride along on whatever the boss most recently cached.
+      members = entry.value;
+    }
+    if (!members) {
+      res.json({ inFleet: true, members: [] }); return;
+    }
+
+    // 3) Resolve names — entity_names cache makes this effectively free
+    //    after the first time we see each member.
+    const names = await resolveEntityNames(members.map((m) => m.character_id));
+    const enriched = members.map((m) => ({
+      ...m,
+      character_name: names.get(m.character_id)?.name,
+    }));
+
+    res.json({ inFleet: true, members: enriched });
+  } catch (err) {
+    log.error('Fleet lookup failed:', err);
+    res.status(500).json({ error: 'Failed to get fleet' });
   }
 });

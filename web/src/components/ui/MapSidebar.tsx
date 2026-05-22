@@ -12,44 +12,83 @@ import { toPng } from 'html-to-image';
 import { CaretLeftIcon, CaretRightIcon } from '@phosphor-icons/react';
 import type { WormholeMap } from '../../types';
 
-// Collapsible group inside the map sidebar. Open/closed state is persisted to
-// localStorage per `storageKey` so each user keeps their preferred layout
-// across reloads.
+// Single labelled checkbox row backed by useUserSetting so the on/off
+// state syncs cross-device via users.ui_settings. Used by the Activity
+// and Fleet sections — anywhere a section needs a row of plain on/off
+// flags, this is the building block.
+function SettingToggle({ settingKey, label }: { settingKey: string; label: string }) {
+  const [enabled, setEnabled] = useUserSetting<boolean>(settingKey, true);
+  return (
+    <label className="map-sidebar__row map-sidebar__toggle-row">
+      <span className="map-sidebar__label">{label}</span>
+      <input
+        type="checkbox"
+        className="map-sidebar__toggle-input"
+        checked={enabled}
+        onChange={(e) => setEnabled(e.target.checked)}
+      />
+    </label>
+  );
+}
+
+// Accordion-style section. State is *not* owned here — MapSidebar tracks
+// a single "which section is open" key, and each section receives its
+// isOpen + onToggle from above. Clicking a closed section opens it (and
+// implicitly closes the previously open one); clicking the open section
+// closes it back to nothing-open.
 function CollapsibleSection({
   title,
-  storageKey,
-  defaultOpen = true,
+  isOpen,
+  onToggle,
   children,
 }: {
   title: string;
-  storageKey: string;
-  defaultOpen?: boolean;
+  isOpen: boolean;
+  onToggle: () => void;
   children: ReactNode;
 }) {
-  // useUserSetting stores `true|false` as JSON; legacy localStorage rows
-  // were '0'/'1', migrated transparently by seedUserSettings.
-  const [open, setOpen] = useUserSetting<boolean>(storageKey, defaultOpen);
-
   return (
-    <div className={`map-sidebar__section${open ? '' : ' map-sidebar__section--collapsed'}`}>
+    <div className={`map-sidebar__section${isOpen ? '' : ' map-sidebar__section--collapsed'}`}>
       <button
         type="button"
         className="map-sidebar__section-header"
-        onClick={() => setOpen((o) => !o)}
-        aria-expanded={open}
+        onClick={onToggle}
+        aria-expanded={isOpen}
       >
         <span className="map-sidebar__section-title">{title}</span>
-        <span className={`map-sidebar__caret${open ? ' map-sidebar__caret--open' : ''}`}>▾</span>
+        <span className={`map-sidebar__caret${isOpen ? ' map-sidebar__caret--open' : ''}`}>▾</span>
       </button>
-      {open && <div className="map-sidebar__section-body">{children}</div>}
+      {isOpen && <div className="map-sidebar__section-body">{children}</div>}
     </div>
   );
 }
+
+// Accordion identity for each section. Stored as the value of the single
+// shared "which section is open" setting; null means everything collapsed.
+type SectionId =
+  | 'mapOptions'
+  | 'systemOptions'
+  | 'connections'
+  | 'route'
+  | 'proximityAlerts'
+  | 'activity'
+  | 'fleet'
+  | 'staleFade'
+  | 'export'
+  | 'shortcuts'
+  | null;
 
 export function MapSidebar() {
   const importInputRef = useRef<HTMLInputElement>(null);
   const [threshold, setThreshold] = useProximityThreshold();
   const [staleHours, setStaleHours] = useStaleThreshold();
+  // Single source of truth for which section is expanded. Defaults to
+  // Map Options so first-load users see something useful immediately.
+  const [openSection, setOpenSection] = useUserSetting<SectionId>('nexum.mapSidebar.openSection', 'mapOptions');
+  const sectionProps = (id: SectionId) => ({
+    isOpen:   openSection === id,
+    onToggle: () => setOpenSection((cur) => (cur === id ? null : id)),
+  });
   const notifPermission = useNotificationPermission();
   const { user } = useAuth();
   const isCorpMap = useMapStore((s) => !!s.map.isCorpMap);
@@ -188,7 +227,7 @@ export function MapSidebar() {
       </button>
 
       <div className="map-sidebar__content">
-        <CollapsibleSection title="Map Options" storageKey="nexum.mapSidebar.mapOptions">
+        <CollapsibleSection title="Map Options" {...sectionProps('mapOptions')}>
           <div className="map-sidebar__row">
             <label className="map-sidebar__label">Snap to Grid</label>
             <button
@@ -236,7 +275,7 @@ export function MapSidebar() {
           </div>
         </CollapsibleSection>
 
-        <CollapsibleSection title="System Options" storageKey="nexum.mapSidebar.systemOptions">
+        <CollapsibleSection title="System Options" {...sectionProps('systemOptions')}>
           <div className="map-sidebar__row">
             <label className="map-sidebar__label">Compact</label>
             <button
@@ -282,7 +321,7 @@ export function MapSidebar() {
           </div>
         </CollapsibleSection>
 
-        <CollapsibleSection title="Connections" storageKey="nexum.mapSidebar.connections">
+        <CollapsibleSection title="Connections" {...sectionProps('connections')}>
           <div className="map-sidebar__label">Connection Style</div>
           <div className="map-sidebar__btn-group">
             {([
@@ -336,7 +375,7 @@ export function MapSidebar() {
           )}
         </CollapsibleSection>
 
-        <CollapsibleSection title="Route" storageKey="nexum.mapSidebar.route">
+        <CollapsibleSection title="Route" {...sectionProps('route')}>
           <div className="map-sidebar__row">
             <label className="map-sidebar__label" htmlFor="route-mode">Route Preference</label>
             <select
@@ -356,7 +395,10 @@ export function MapSidebar() {
           </p>
         </CollapsibleSection>
 
-        <CollapsibleSection title="Proximity Alerts" storageKey="nexum.mapSidebar.proximity">
+        <CollapsibleSection title="Proximity Alerts" {...sectionProps('proximityAlerts')}>
+          <div className="map-sidebar__hint">
+            Ping when an incursion, insurgency, or hostile-sov system is within range of your current location.
+          </div>
           <div className="map-sidebar__row">
             <label className="map-sidebar__label" htmlFor="proximity-threshold">Threshold</label>
             <select
@@ -403,8 +445,27 @@ export function MapSidebar() {
           )}
         </CollapsibleSection>
 
+        <CollapsibleSection title="Activity" {...sectionProps('activity')}>
+          <div className="map-sidebar__hint">Show graphs for the following:</div>
+          <SettingToggle settingKey="nexum.activity.showJumps"     label="Jumps" />
+          <SettingToggle settingKey="nexum.activity.showShipKills" label="Ship Kills" />
+          <SettingToggle settingKey="nexum.activity.showPodKills"  label="Pod Kills" />
+          <SettingToggle settingKey="nexum.activity.showNpcKills"  label="NPC Kills" />
+          <SettingToggle settingKey="nexum.activity.showNpcDelta"  label="NPC Delta" />
+        </CollapsibleSection>
+
+        <CollapsibleSection title="Fleet" {...sectionProps('fleet')}>
+          <div className="map-sidebar__hint">
+            Render fleet-mates as purple dots on the system they're in. Hover a dot to see the names.
+          </div>
+          <SettingToggle settingKey="nexum.fleet.showMembers" label="Show fleet members" />
+        </CollapsibleSection>
+
         {!hideTopologyTools && (
-          <CollapsibleSection title="Stale System Fade" storageKey="nexum.mapSidebar.stale">
+          <CollapsibleSection title="Stale System Fade" {...sectionProps('staleFade')}>
+            <div className="map-sidebar__hint">
+              Visually dim systems that haven't been updated for the chosen interval, so old chain residue is easy to spot at a glance.
+            </div>
             <div className="map-sidebar__row">
               <label className="map-sidebar__label" htmlFor="stale-threshold">Threshold</label>
               <select
@@ -426,7 +487,7 @@ export function MapSidebar() {
         )}
 
         {!hideTopologyTools && (
-          <CollapsibleSection title="Export" storageKey="nexum.mapSidebar.export">
+          <CollapsibleSection title="Export" {...sectionProps('export')}>
           <div className="map-sidebar__section">
             <button className="map-sidebar__action" onClick={handleExport}>
               ↓ Export as JSON
@@ -453,7 +514,7 @@ export function MapSidebar() {
           </CollapsibleSection>
         )}
 
-        <CollapsibleSection title="Shortcuts" storageKey="nexum.mapSidebar.shortcuts" defaultOpen={false}>
+        <CollapsibleSection title="Shortcuts" {...sectionProps('shortcuts')}>
           <div className="map-sidebar__shortcut">
             <kbd>⌘/Ctrl + K</kbd>
             <span>Search systems &amp; maps</span>

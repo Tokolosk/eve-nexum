@@ -613,15 +613,28 @@ mapsRouter.post('/:mapId/connections', async (req, res) => {
   const access = await requireMapWrite(res, mapId, req);
   if (!access) return;
 
-  await db.query(
-    `INSERT INTO map_connections
-       (id, map_id, source_id, target_id, source_handle, target_handle,
-        connection_type, mass_status, time_status, size)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
-     ON CONFLICT (id) DO NOTHING`,
-    [id, mapId, sourceId, targetId, sourceHandle ?? null, targetHandle ?? null,
-     connectionType ?? 'standard', massStatus ?? null, timeStatus ?? null, size ?? 'large'],
-  );
+  try {
+    await db.query(
+      `INSERT INTO map_connections
+         (id, map_id, source_id, target_id, source_handle, target_handle,
+          connection_type, mass_status, time_status, size)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+       ON CONFLICT (id) DO NOTHING`,
+      [id, mapId, sourceId, targetId, sourceHandle ?? null, targetHandle ?? null,
+       connectionType ?? 'standard', massStatus ?? null, timeStatus ?? null, size ?? 'large'],
+    );
+  } catch (err) {
+    // FK violation = one of the endpoint systems doesn't exist on the
+    // server (likely a client race: connection POST arrived before its
+    // system POST). Returning 409 lets the client retry rather than
+    // crashing the whole node and freezing every other user on the map.
+    if ((err as { code?: string }).code === '23503') {
+      log.warn(`Connection FK violation on map ${mapId}: ${(err as { detail?: string }).detail ?? 'unknown'}`);
+      res.status(409).json({ error: 'Endpoint system missing — refresh and retry' });
+      return;
+    }
+    throw err;
+  }
   await touchMap(mapId);
   res.status(201).json({ ok: true });
 });
