@@ -123,6 +123,11 @@ export function SystemPanel() {
   const setPanelOrder    = useMapStore((s) => s.setPanelOrder);
   const canEdit          = useCanEditContent();
   const { isShareMode }  = useShareMode();
+  // Per-category share-mode flags. Defaults are FALSE so a missing field
+  // (older share payload, or a pre-flags map state) errs on hiding.
+  const shareIncludesSigs       = useMapStore((s) => s.map.shareIncludeSigs       === true);
+  const shareIncludesNotes      = useMapStore((s) => s.map.shareIncludeNotes      === true);
+  const shareIncludesStructures = useMapStore((s) => s.map.shareIncludeStructures === true);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
 
   const [height, setHeight] = useState(() => {
@@ -186,7 +191,7 @@ export function SystemPanel() {
       <NotesEditor
         value={sys.notes}
         onChange={(v) => updateSystem(sys.id, { notes: v }, { skipUndo: true })}
-        readOnly={!canEdit}
+        readOnly={!canEdit || isShareMode}
       />
     ),
     signatures:  <SignaturePane systemId={sys.id} />,
@@ -536,10 +541,17 @@ export function SystemPanel() {
         <SortableContext items={panelOrder} strategy={verticalListSortingStrategy}>
           <div className="panel-stack">
             {panelOrder
-              // Notes and Structures are not part of the public share
-              // payload (notes are stripped, structures are never queried).
-              // Hide their tabs so a guest never sees an empty pane.
-              .filter((id) => !isShareMode || (id !== 'notes' && id !== 'structures'))
+              // In share mode each panel category is gated on the
+              // matching include-flag the owner picked at link time.
+              // Anything off → hide the tab entirely so a guest never
+              // sees an empty pane.
+              .filter((id) => {
+                if (!isShareMode) return true;
+                if (id === 'notes')      return shareIncludesNotes;
+                if (id === 'structures') return shareIncludesStructures;
+                if (id === 'signatures') return shareIncludesSigs;
+                return true;
+              })
               .map((id) => (
                 <DraggableCard key={id} id={id} title={PANEL_TITLES[id] ?? id}>
                   {cards[id]}

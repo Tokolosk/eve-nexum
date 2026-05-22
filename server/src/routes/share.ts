@@ -23,32 +23,38 @@ const UUID_RE = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0
  * map can credit the source.
  */
 export interface ShareTokenLookup {
-  status:          'not_found' | 'expired' | 'valid';
-  mapId?:          string;
-  mapName?:        string;
-  ownerName?:      string;
-  expiresAt?:      string;
-  includeSigs?:    boolean;
-  includeBridges?: boolean;
+  status:             'not_found' | 'expired' | 'valid';
+  mapId?:             string;
+  mapName?:           string;
+  ownerName?:         string;
+  expiresAt?:         string;
+  includeSigs?:       boolean;
+  includeBridges?:    boolean;
+  includeNotes?:      boolean;
+  includeStructures?: boolean;
 }
 
 export async function lookupShareToken(token: string): Promise<ShareTokenLookup> {
   if (!UUID_RE.test(token)) return { status: 'not_found' };
 
   const { rows } = await db.query<{
-    mapId:          string;
-    mapName:        string;
-    ownerName:      string;
-    expiresAt:      string | null;
-    includeSigs:    boolean;
-    includeBridges: boolean;
+    mapId:             string;
+    mapName:           string;
+    ownerName:         string;
+    expiresAt:         string | null;
+    includeSigs:       boolean;
+    includeBridges:    boolean;
+    includeNotes:      boolean;
+    includeStructures: boolean;
   }>(
-    `SELECT m.id                    AS "mapId",
-            m.name                  AS "mapName",
-            u.character_name        AS "ownerName",
-            m.share_expires_at      AS "expiresAt",
-            m.share_include_sigs    AS "includeSigs",
-            m.share_include_bridges AS "includeBridges"
+    `SELECT m.id                       AS "mapId",
+            m.name                     AS "mapName",
+            u.character_name           AS "ownerName",
+            m.share_expires_at         AS "expiresAt",
+            m.share_include_sigs       AS "includeSigs",
+            m.share_include_bridges    AS "includeBridges",
+            m.share_include_notes      AS "includeNotes",
+            m.share_include_structures AS "includeStructures"
        FROM maps m
        JOIN users u ON u.id = m.user_id
       WHERE m.share_token = $1`,
@@ -59,23 +65,27 @@ export async function lookupShareToken(token: string): Promise<ShareTokenLookup>
   const row = rows[0];
   if (!row.expiresAt || new Date(row.expiresAt).getTime() < Date.now()) {
     return {
-      status:         'expired',
-      mapId:          row.mapId,
-      mapName:        row.mapName,
-      ownerName:      row.ownerName,
-      expiresAt:      row.expiresAt ?? undefined,
-      includeSigs:    row.includeSigs,
-      includeBridges: row.includeBridges,
+      status:            'expired',
+      mapId:             row.mapId,
+      mapName:           row.mapName,
+      ownerName:         row.ownerName,
+      expiresAt:         row.expiresAt ?? undefined,
+      includeSigs:       row.includeSigs,
+      includeBridges:    row.includeBridges,
+      includeNotes:      row.includeNotes,
+      includeStructures: row.includeStructures,
     };
   }
   return {
-    status:         'valid',
-    mapId:          row.mapId,
-    mapName:        row.mapName,
-    ownerName:      row.ownerName,
-    expiresAt:      row.expiresAt,
-    includeSigs:    row.includeSigs,
-    includeBridges: row.includeBridges,
+    status:            'valid',
+    mapId:             row.mapId,
+    mapName:           row.mapName,
+    ownerName:         row.ownerName,
+    expiresAt:         row.expiresAt,
+    includeSigs:       row.includeSigs,
+    includeBridges:    row.includeBridges,
+    includeNotes:      row.includeNotes,
+    includeStructures: row.includeStructures,
   };
 }
 
@@ -105,21 +115,20 @@ shareRouter.get('/:token', async (req, res) => {
       return;
     }
 
-    // Reads in parallel — same shape the owner endpoint uses, minus
-    // notes (stripped below) and structures (not selected at all).
-    // Connections and sigs are filtered per the link's saved options.
-    const mapId          = lookup.mapId!;
-    const includeSigs    = lookup.includeSigs    !== false;
-    const includeBridges = lookup.includeBridges !== false;
-    // SQL guard mirrors the connection_type the client uses for player
-    // jump bridges. Filter at the database so excluded rows never leave
-    // the server — defence in depth in case a logging proxy ever sees
-    // the response.
+    // Reads in parallel — shape mirrors the owner endpoint, with each
+    // optional category gated on a link-level flag. SQL guards on the
+    // server so excluded rows never leave the DB (defence in depth in
+    // case a logging proxy ever sees the response body).
+    const mapId             = lookup.mapId!;
+    const includeSigs       = lookup.includeSigs       === true;
+    const includeBridges    = lookup.includeBridges    === true;
+    const includeNotes      = lookup.includeNotes      === true;
+    const includeStructures = lookup.includeStructures === true;
     const connectionWhere = includeBridges
       ? 'WHERE map_id = $1'
       : `WHERE map_id = $1 AND connection_type <> 'jumpgate'`;
 
-    const [systems, connections, signatures] = await Promise.all([
+    const [systems, connections, signatures, structures] = await Promise.all([
       db.query(
         `SELECT id, eve_system_id AS "eveSystemId", name, system_class AS "systemClass",
                 effect, statics, region_name AS "regionName", npc_type AS "npcType",
@@ -156,27 +165,50 @@ shareRouter.get('/:token', async (req, res) => {
             [mapId],
           )
         : Promise.resolve({ rows: [] as Array<{ systemId: string }> }),
+      includeStructures
+        ? db.query(
+            // Aliases mirror the owner-side GET so StructuresPane reads
+            // identically. system_id is exposed so we can group by-system
+            // before the response leaves the server.
+            `SELECT st.id, st.system_id AS "systemId", st.name,
+                    st.structure_type AS "structureType",
+                    st.owner_corp AS "ownerCorp", st.eve_id AS "eveId",
+                    st.notes, st.created_at AS "createdAt",
+                    st.owner_corp_id AS "ownerCorpId"
+             FROM map_structures st
+             JOIN map_systems sys ON sys.id = st.system_id
+             WHERE sys.map_id = $1`,
+            [mapId],
+          )
+        : Promise.resolve({ rows: [] as Array<{ systemId: string }> }),
     ]);
 
-    // Group sigs by systemId so the client can hydrate per-system without
-    // a second round-trip.
+    // Group sigs and structures by systemId so the client can hydrate
+    // per-system without a second round-trip.
     const sigsBySystem: Record<string, unknown[]> = {};
     for (const sig of signatures.rows as Array<{ systemId: string }>) {
       (sigsBySystem[sig.systemId] ??= []).push(sig);
     }
+    const structuresBySystem: Record<string, unknown[]> = {};
+    for (const st of structures.rows as Array<{ systemId: string }>) {
+      (structuresBySystem[st.systemId] ??= []).push(st);
+    }
 
     res.json({
-      mapName:        lookup.mapName,
-      ownerName:      lookup.ownerName,
-      expiresAt:      lookup.expiresAt,
+      mapName:           lookup.mapName,
+      ownerName:         lookup.ownerName,
+      expiresAt:         lookup.expiresAt,
       includeSigs,
       includeBridges,
+      includeNotes,
+      includeStructures,
       systems: systems.rows.map((s) => ({
         ...s,
-        position:  { x: s.x, y: s.y },
-        // Notes are intel; explicitly elided from the share payload.
-        notes:     '',
+        position:   { x: s.x, y: s.y },
+        // Notes only flow when explicitly opted in.
+        notes:      includeNotes ? s.notes : '',
         signatures: sigsBySystem[s.id] ?? [],
+        structures: structuresBySystem[s.id] ?? [],
       })),
       connections: connections.rows,
     });

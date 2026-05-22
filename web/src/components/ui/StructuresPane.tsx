@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { api } from '../../api/client';
 import { useMapStore } from '../../store/mapStore';
+import { useShareMode } from '../../context/ShareModeContext';
 import type { Structure, StructureType } from '../../types';
 import { NotesEditor } from './NotesEditor';
 import { ConfirmModal, shouldSkipConfirm } from './ConfirmModal';
@@ -91,13 +92,25 @@ export function StructuresPane({ systemId }: { systemId: string }) {
   const structuresRef = useRef<Structure[]>([]);
   structuresRef.current = structures;
 
+  const { isShareMode } = useShareMode();
   useEffect(() => {
     if (!activeMapId) return;
     setStructures([]);
+
+    // Share viewers have structures embedded per-system in the share
+    // payload. The /api/maps route would 22P02 on the 'shared' mapId,
+    // so read from the store instead.
+    if (isShareMode) {
+      const sys = useMapStore.getState().map.systems.find((s) => s.id === systemId);
+      const embedded = (sys as { structures?: Structure[] } | undefined)?.structures ?? [];
+      setStructures(embedded);
+      return;
+    }
+
     api<Structure[]>(`/api/maps/${activeMapId}/systems/${systemId}/structures`)
       .then(setStructures)
       .catch(() => toast.error('Failed to load structures'));
-  }, [activeMapId, systemId]);
+  }, [activeMapId, systemId, isShareMode]);
 
   // Pull cached known structures (corp-ESI + public-dataset). Filtered by
   // eveSystemId, then deduped against the user's manual entries by eve_id
@@ -200,8 +213,10 @@ export function StructuresPane({ systemId }: { systemId: string }) {
         />
       )}
       <div className="sig-pane">
-        <p className="sig-pane__hint">You can copy and paste structures directly from your Overview in EVE. In space, right-click anywhere in your Overview window and choose "Copy Selected Rows" (or select the lines and Ctrl+C). Paste here with Ctrl+V — the structure ID, name, and type are imported automatically.</p>
-        {canEdit && (
+        {!isShareMode && (
+          <p className="sig-pane__hint">You can copy and paste structures directly from your Overview in EVE. In space, right-click anywhere in your Overview window and choose "Copy Selected Rows" (or select the lines and Ctrl+C). Paste here with Ctrl+V — the structure ID, name, and type are imported automatically.</p>
+        )}
+        {canEdit && !isShareMode && (
           <div className="sig-pane__toolbar">
             <button className="icon-btn" onClick={addStructure} title="Add structure">+</button>
             {structures.length > 0 && (
@@ -231,7 +246,7 @@ export function StructuresPane({ systemId }: { systemId: string }) {
                 <th>Owner Corp</th>
                 <th title="EVE structure ID for waypoint navigation">EVE ID</th>
                 <th>Notes</th>
-                <th />
+                {!isShareMode && <th />}
               </tr>
             </thead>
             <tbody>
@@ -257,59 +272,78 @@ export function StructuresPane({ systemId }: { systemId: string }) {
                   }}
                 >
                   <td>
-                    <input
-                      className="sig-input"
-                      value={s.name}
-                      onChange={(e) => updateStructure(s.id, { name: e.target.value })}
-                      placeholder="Structure name"
-                    />
+                    {isShareMode ? (
+                      <span className="sig-text">{s.name}</span>
+                    ) : (
+                      <input
+                        className="sig-input"
+                        value={s.name}
+                        onChange={(e) => updateStructure(s.id, { name: e.target.value })}
+                        placeholder="Structure name"
+                      />
+                    )}
                   </td>
                   <td>
-                    <select
-                      className="sig-select"
-                      value={s.structureType}
-                      onChange={(e) => updateStructure(s.id, { structureType: e.target.value as StructureType })}
-                    >
-                      {(Object.keys(STRUCTURE_TYPE_LABELS) as StructureType[]).map((t) => (
-                        <option key={t} value={t}>{STRUCTURE_TYPE_LABELS[t]}</option>
-                      ))}
-                    </select>
+                    {isShareMode ? (
+                      <span className="sig-text">{STRUCTURE_TYPE_LABELS[s.structureType]}</span>
+                    ) : (
+                      <select
+                        className="sig-select"
+                        value={s.structureType}
+                        onChange={(e) => updateStructure(s.id, { structureType: e.target.value as StructureType })}
+                      >
+                        {(Object.keys(STRUCTURE_TYPE_LABELS) as StructureType[]).map((t) => (
+                          <option key={t} value={t}>{STRUCTURE_TYPE_LABELS[t]}</option>
+                        ))}
+                      </select>
+                    )}
                   </td>
                   <td>
-                    <input
-                      className="sig-input"
-                      value={s.ownerCorp}
-                      onChange={(e) => updateStructure(s.id, { ownerCorp: e.target.value })}
-                      placeholder="Corp name"
-                    />
+                    {isShareMode ? (
+                      <span className="sig-text">{s.ownerCorp}</span>
+                    ) : (
+                      <input
+                        className="sig-input"
+                        value={s.ownerCorp}
+                        onChange={(e) => updateStructure(s.id, { ownerCorp: e.target.value })}
+                        placeholder="Corp name"
+                      />
+                    )}
                   </td>
                   <td>
-                    <input
-                      className="sig-input sig-input--id"
-                      value={s.eveId ?? ''}
-                      onChange={(e) => {
-                        const v = e.target.value.replace(/\D/g, '');
-                        updateStructure(s.id, { eveId: v ? Number(v) : null });
-                      }}
-                      placeholder="Optional"
-                    />
+                    {isShareMode ? (
+                      <span className="sig-text sig-text--id">{s.eveId ?? ''}</span>
+                    ) : (
+                      <input
+                        className="sig-input sig-input--id"
+                        value={s.eveId ?? ''}
+                        onChange={(e) => {
+                          const v = e.target.value.replace(/\D/g, '');
+                          updateStructure(s.id, { eveId: v ? Number(v) : null });
+                        }}
+                        placeholder="Optional"
+                      />
+                    )}
                   </td>
                   <td className="sig-notes-cell">
                     <NotesEditor
                       value={s.notes}
                       onChange={(v) => updateStructure(s.id, { notes: v })}
                       compact
+                      readOnly={!canEdit || isShareMode}
                     />
                   </td>
-                  <td>
-                    {canEdit && (
-                      <button
-                        className="icon-btn icon-btn--danger"
-                        onClick={() => deleteStructure(s.id)}
-                        title="Delete"
-                      ><XIcon size={12} weight="bold" /></button>
-                    )}
-                  </td>
+                  {!isShareMode && (
+                    <td>
+                      {canEdit && (
+                        <button
+                          className="icon-btn icon-btn--danger"
+                          onClick={() => deleteStructure(s.id)}
+                          title="Delete"
+                        ><XIcon size={12} weight="bold" /></button>
+                      )}
+                    </td>
+                  )}
                 </tr>
                 );
               })}

@@ -604,7 +604,7 @@ export function SignaturePane({ systemId }: { systemId: string }) {
                     value={sig.notes}
                     onChange={(v) => updateSig(sig.id, { notes: v })}
                     compact
-                    readOnly={!canEdit}
+                    readOnly={!canEdit || isShareMode}
                   />
                 </td>
                 <ElapsedCell iso={sig.createdAt} className="sig-td--time" />

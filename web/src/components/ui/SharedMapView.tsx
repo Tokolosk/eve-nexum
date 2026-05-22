@@ -4,14 +4,18 @@ import { useMapStore } from '../../store/mapStore';
 import { MapCanvas } from '../map/MapCanvas';
 import { SystemPanel } from './SystemPanel';
 import { ShareModeProvider } from '../../context/ShareModeContext';
-import type { MapSystem, MapConnection, Signature } from '../../types';
+import type { MapSystem, MapConnection, Signature, Structure } from '../../types';
 
 interface SharePayload {
-  mapName:     string;
-  ownerName:   string;
-  expiresAt:   string;
-  systems:     Array<MapSystem & { signatures: Signature[] }>;
-  connections: MapConnection[];
+  mapName:           string;
+  ownerName:         string;
+  expiresAt:         string;
+  includeSigs:       boolean;
+  includeBridges:    boolean;
+  includeNotes:      boolean;
+  includeStructures: boolean;
+  systems:           Array<MapSystem & { signatures: Signature[]; structures?: Structure[] }>;
+  connections:       MapConnection[];
 }
 
 interface ExpiredPayload {
@@ -68,14 +72,21 @@ export function SharedMapView({ token }: { token: string }) {
         const payload = body as SharePayload;
         useMapStore.setState({
           map: {
-            id:          'shared',
-            name:        payload.mapName,
-            isCorpMap:   false,
-            locked:      true,
-            systems:     payload.systems,
-            connections: payload.connections,
-            createdAt:   new Date().toISOString(),
-            updatedAt:   payload.expiresAt,
+            id:                     'shared',
+            name:                   payload.mapName,
+            isCorpMap:              false,
+            locked:                 true,
+            systems:                payload.systems,
+            connections:            payload.connections,
+            createdAt:              new Date().toISOString(),
+            updatedAt:              payload.expiresAt,
+            // Carry the link's category flags onto the map so panels
+            // (SystemPanel tab filter, StructuresPane, NotesEditor) can
+            // decide whether to render or skip per category.
+            shareIncludeSigs:       payload.includeSigs,
+            shareIncludeBridges:    payload.includeBridges,
+            shareIncludeNotes:      payload.includeNotes,
+            shareIncludeStructures: payload.includeStructures,
           },
           activeMapId:        'shared',
           selectedSystemId:   null,
