@@ -23,26 +23,32 @@ const UUID_RE = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0
  * map can credit the source.
  */
 export interface ShareTokenLookup {
-  status:     'not_found' | 'expired' | 'valid';
-  mapId?:     string;
-  mapName?:   string;
-  ownerName?: string;
-  expiresAt?: string;
+  status:          'not_found' | 'expired' | 'valid';
+  mapId?:          string;
+  mapName?:        string;
+  ownerName?:      string;
+  expiresAt?:      string;
+  includeSigs?:    boolean;
+  includeBridges?: boolean;
 }
 
 export async function lookupShareToken(token: string): Promise<ShareTokenLookup> {
   if (!UUID_RE.test(token)) return { status: 'not_found' };
 
   const { rows } = await db.query<{
-    mapId:     string;
-    mapName:   string;
-    ownerName: string;
-    expiresAt: string | null;
+    mapId:          string;
+    mapName:        string;
+    ownerName:      string;
+    expiresAt:      string | null;
+    includeSigs:    boolean;
+    includeBridges: boolean;
   }>(
-    `SELECT m.id              AS "mapId",
-            m.name            AS "mapName",
-            u.character_name  AS "ownerName",
-            m.share_expires_at AS "expiresAt"
+    `SELECT m.id                    AS "mapId",
+            m.name                  AS "mapName",
+            u.character_name        AS "ownerName",
+            m.share_expires_at      AS "expiresAt",
+            m.share_include_sigs    AS "includeSigs",
+            m.share_include_bridges AS "includeBridges"
        FROM maps m
        JOIN users u ON u.id = m.user_id
       WHERE m.share_token = $1`,
@@ -53,19 +59,23 @@ export async function lookupShareToken(token: string): Promise<ShareTokenLookup>
   const row = rows[0];
   if (!row.expiresAt || new Date(row.expiresAt).getTime() < Date.now()) {
     return {
-      status:    'expired',
-      mapId:     row.mapId,
-      mapName:   row.mapName,
-      ownerName: row.ownerName,
-      expiresAt: row.expiresAt ?? undefined,
+      status:         'expired',
+      mapId:          row.mapId,
+      mapName:        row.mapName,
+      ownerName:      row.ownerName,
+      expiresAt:      row.expiresAt ?? undefined,
+      includeSigs:    row.includeSigs,
+      includeBridges: row.includeBridges,
     };
   }
   return {
-    status:    'valid',
-    mapId:     row.mapId,
-    mapName:   row.mapName,
-    ownerName: row.ownerName,
-    expiresAt: row.expiresAt,
+    status:         'valid',
+    mapId:          row.mapId,
+    mapName:        row.mapName,
+    ownerName:      row.ownerName,
+    expiresAt:      row.expiresAt,
+    includeSigs:    row.includeSigs,
+    includeBridges: row.includeBridges,
   };
 }
 
@@ -95,9 +105,20 @@ shareRouter.get('/:token', async (req, res) => {
       return;
     }
 
-    // Three reads in parallel — same shape the owner endpoint uses, minus
+    // Reads in parallel — same shape the owner endpoint uses, minus
     // notes (stripped below) and structures (not selected at all).
-    const mapId = lookup.mapId!;
+    // Connections and sigs are filtered per the link's saved options.
+    const mapId          = lookup.mapId!;
+    const includeSigs    = lookup.includeSigs    !== false;
+    const includeBridges = lookup.includeBridges !== false;
+    // SQL guard mirrors the connection_type the client uses for player
+    // jump bridges. Filter at the database so excluded rows never leave
+    // the server — defence in depth in case a logging proxy ever sees
+    // the response.
+    const connectionWhere = includeBridges
+      ? 'WHERE map_id = $1'
+      : `WHERE map_id = $1 AND connection_type <> 'jumpgate'`;
+
     const [systems, connections, signatures] = await Promise.all([
       db.query(
         `SELECT id, eve_system_id AS "eveSystemId", name, system_class AS "systemClass",
@@ -116,23 +137,25 @@ shareRouter.get('/:token', async (req, res) => {
                 COALESCE(mass_used, 0)::float8 AS "massUsed",
                 eol_at AS "eolAt",
                 created_at AS "createdAt"
-         FROM map_connections WHERE map_id = $1`,
+         FROM map_connections ${connectionWhere}`,
         [mapId],
       ),
-      db.query(
-        // Aliases match the owner-side /api/maps/:mapId/.../signatures
-        // shape exactly so the SignaturePane consumes them with the same
-        // field names — otherwise sigType arrives undefined and every
-        // row renders as "unknown".
-        `SELECT s.id, s.system_id AS "systemId", s.sig_id AS "sigId",
-                s.sig_type AS "sigType", s.name, s.notes,
-                s.wh_type AS "whType", s.wh_leads_to AS "whLeadsTo",
-                s.created_at AS "createdAt", s.updated_at AS "updatedAt"
-         FROM map_signatures s
-         JOIN map_systems sys ON sys.id = s.system_id
-         WHERE sys.map_id = $1`,
-        [mapId],
-      ),
+      includeSigs
+        ? db.query(
+            // Aliases match the owner-side /api/maps/:mapId/.../signatures
+            // shape exactly so the SignaturePane consumes them with the same
+            // field names — otherwise sigType arrives undefined and every
+            // row renders as "unknown".
+            `SELECT s.id, s.system_id AS "systemId", s.sig_id AS "sigId",
+                    s.sig_type AS "sigType", s.name, s.notes,
+                    s.wh_type AS "whType", s.wh_leads_to AS "whLeadsTo",
+                    s.created_at AS "createdAt", s.updated_at AS "updatedAt"
+             FROM map_signatures s
+             JOIN map_systems sys ON sys.id = s.system_id
+             WHERE sys.map_id = $1`,
+            [mapId],
+          )
+        : Promise.resolve({ rows: [] as Array<{ systemId: string }> }),
     ]);
 
     // Group sigs by systemId so the client can hydrate per-system without
@@ -143,9 +166,11 @@ shareRouter.get('/:token', async (req, res) => {
     }
 
     res.json({
-      mapName:   lookup.mapName,
-      ownerName: lookup.ownerName,
-      expiresAt: lookup.expiresAt,
+      mapName:        lookup.mapName,
+      ownerName:      lookup.ownerName,
+      expiresAt:      lookup.expiresAt,
+      includeSigs,
+      includeBridges,
       systems: systems.rows.map((s) => ({
         ...s,
         position:  { x: s.x, y: s.y },

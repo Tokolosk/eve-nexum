@@ -417,8 +417,10 @@ mapsRouter.get('/:mapId', async (req, res) => {
   const [mapRows, systems, connections] = await Promise.all([
     db.query(
       `SELECT id, name, corp_id IS NOT NULL AS "isCorpMap", locked,
-              share_token      AS "shareToken",
-              share_expires_at AS "shareExpiresAt",
+              share_token            AS "shareToken",
+              share_expires_at       AS "shareExpiresAt",
+              share_include_sigs     AS "shareIncludeSigs",
+              share_include_bridges  AS "shareIncludeBridges",
               created_at AS "createdAt", updated_at AS "updatedAt"
        FROM maps WHERE id = $1`,
       [mapId],
@@ -863,25 +865,69 @@ async function requireShareAdmin(res: Response, mapId: string, req: Request): Pr
 // Generates a fresh share token (or replaces an existing one) and stamps
 // expires_at = NOW() + 48h. One token per map by design — regenerate to
 // rotate. Returns the full share URL ready to copy to clipboard.
+//
+// Body: { includeSigs?: boolean, includeBridges?: boolean }
+//   includeSigs    — when false, the share payload returns empty sigs per
+//                    system. Sigs are often intel; corp may want them off.
+//   includeBridges — when false, the share payload filters out connections
+//                    typed as 'jumpgate' (player jump-bridge links). Same
+//                    intel argument; the topology between systems still
+//                    shows, just not the bridge segments.
+// Both default to TRUE for backward compatibility.
 mapsRouter.post('/:mapId/share', async (req, res) => {
   const { mapId } = req.params;
   if (!(await requireShareAdmin(res, mapId, req))) return;
 
+  const includeSigs    = req.body?.includeSigs    !== false;
+  const includeBridges = req.body?.includeBridges !== false;
+
   const token = crypto.randomUUID();
   const { rows } = await db.query<{ expiresAt: string }>(
     `UPDATE maps
-        SET share_token      = $1,
-            share_expires_at = NOW() + INTERVAL '48 hours'
+        SET share_token           = $1,
+            share_expires_at      = NOW() + INTERVAL '48 hours',
+            share_include_sigs    = $3,
+            share_include_bridges = $4
       WHERE id = $2
       RETURNING share_expires_at AS "expiresAt"`,
-    [token, mapId],
+    [token, mapId, includeSigs, includeBridges],
   );
   const origin = (process.env.FRONTEND_URL ?? '').replace(/\/+$/, '');
   res.json({
     token,
-    url:       `${origin}/#/share/${token}`,
-    expiresAt: rows[0]?.expiresAt ?? null,
+    url:            `${origin}/#/share/${token}`,
+    expiresAt:      rows[0]?.expiresAt ?? null,
+    includeSigs,
+    includeBridges,
   });
+});
+
+// PATCH /api/maps/:mapId/share
+// Update an existing share link's options without regenerating the token.
+// Body: { includeSigs?: boolean, includeBridges?: boolean }. Either is
+// optional — only fields that are present are applied. No-op when there
+// isn't an active token.
+mapsRouter.patch('/:mapId/share', async (req, res) => {
+  const { mapId } = req.params;
+  if (!(await requireShareAdmin(res, mapId, req))) return;
+
+  const sets: string[] = [];
+  const values: unknown[] = [mapId];
+  if (typeof req.body?.includeSigs === 'boolean') {
+    values.push(req.body.includeSigs);
+    sets.push(`share_include_sigs = $${values.length}`);
+  }
+  if (typeof req.body?.includeBridges === 'boolean') {
+    values.push(req.body.includeBridges);
+    sets.push(`share_include_bridges = $${values.length}`);
+  }
+  if (sets.length === 0) { res.json({ ok: true }); return; }
+
+  await db.query(
+    `UPDATE maps SET ${sets.join(', ')} WHERE id = $1 AND share_token IS NOT NULL`,
+    values,
+  );
+  res.json({ ok: true });
 });
 
 // DELETE /api/maps/:mapId/share

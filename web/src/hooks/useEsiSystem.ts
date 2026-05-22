@@ -12,6 +12,7 @@ export interface EsiSystemData {
   stationIds:        number[];
   planetCount:       number;
   moonCount:         number;
+  beltCount:         number;
   stargateCount:     number;
   securityStatus:    number | null;
   constellationName: string | null;
@@ -76,7 +77,7 @@ async function loadSystem(eveSystemId: number): Promise<EsiSystemData> {
     await acquireSlot();
     try {
       const res = await fetch(`${ESI}/universe/systems/${eveSystemId}/`);
-      if (!res.ok) return { stationIds: [], planetCount: 0, moonCount: 0, stargateCount: 0, securityStatus: null, constellationName: null };
+      if (!res.ok) return { stationIds: [], planetCount: 0, moonCount: 0, beltCount: 0, stargateCount: 0, securityStatus: null, constellationName: null };
       const data = await res.json() as {
         stations?: number[];
         planets?: EsiPlanet[];
@@ -95,6 +96,7 @@ async function loadSystem(eveSystemId: number): Promise<EsiSystemData> {
         stationIds:        data.stations ?? [],
         planetCount:       data.planets?.length ?? 0,
         moonCount:         data.planets?.reduce((n, p) => n + (p.moons?.length ?? 0), 0) ?? 0,
+        beltCount:         data.planets?.reduce((n, p) => n + (p.asteroid_belts?.length ?? 0), 0) ?? 0,
         stargateCount:     data.stargates?.length ?? 0,
         securityStatus:    data.security_status ?? null,
         constellationName,
@@ -105,7 +107,7 @@ async function loadSystem(eveSystemId: number): Promise<EsiSystemData> {
     } catch {
       releaseSlot();
       inflight.delete(eveSystemId);
-      return { stationIds: [], planetCount: 0, moonCount: 0, stargateCount: 0, securityStatus: null, constellationName: null };
+      return { stationIds: [], planetCount: 0, moonCount: 0, beltCount: 0, stargateCount: 0, securityStatus: null, constellationName: null };
     }
   })();
 

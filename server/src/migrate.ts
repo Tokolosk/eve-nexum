@@ -111,6 +111,12 @@ export async function migrate() {
     -- token means sharing has been revoked outright.
     ALTER TABLE maps ADD COLUMN IF NOT EXISTS share_token      UUID;
     ALTER TABLE maps ADD COLUMN IF NOT EXISTS share_expires_at TIMESTAMPTZ;
+    -- Per-link inclusion flags. The owner picks these when they generate
+    -- the link; they're frozen for the life of that token (regenerate to
+    -- change). Default TRUE matches the original launch behaviour so any
+    -- existing links keep showing what they were showing.
+    ALTER TABLE maps ADD COLUMN IF NOT EXISTS share_include_sigs    BOOLEAN NOT NULL DEFAULT TRUE;
+    ALTER TABLE maps ADD COLUMN IF NOT EXISTS share_include_bridges BOOLEAN NOT NULL DEFAULT TRUE;
     CREATE UNIQUE INDEX IF NOT EXISTS uq_maps_share_token ON maps (share_token) WHERE share_token IS NOT NULL;
 
     CREATE TABLE IF NOT EXISTS map_systems (

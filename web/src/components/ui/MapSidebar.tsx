@@ -96,6 +96,20 @@ function ShareSection() {
   const [error, setError] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
 
+  // Toggle state. When there's no active link these are the seed values
+  // sent to /share on create. When a link IS active, they mirror the
+  // map's persisted flags and flipping them sends a PATCH that updates
+  // the live link without rotating the token.
+  const activeFlags = !!map.shareToken;
+  const effectiveSigs    = activeFlags ? map.shareIncludeSigs    !== false : true;
+  const effectiveBridges = activeFlags ? map.shareIncludeBridges !== false : true;
+  const [includeSigs,    setIncludeSigs]    = useState(effectiveSigs);
+  const [includeBridges, setIncludeBridges] = useState(effectiveBridges);
+  // Resync local toggle state whenever the underlying map flags change
+  // (e.g. another browser updated the link, or the user just generated).
+  useEffect(() => { setIncludeSigs(effectiveSigs); },     [effectiveSigs]);
+  useEffect(() => { setIncludeBridges(effectiveBridges); }, [effectiveBridges]);
+
   // 1-minute heartbeat so the countdown label stays roughly accurate
   // without taxing the render loop. Hovering granularity isn't useful
   // for a 48-hour countdown anyway.
@@ -114,12 +128,21 @@ function ShareSection() {
     setBusy(true);
     setError(null);
     try {
-      const r = await api<{ token: string; url: string; expiresAt: string }>(
+      const r = await api<{ token: string; url: string; expiresAt: string; includeSigs: boolean; includeBridges: boolean }>(
         `/api/maps/${map.id}/share`,
-        { method: 'POST' },
+        {
+          method: 'POST',
+          body:   JSON.stringify({ includeSigs, includeBridges }),
+        },
       );
       useMapStore.setState((s) => ({
-        map: { ...s.map, shareToken: r.token, shareExpiresAt: r.expiresAt },
+        map: {
+          ...s.map,
+          shareToken:          r.token,
+          shareExpiresAt:      r.expiresAt,
+          shareIncludeSigs:    r.includeSigs,
+          shareIncludeBridges: r.includeBridges,
+        },
       }));
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to create share link');
@@ -160,12 +183,69 @@ function ShareSection() {
     return `expires in ${m}m`;
   }
 
-  if (!isActive) {
-    return (
-      <>
-        <div className="map-sidebar__hint">
-          Create a read-only link anyone can open without an account. Shows the map and signatures; hides notes and structures. Link expires after 48 hours.
-        </div>
+  // Update toggle state locally and, if a link is live, push a PATCH so
+  // the same token starts returning the new payload shape next request.
+  async function applyToggle(patch: { includeSigs?: boolean; includeBridges?: boolean }) {
+    if (patch.includeSigs    !== undefined) setIncludeSigs(patch.includeSigs);
+    if (patch.includeBridges !== undefined) setIncludeBridges(patch.includeBridges);
+    if (!isActive) return;
+    setError(null);
+    try {
+      await api(`/api/maps/${map.id}/share`, {
+        method: 'PATCH',
+        body:   JSON.stringify(patch),
+      });
+      useMapStore.setState((s) => ({
+        map: {
+          ...s.map,
+          shareIncludeSigs:    patch.includeSigs    ?? s.map.shareIncludeSigs,
+          shareIncludeBridges: patch.includeBridges ?? s.map.shareIncludeBridges,
+        },
+      }));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to update share options');
+    }
+  }
+
+  return (
+    <>
+      <div className="map-sidebar__hint">
+        {isActive
+          ? 'Live share link. Toggle below to change what guests see — link stays the same.'
+          : 'Create a read-only link anyone can open without an account. Hides notes and structures. Link expires after 48 hours.'}
+      </div>
+
+      <label className="map-sidebar__row map-sidebar__toggle-row">
+        <span className="map-sidebar__label">Include signatures</span>
+        <input
+          type="checkbox"
+          className="map-sidebar__toggle-input"
+          checked={includeSigs}
+          onChange={(e) => applyToggle({ includeSigs: e.target.checked })}
+        />
+      </label>
+      <label className="map-sidebar__row map-sidebar__toggle-row">
+        <span className="map-sidebar__label">Show jump bridges</span>
+        <input
+          type="checkbox"
+          className="map-sidebar__toggle-input"
+          checked={includeBridges}
+          onChange={(e) => applyToggle({ includeBridges: e.target.checked })}
+        />
+      </label>
+
+      {isActive ? (
+        <>
+          <div className="map-sidebar__share-url" title={url}>{url}</div>
+          <div className="map-sidebar__share-meta">{formatRemaining()}</div>
+          <button className="map-sidebar__action" onClick={copyUrl} disabled={busy}>
+            Copy link
+          </button>
+          <button className="map-sidebar__action" onClick={revoke} disabled={busy}>
+            {busy ? 'Working…' : 'Revoke'}
+          </button>
+        </>
+      ) : (
         <button
           className="map-sidebar__action"
           onClick={generate}
@@ -173,21 +253,8 @@ function ShareSection() {
         >
           {busy ? 'Working…' : 'Create share link'}
         </button>
-        {error && <div className="map-sidebar__hint map-sidebar__hint--error">{error}</div>}
-      </>
-    );
-  }
+      )}
 
-  return (
-    <>
-      <div className="map-sidebar__share-url" title={url}>{url}</div>
-      <div className="map-sidebar__share-meta">{formatRemaining()}</div>
-      <button className="map-sidebar__action" onClick={copyUrl} disabled={busy}>
-        Copy link
-      </button>
-      <button className="map-sidebar__action" onClick={revoke} disabled={busy}>
-        {busy ? 'Working…' : 'Revoke'}
-      </button>
       {error && <div className="map-sidebar__hint map-sidebar__hint--error">{error}</div>}
     </>
   );

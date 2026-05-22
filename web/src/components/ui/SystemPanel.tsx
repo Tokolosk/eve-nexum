@@ -23,6 +23,7 @@ import { useInsurgency, findInsurgency } from '../../hooks/useInsurgency';
 import { useCanEditContent } from '../../hooks/useCanEditContent';
 import { useShareMode } from '../../context/ShareModeContext';
 import { WHTypeInfo } from './WHTypeInfo';
+import { Tooltip } from './Tooltip';
 
 /**
  * One chip in the "In chain:" digest. Owns its own hover state and renders
@@ -388,58 +389,61 @@ export function SystemPanel() {
                     map (uses Region + System); j-space and unlinked systems
                     fall back to the plain /system/<name> URL. */}
                 {sys.name && DOTLAN_CLASSES.has(sys.systemClass) && sys.regionName && (
-                  <a
-                    href={`https://evemaps.dotlan.net/map/${encodeURIComponent(sys.regionName.replace(/ /g, '_'))}/${encodeURIComponent(sys.name.replace(/ /g, '_'))}#npc_delta`}
-                    target="_blank"
-                    rel="noreferrer"
-                    data-tooltip="Open NPC delta on Dotlan"
-                    className="sys-info__ext-link"
-                  >
-                    <img
-                      src="https://evemaps.dotlan.net/favicon.ico"
-                      alt="Dotlan"
-                      className="sys-info__ext-icon"
-                      loading="lazy"
-                    />
-                  </a>
+                  <Tooltip label="Open NPC delta on Dotlan" placement="right">
+                    <a
+                      href={`https://evemaps.dotlan.net/map/${encodeURIComponent(sys.regionName.replace(/ /g, '_'))}/${encodeURIComponent(sys.name.replace(/ /g, '_'))}#npc_delta`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="sys-info__ext-link"
+                    >
+                      <img
+                        src="https://evemaps.dotlan.net/favicon.ico"
+                        alt="Dotlan"
+                        className="sys-info__ext-icon"
+                        loading="lazy"
+                      />
+                    </a>
+                  </Tooltip>
                 )}
                 {sys.name && !(DOTLAN_CLASSES.has(sys.systemClass) && sys.regionName) && (
-                  <a
-                    href={`https://evemaps.dotlan.net/system/${encodeURIComponent(sys.name.replace(/ /g, '_'))}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    data-tooltip="Open system on Dotlan"
-                    className="sys-info__ext-link"
-                  >
-                    <img
-                      src="https://evemaps.dotlan.net/favicon.ico"
-                      alt="Dotlan"
-                      className="sys-info__ext-icon"
-                      loading="lazy"
-                    />
-                  </a>
+                  <Tooltip label="Open system on Dotlan" placement="right">
+                    <a
+                      href={`https://evemaps.dotlan.net/system/${encodeURIComponent(sys.name.replace(/ /g, '_'))}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="sys-info__ext-link"
+                    >
+                      <img
+                        src="https://evemaps.dotlan.net/favicon.ico"
+                        alt="Dotlan"
+                        className="sys-info__ext-icon"
+                        loading="lazy"
+                      />
+                    </a>
+                  </Tooltip>
                 )}
                 {sys.eveSystemId && (
-                  <a
-                    href={`https://zkillboard.com/system/${sys.eveSystemId}/`}
-                    target="_blank"
-                    rel="noreferrer"
-                    data-tooltip="Open system on zKillboard"
-                    className="sys-info__ext-link"
-                  >
-                    <img
-                      src="https://zkillboard.com/img/wreck.png"
-                      alt="zKillboard"
-                      className="sys-info__ext-icon"
-                      loading="lazy"
-                    />
-                  </a>
+                  <Tooltip label="Open system on zKillboard" placement="right">
+                    <a
+                      href={`https://zkillboard.com/system/${sys.eveSystemId}/`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="sys-info__ext-link"
+                    >
+                      <img
+                        src="https://zkillboard.com/img/wreck.png"
+                        alt="zKillboard"
+                        className="sys-info__ext-icon"
+                        loading="lazy"
+                      />
+                    </a>
+                  </Tooltip>
                 )}
               </div>
             </div>
           )}
 
-          {esiSys && (esiSys.planetCount > 0 || esiSys.moonCount > 0 || esiSys.stargateCount > 0) && (
+          {esiSys && (esiSys.planetCount > 0 || esiSys.moonCount > 0 || esiSys.beltCount > 0 || esiSys.stargateCount > 0) && (
             <div className="sys-info__section">
               <div className="sys-info__section-label">Celestials</div>
               <div className="sys-info__celestials">
@@ -455,6 +459,13 @@ export function SystemPanel() {
                     <span className="sys-info__celestial-icon">○</span>
                     <span>{esiSys.moonCount}</span>
                     <span className="sys-info__celestial-label">moon{esiSys.moonCount !== 1 ? 's' : ''}</span>
+                  </div>
+                )}
+                {esiSys.beltCount > 0 && (
+                  <div className="sys-info__celestial">
+                    <span className="sys-info__celestial-icon">⁂</span>
+                    <span>{esiSys.beltCount}</span>
+                    <span className="sys-info__celestial-label">belt{esiSys.beltCount !== 1 ? 's' : ''}</span>
                   </div>
                 )}
                 {esiSys.stargateCount > 0 && (
@@ -565,15 +576,16 @@ function StandingsRefreshButton({ standings }: { standings: ReturnType<typeof us
   }
 
   return (
-    <button
-      type="button"
-      className={`sys-info__refresh-btn${standings.refreshing ? ' sys-info__refresh-btn--busy' : ''}${status === 'ok' ? ' sys-info__refresh-btn--ok' : ''}${status === 'err' ? ' sys-info__refresh-btn--err' : ''}`}
-      data-tooltip="Refresh standings from ESI now (bypasses the 6h TTL)"
-      onClick={onClick}
-      disabled={standings.refreshing || busy}
-    >
-      ↻
-    </button>
+    <Tooltip label="Refresh standings from ESI now (bypasses the 6h TTL)" placement="above">
+      <button
+        type="button"
+        className={`sys-info__refresh-btn${standings.refreshing ? ' sys-info__refresh-btn--busy' : ''}${status === 'ok' ? ' sys-info__refresh-btn--ok' : ''}${status === 'err' ? ' sys-info__refresh-btn--err' : ''}`}
+        onClick={onClick}
+        disabled={standings.refreshing || busy}
+      >
+        ↻
+      </button>
+    </Tooltip>
   );
 }
 
