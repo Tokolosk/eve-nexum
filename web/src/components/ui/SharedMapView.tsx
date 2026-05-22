@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 import { ReactFlowProvider } from '@xyflow/react';
-import { api } from '../../api/client';
 import { useMapStore } from '../../store/mapStore';
 import { MapCanvas } from '../map/MapCanvas';
 import { SystemPanel } from './SystemPanel';
