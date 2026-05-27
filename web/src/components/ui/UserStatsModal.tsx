@@ -23,7 +23,7 @@ function SigSparkline({ values }: { values: number[] }) {
     : '';
 
   // Y ticks: 0, mid, max
-  const yTicks = [0, Math.round(maxVal / 2), maxVal];
+  const yTicks = [...new Set([0, Math.round(maxVal / 2), maxVal])];
   // X ticks: 30d ago (left) and today (right)
   const xLabels: { x: number; label: string }[] = n > 0 ? [
     { x: xOf(0),     label: `${n - 1}d ago` },
@@ -40,7 +40,7 @@ function SigSparkline({ values }: { values: number[] }) {
       >
         {/* Grid lines + Y labels */}
         {yTicks.map((v) => (
-          <g key={v}>
+          <g key={`tick-${v}`}>
             <line
               x1={SPARK_PAD.left} y1={yOf(v)} x2={SPARK_PAD.left + iw} y2={yOf(v)}
               stroke="#1a2535" strokeWidth={0.5}
@@ -71,7 +71,7 @@ function SigSparkline({ values }: { values: number[] }) {
           const cy = yOf(v);
           const isActive = hover?.index === i;
           return (
-            <g key={i}>
+            <g key={`pt-${i}`}>
               <circle cx={cx} cy={cy} r={isActive ? 3 : 1.8}
                 fill={SPARK_COLOR} stroke="#08090f" strokeWidth={0.6}
                 pointerEvents="none" />

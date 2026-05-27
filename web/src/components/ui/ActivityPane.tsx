@@ -53,9 +53,13 @@ function MiniLineChart({ title, values, color, signed = false }: {
 
   const baselineY = signed ? yOf(0)   : (n > 0 ? yOf(avg) : PAD.top + IH);
   const baselineColor = signed ? '#3a4a68' : '#f0a030';
-  const yTicks = signed
-    ? [-maxVal, -maxVal / 2, 0, maxVal / 2, maxVal].map((v) => Math.round(v))
-    : [0, 1, 2, 3].map((t) => Math.round((maxVal / 3) * t));
+  // Dedupe — at low maxVal the rounding collapses adjacent ticks to the same
+  // integer (e.g. [0,0,1,1]), which would also produce duplicate React keys.
+  const yTicks = [...new Set(
+    signed
+      ? [-maxVal, -maxVal / 2, 0, maxVal / 2, maxVal].map((v) => Math.round(v))
+      : [0, 1, 2, 3].map((t) => Math.round((maxVal / 3) * t)),
+  )];
   const polyline = values.map((v, i) => `${xOfIdx(i).toFixed(1)},${yOf(v).toFixed(1)}`).join(' ');
 
   return (
@@ -70,7 +74,7 @@ function MiniLineChart({ title, values, color, signed = false }: {
       >
         {/* Grid + Y labels */}
         {yTicks.map((v) => (
-          <g key={v}>
+          <g key={`tick-${v}`}>
             <line
               x1={PAD.left} y1={yOf(v)} x2={PAD.left + IW} y2={yOf(v)}
               stroke="#1a2535" strokeWidth={0.5}
@@ -119,7 +123,7 @@ function MiniLineChart({ title, values, color, signed = false }: {
           const cy = yOf(v);
           const isActive = hover?.index === i;
           return (
-            <g key={i}>
+            <g key={`pt-${i}`}>
               <circle cx={cx} cy={cy} r={isActive ? 3.4 : 2.2}
                 fill={color} stroke="#08090f" strokeWidth={0.8}
                 pointerEvents="none" />
