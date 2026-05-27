@@ -4,39 +4,171 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
-    <title>Nexum — EVE Online Wormhole Mapper</title>
-    <meta name="description" content="Nexum is a wormhole mapping tool for EVE Online. Track your chain, manage signatures, monitor kills and jumps, and coordinate with your fleet in real time." />
-    <meta name="keywords" content="EVE Online, wormhole mapper, wormhole mapping, chain mapping, EVE mapper, wormhole tool, EVE Online tool" />
+    <title>Nexum — EVE Online Wormhole Mapper (open-source Pathfinder/Tripwire alternative)</title>
+    <meta name="description" content="Nexum is a free, open-source, self-hosted wormhole mapping tool for EVE Online — a Pathfinder and Tripwire alternative. Map your chain in real time, manage signatures, track kills and jumps, plan wormhole rolls, and coordinate with your corp and fleet." />
+    <meta name="keywords" content="EVE Online, wormhole mapper, wormhole mapping, chain mapping, EVE mapper, wormhole tool, J-space, Pathfinder alternative, Tripwire alternative, self-hosted, open source, EVE Online tools" />
     <meta name="author" content="Area 404" />
     <meta name="theme-color" content="#06080f" />
 
     <!-- Canonical -->
-    <link rel="canonical" href="https://nexum.area404.org/" />
+    <link rel="canonical" href="https://eve-nexum.com/" />
 
     <!-- Favicon -->
-    <link rel="icon" type="image/png" href="/favicon.png" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="apple-touch-icon" href="/favicon.svg" />
 
     <!-- Open Graph -->
     <meta property="og:type"        content="website" />
-    <meta property="og:url"         content="https://nexum.area404.org/" />
+    <meta property="og:url"         content="https://eve-nexum.com/" />
     <meta property="og:title"       content="Nexum — EVE Online Wormhole Mapper" />
-    <meta property="og:description" content="Track your wormhole chain, manage signatures, monitor kills and jumps, and coordinate with your fleet in real time." />
-    <meta property="og:image"       content="https://nexum.area404.org/hero.png" />
+    <meta property="og:description" content="Free, open-source, self-hosted wormhole mapping for EVE Online — a Pathfinder/Tripwire alternative. Track your chain, manage signatures, monitor kills and jumps, and coordinate with your fleet in real time." />
+    <meta property="og:image"       content="https://eve-nexum.com/hero.png" />
     <meta property="og:image:alt"   content="Nexum wormhole mapping interface" />
     <meta property="og:site_name"   content="Nexum" />
-    <meta property="og:locale"      content="en_UK" />
+    <meta property="og:locale"      content="en_GB" />
 
     <!-- Twitter Card -->
     <meta name="twitter:card"        content="summary_large_image" />
     <meta name="twitter:title"       content="Nexum — EVE Online Wormhole Mapper" />
-    <meta name="twitter:description" content="Track your wormhole chain, manage signatures, monitor kills and jumps, and coordinate with your fleet in real time." />
-    <meta name="twitter:image"       content="https://nexum.area404.org/hero.png" />
+    <meta name="twitter:description" content="Free, open-source, self-hosted wormhole mapping for EVE Online — a Pathfinder/Tripwire alternative. Track your chain, signatures, kills and jumps in real time." />
+    <meta name="twitter:image"       content="https://eve-nexum.com/hero.png" />
 
     <!-- Robots -->
     <meta name="robots" content="index, follow" />
+
+    <!-- Structured data: the most machine-readable description of the product.
+         Parsed by Google and by AI crawlers without running JavaScript. -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "SoftwareApplication",
+      "name": "Nexum",
+      "alternateName": "EVE Nexum",
+      "applicationCategory": "Utility",
+      "operatingSystem": "Web",
+      "url": "https://eve-nexum.com/",
+      "image": "https://eve-nexum.com/hero.png",
+      "screenshot": "https://eve-nexum.com/hero.png",
+      "description": "Nexum is a free, open-source, self-hosted wormhole mapping tool for EVE Online — an alternative to Pathfinder and Tripwire. It maps your wormhole chain in real time, manages scan signatures, tracks kills and jump activity, calculates wormhole rolls, and helps a corporation coordinate in J-space.",
+      "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+      "softwareHelp": "https://github.com/GQuantrill/eve-nexum#readme",
+      "sameAs": ["https://github.com/GQuantrill/eve-nexum"],
+      "author": { "@type": "Organization", "name": "Area 404", "url": "https://area404.org" },
+      "keywords": "EVE Online, wormhole mapper, chain mapping, Pathfinder alternative, Tripwire alternative, self-hosted, J-space",
+      "featureList": [
+        "Real-time collaborative wormhole chain mapping",
+        "Signature management with scan-result paste and wormhole aging",
+        "Wormhole rolling calculator with mass-variance and stranding warnings",
+        "Seed a map from an EVE region; merge maps together",
+        "Killboard, jump/kill activity charts, and standings/sov overlays",
+        "EVE SSO login, location tracking, pilot presence, and fleet positions",
+        "Thera and Turnur public connections from EVE-Scout",
+        "Corp mode with roles, shared maps, admin reports, and Discord notifications"
+      ]
+    }
+    </script>
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "FAQPage",
+      "mainEntity": [
+        {
+          "@type": "Question",
+          "name": "What is Nexum?",
+          "acceptedAnswer": { "@type": "Answer", "text": "Nexum is a wormhole mapping tool for EVE Online. It tracks your wormhole chain, signatures, connections, and live activity so a corporation can scout and navigate J-space together in real time." }
+        },
+        {
+          "@type": "Question",
+          "name": "Is Nexum free and open-source?",
+          "acceptedAnswer": { "@type": "Answer", "text": "Yes. Nexum is free and open-source, and you can self-host it with Docker. The source code is available on GitHub." }
+        },
+        {
+          "@type": "Question",
+          "name": "Is Nexum an alternative to Pathfinder or Tripwire?",
+          "acceptedAnswer": { "@type": "Answer", "text": "Yes. Nexum covers the same core wormhole-mapping workflow as Pathfinder and Tripwire — real-time chain mapping, signature management, and wormhole mass/rolling tracking — as a self-hosted app that logs in with EVE Online SSO." }
+        },
+        {
+          "@type": "Question",
+          "name": "Do I need an EVE Online account to use Nexum?",
+          "acceptedAnswer": { "@type": "Answer", "text": "Yes, you sign in with EVE Online single sign-on (SSO). A live, read-only demo map is viewable on the homepage without logging in." }
+        }
+      ]
+    }
+    </script>
+
+    <style>
+      /* Styling for the static pre-app content below. It is the first paint for
+         real users and the only content non-JS crawlers (incl. AI bots) see;
+         the React app replaces #root on mount. */
+      html, body { margin: 0; background: #06080f; }
+      .seo-fallback {
+        max-width: 760px; margin: 0 auto; padding: 48px 20px;
+        font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+        color: #c8d2e6; line-height: 1.55;
+      }
+      .seo-hero { text-align: center; margin-bottom: 28px; }
+      .seo-logo { font-size: 40px; color: #5b9bff; line-height: 1; }
+      .seo-fallback h1 { font-size: 34px; margin: 10px 0 4px; color: #eaf0fb; }
+      .seo-tagline { color: #8a98b8; margin: 0; }
+      .seo-fallback h2 { color: #eaf0fb; margin-top: 30px; font-size: 22px; }
+      .seo-fallback h3 { color: #cdd6e6; margin: 18px 0 2px; font-size: 16px; }
+      .seo-fallback img { max-width: 100%; height: auto; border-radius: 8px; margin-top: 20px; }
+      .seo-fallback a { color: #5b9bff; }
+      .seo-loading { color: #6a7898; font-style: italic; margin-top: 30px; }
+    </style>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <!-- Static fallback: first paint for users, and the content crawlers / AI
+           bots (which don't run JavaScript) read. The React app replaces this. -->
+      <main class="seo-fallback">
+        <header class="seo-hero">
+          <div class="seo-logo" aria-hidden="true">◈</div>
+          <h1>Nexum</h1>
+          <p class="seo-tagline">Wormhole chain mapping for EVE Online</p>
+        </header>
+
+        <p>
+          <strong>Nexum</strong> is a free, open-source, self-hosted
+          <strong>wormhole mapping tool for EVE Online</strong> — an alternative to
+          Pathfinder and Tripwire. Map your wormhole chain in real time, manage scan
+          signatures, track kills and jump activity, plan wormhole rolls, and
+          coordinate with your corporation and fleet. Sign in with your EVE Online
+          account to get started, or view the live demo map on the homepage.
+        </p>
+
+        <img src="/hero.png" alt="Nexum wormhole mapping interface for EVE Online" width="760" />
+
+        <h2>Features</h2>
+        <ul>
+          <li>Real-time, collaborative chain mapping — edits sync live to everyone viewing the map.</li>
+          <li>Signature management — paste in-game scan results; wormholes auto-age and auto-tag.</li>
+          <li>Wormhole rolling calculator with the ±10% mass variance and stranding warnings.</li>
+          <li>Seed a whole EVE region as a Dotlan-style map, or merge two maps together.</li>
+          <li>Live killboard, jump/kill activity charts, and standings &amp; sovereignty overlays.</li>
+          <li>EVE SSO login, opt-in location tracking, pilot presence, and fleet positions.</li>
+          <li>Thera &amp; Turnur public connections from EVE-Scout, plus storm and ice tracking.</li>
+          <li>Corp mode with roles, shared maps, admin reports, and Discord notifications.</li>
+        </ul>
+
+        <h2>Frequently asked questions</h2>
+        <h3>What is Nexum?</h3>
+        <p>Nexum is a wormhole mapping tool for EVE Online. It tracks your wormhole chain, signatures, connections, and live activity so a corporation can scout and navigate J-space together.</p>
+        <h3>Is Nexum free and open-source?</h3>
+        <p>Yes. Nexum is free and open-source, and you can self-host it with Docker. The source code is on GitHub.</p>
+        <h3>Is Nexum an alternative to Pathfinder or Tripwire?</h3>
+        <p>Yes. Nexum covers the same core wormhole-mapping workflow — real-time chain mapping, signature management, and wormhole mass/rolling tracking — as a self-hosted app that logs in with EVE Online SSO.</p>
+        <h3>Do I need an EVE Online account?</h3>
+        <p>Yes — you sign in with EVE Online single sign-on (SSO). A read-only demo map is viewable on the homepage without logging in.</p>
+
+        <h2>How does Nexum compare?</h2>
+        <p>See how Nexum stacks up against the other popular EVE Online wormhole mappers in our <a href="/compare/">comparison of Nexum vs Pathfinder vs Tripwire vs Wanderer</a>.</p>
+
+        <p class="seo-loading">Loading the interactive app…</p>
+        <p><a href="https://github.com/GQuantrill/eve-nexum">Nexum source code on GitHub</a> · <a href="/license/">License &amp; EVE IP notice</a></p>
+        <p style="color:#6a7898;font-size:13px;margin-top:18px;">EVE Online and the EVE logo are the registered trademarks of CCP hf. All rights reserved worldwide. Nexum is a third-party tool and is not affiliated with or endorsed by CCP hf.</p>
+      </main>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

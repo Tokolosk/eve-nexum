@@ -1,6 +1,10 @@
 # Nexum
 
-A wormhole mapping tool for EVE Online. Track systems, signatures, structures, kills, and live activity data across your chain.
+**Nexum is a free, open-source, self-hosted wormhole mapping tool for EVE Online — an alternative to [Pathfinder](https://github.com/exodus4d/pathfinder) and Tripwire.** Track systems, signatures, structures, kills, and live activity across your chain; calculate wormhole rolls; and coordinate your corporation in J-space in real time. Logs in with EVE Online SSO and runs anywhere Docker does.
+
+> **Live demo:** [eve-nexum.com](https://eve-nexum.com) — a read-only demo map is viewable without logging in.
+>
+> **Compare:** [Nexum vs Pathfinder vs Tripwire vs Wanderer →](https://eve-nexum.com/compare/)
 
 ---
 
@@ -631,4 +635,13 @@ docker compose exec postgres psql -U "$PG_USER" -d "$PG_DB" \
 
 If `solar_systems` is empty the SDE import never ran — re-run `npm run setup-db` inside the `server` container.
 
+## License
+
+Nexum is free software licensed under the [GNU General Public License v3.0 or later](LICENSE) (`GPL-3.0-or-later`). You're free to use, study, modify, and redistribute it; if you distribute a modified version, that version must also be released under the GPL. See [LICENSE](LICENSE) for the full text.
+
+### EVE Online IP notice
+
+EVE Online and the EVE logo are the registered trademarks of CCP hf. All rights are reserved worldwide. All other trademarks are the property of their respective owners. EVE Online, the EVE logo, EVE and all associated logos and designs are the intellectual property of CCP hf. All artwork, screenshots, characters, vehicles, storylines, world facts or other recognizable features of the intellectual property relating to these trademarks are likewise the intellectual property of CCP hf.
+
+CCP hf. has granted permission to Nexum to use EVE Online and all associated logos and designs for promotional and information purposes on its website but does not endorse, and is not in any way affiliated with, Nexum. CCP is in no way responsible for the content on or functioning of this software, nor can it be liable for any damage arising from the use of this software.
 
