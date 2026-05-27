@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { Icon } from '@phosphor-icons/react';
 import {
   GraphIcon, MapTrifoldIcon, GaugeIcon, MagnifyingGlassIcon, SelectionIcon, ImageIcon, HourglassIcon,
-  UsersIcon, StackIcon, ArrowsMergeIcon, LockIcon, ShieldCheckIcon,
+  UsersIcon, StackIcon, ArrowsMergeIcon, ArrowsClockwiseIcon, LockIcon, ShieldCheckIcon,
   CardsIcon, WaveformIcon, BuildingsIcon, SparkleIcon, ChartLineIcon, FlagBannerIcon, SwordIcon, HandshakeIcon,
   PathIcon, StarIcon, SnowflakeIcon, LightningIcon, WarningIcon, NavigationArrowIcon, MapPinIcon, BroadcastIcon,
   CommandIcon, HouseIcon, SkullIcon, ChartBarIcon, PulseIcon, EyeIcon, SidebarIcon,
@@ -36,7 +36,12 @@ const FEATURE_SECTIONS: FeatureSection[] = [
       {
         icon: GaugeIcon,
         title: 'Wormhole intel',
-        desc: 'Per-connection mass tracker (≤10% / ≤50% / critical), end-of-life flag with countdown, K162-aware static identification, and frig-hole / gas-site auto-tagging from sig type.',
+        desc: 'Per-connection mass status (stable / destabilized / critical), end-of-life flag with countdown, K162-aware static identification, and frig-hole / gas-site auto-tagging from sig type.',
+      },
+      {
+        icon: ArrowsClockwiseIcon,
+        title: 'Rolling calculator',
+        desc: 'Plan and track collapsing a hole from its connection panel. Models the ±10% mass variance and forecasts each pass safe / may-collapse / will-collapse against the worst case. Define a roller ship (cold + prop-on mass, or pull your flown ship from ESI), step through passes with side-tracking that warns before a pass strands you on the far side, and see an "≈ N passes left" estimate. Cumulative mass syncs live to everyone viewing the hole.',
       },
       {
         icon: MagnifyingGlassIcon,
