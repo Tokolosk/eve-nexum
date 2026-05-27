@@ -5313,6 +5313,30 @@ select.sig-toolbar-btn option {
   margin: 0;
 }
 
+/* Prominent "compare" call-to-action shown under the feature set. */
+.landing__compare {
+  text-align: center;
+}
+.landing__compare .landing__section-body {
+  max-width: 620px;
+  margin: 0 auto 20px;
+}
+.landing__compare-link {
+  display: inline-block;
+  padding: 12px 26px;
+  background: #5b9bff;
+  color: #04060c;
+  font-weight: 700;
+  font-size: calc(15px * var(--font-scale, 1));
+  border-radius: 8px;
+  text-decoration: none;
+  transition: background 0.15s, transform 0.15s;
+}
+.landing__compare-link:hover {
+  background: #7ab0ff;
+  transform: translateY(-1px);
+}
+
 .landing__portrait {
   width: 240px;
   height: 240px;

@@ -451,8 +451,8 @@ export function LandingPage() {
       <meta name="description" content="Nexum is a wormhole mapping tool for EVE Online. Track your chain, manage signatures, monitor kills and jumps, and coordinate with your fleet in real time." />
       <meta property="og:title"       content="Nexum — EVE Online Wormhole Mapper" />
       <meta property="og:description" content="Track your wormhole chain, manage signatures, monitor kills and jumps, and coordinate with your fleet in real time." />
-      <meta property="og:url"         content="https://nexum.area404.org/" />
-      <meta property="og:image"       content="https://nexum.area404.org/hero.png" />
+      <meta property="og:url"         content="https://eve-nexum.com/" />
+      <meta property="og:image"       content="https://eve-nexum.com/hero.png" />
       <meta name="twitter:title"       content="Nexum — EVE Online Wormhole Mapper" />
       <meta name="twitter:description" content="Track your wormhole chain, manage signatures, monitor kills and jumps, and coordinate with your fleet in real time." />
 
@@ -552,6 +552,18 @@ export function LandingPage() {
               );
             })}
           </section>
+        </section>
+
+        {/* ── Compare CTA ───────────────────────────────────── */}
+        <section className="landing__section landing__compare">
+          <h2 className="landing__section-title">How does Nexum compare?</h2>
+          <p className="landing__section-body">
+            See how Nexum stacks up against Pathfinder, Tripwire and Wanderer —
+            features, hosting and cost, side by side.
+          </p>
+          <a href="/compare/" className="landing__compare-link">
+            Compare Nexum vs Pathfinder, Tripwire &amp; Wanderer →
+          </a>
         </section>
 
         {/* ── About Nexum ───────────────────────────────────── */}
@@ -697,7 +709,9 @@ export function LandingPage() {
         </section>
 
         <footer className="landing__footer">
-          Nexum is not affiliated with Fenris Creations or EVE Online.
+          EVE Online and the EVE logo are the registered trademarks of CCP hf. All rights reserved worldwide.
+          Nexum is a third-party tool and is not affiliated with or endorsed by CCP hf. ·{' '}
+          <a href="/license/">License &amp; EVE IP notice</a>
         </footer>
       </div>
     </div>
