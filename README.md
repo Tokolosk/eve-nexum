@@ -8,6 +8,37 @@
 
 ---
 
+## Contents
+
+- [Quick start](#quick-start)
+- [Features](#features)
+  - [Mapping](#mapping)
+  - [Personal & corp maps](#personal--corp-maps)
+  - [System intelligence](#system-intelligence)
+  - [Live ops](#live-ops)
+  - [Productivity & UX](#productivity--ux)
+  - [For corporations](#for-corporations)
+- [Installation](#installation)
+  - [Docker (recommended)](#option-1--docker-recommended)
+  - [Local development](#option-2--local-development)
+  - [EVE developer app scopes](#eve-developer-app-scopes)
+  - [Upgrading an existing deployment](#upgrading-an-existing-deployment)
+- [Corp mode](#corp-mode)
+  - [Allowing multiple corporations](#allowing-multiple-corporations)
+  - [How corp map visibility works](#how-corp-map-visibility-works)
+  - [Roles](#roles)
+  - [Map locking](#map-locking)
+  - [Merging maps](#merging-maps)
+  - [What happens when a user leaves the corp](#what-happens-when-a-user-leaves-the-corp)
+  - [Discord notifications](#discord-notifications)
+  - [Admin operations](#admin-operations)
+- [Static data files](#static-data-files)
+- [Technology overview](#technology-overview)
+- [Troubleshooting](#troubleshooting)
+- [License](#license)
+
+---
+
 ## Quick start
 
 Get a local Nexum running in about ten minutes. You'll need:
