@@ -577,6 +577,24 @@ export function LandingPage() {
           </a>
         </section>
 
+        {/* ── Discord CTA ──────────────────────────────────── */}
+        <section className="landing__section landing__compare">
+          <h2 className="landing__section-title">Got questions, ideas, or bugs?</h2>
+          <p className="landing__section-body">
+            Drop into the Nexum Discord — feedback, feature requests, scanning
+            chat and o7s all welcome.
+          </p>
+          <a
+            href="https://discord.gg/vXzFRCYpQ"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="landing__discord-btn"
+          >
+            <DiscordLogoIcon size={20} weight="fill" />
+            <span>Join the Nexum Discord</span>
+          </a>
+        </section>
+
         {/* ── About Nexum ───────────────────────────────────── */}
         <section className="landing__section" id="about-nexum">
           <h2 className="landing__section-title">About Nexum</h2>
