@@ -154,6 +154,7 @@ Edit `.env` and fill in the required values:
 | Variable | Required | Description |
 |---|---|---|
 | `PG_PASSWORD` | Yes | PostgreSQL password |
+| `NODE_ENV` | Optional | Set to `development` for local dev (auto-derives `TOKEN_ENCRYPTION_KEY` from `SESSION_SECRET` and relaxes session-cookie settings). Defaults to `production` in Docker, where missing `SESSION_SECRET` / `EVE_CLIENT_ID` / `EVE_CLIENT_SECRET` will fail fast at boot. |
 | `SESSION_SECRET` | Yes | Random secret — run `openssl rand -hex 32` |
 | `TOKEN_ENCRYPTION_KEY` | Yes (production) | 64 hex chars used to encrypt stored EVE OAuth tokens at rest — run `openssl rand -hex 32`. **Do not change after first boot** — rotating this key makes existing stored tokens unreadable and forces every user to re-login. In development the key is auto-derived from `SESSION_SECRET` if unset. |
 | `EVE_CLIENT_ID` | Yes | From your EVE developer app |
