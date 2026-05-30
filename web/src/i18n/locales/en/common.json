@@ -7,11 +7,68 @@
     "cancel": "Cancel",
     "delete": "Delete",
     "copy": "Copy",
-    "close": "Close"
+    "close": "Close",
+    "ok": "OK"
+  },
+  "confirm": {
+    "title": "Are you sure?",
+    "dontShowAgain": "Don't show this again"
+  },
+  "proximityOptIn": {
+    "title": "Enable threat alerts?",
+    "body": "New Eden is a dangerous place. Nexum can give you a desktop notification and a short audio ping when you're within a few jumps of an active <strong>incursion</strong> or <strong>insurgency</strong> — so you don't blindly autopilot into one.",
+    "sub": "You can change the threshold or turn this off at any time in <em>Map Options → Proximity Alerts</em>.",
+    "maybeLater": "Maybe later",
+    "enable": "Enable notifications"
   },
   "units": {
     "jumps_one": "{{count}} jump",
-    "jumps_other": "{{count}} jumps"
+    "jumps_other": "{{count}} jumps",
+    "systems_one": "{{count}} system",
+    "systems_other": "{{count}} systems"
+  },
+  "createMap": {
+    "title": "New Map",
+    "mapName": "Map name",
+    "namePlaceholder": "New Map",
+    "type": "Type",
+    "personal": "Personal",
+    "corp": "Corp",
+    "regionLabel": "Region (optional — blank for an empty map)",
+    "regionPlaceholder": "Type to search regions…",
+    "clearRegion": "Clear region",
+    "regionHint": "Seeds {{count}} systems from {{region}}, positioned by their in-game coordinates with all stargate links.",
+    "corpLimit": "Corp map limit reached ({{max}}).",
+    "personalLimit": "Personal map limit reached ({{max}}).",
+    "createFailed": "Failed to create map",
+    "created": "Created \"{{name}}\" from {{region}}",
+    "creating": "Creating…",
+    "create": "Create map"
+  },
+  "sigType": {
+    "wormhole": "Wormhole",
+    "data": "Data",
+    "relic": "Relic",
+    "gas": "Gas",
+    "ore": "Ore",
+    "combat": "Combat"
+  },
+  "stats": {
+    "title": "User Stats",
+    "loading": "Loading…",
+    "jumps": "Jumps",
+    "signatures": "Signatures",
+    "dailyActivity": "Daily activity — last 30 days",
+    "byType": "Signatures by type",
+    "type": "Type",
+    "count": "Count",
+    "period": {
+      "day": "Today",
+      "week": "This Week",
+      "month": "This Month",
+      "year": "This Year",
+      "forever": "All Time"
+    }
   },
   "time": {
     "justNow": "just now",

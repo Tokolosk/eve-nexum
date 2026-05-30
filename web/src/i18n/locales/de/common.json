@@ -7,11 +7,68 @@
     "cancel": "Abbrechen",
     "delete": "Löschen",
     "copy": "Kopieren",
-    "close": "Schließen"
+    "close": "Schließen",
+    "ok": "OK"
+  },
+  "confirm": {
+    "title": "Bist du sicher?",
+    "dontShowAgain": "Nicht erneut anzeigen"
+  },
+  "proximityOptIn": {
+    "title": "Bedrohungswarnungen aktivieren?",
+    "body": "New Eden ist ein gefährlicher Ort. Nexum kann dir eine Desktop-Benachrichtigung und einen kurzen Ton geben, wenn du wenige Sprünge von einer aktiven <strong>Inkursion</strong> oder einem <strong>Aufstand</strong> entfernt bist — damit du nicht blind hineinfliegst.",
+    "sub": "Du kannst den Schwellenwert ändern oder dies jederzeit unter <em>Kartenoptionen → Näherungswarnungen</em> deaktivieren.",
+    "maybeLater": "Vielleicht später",
+    "enable": "Benachrichtigungen aktivieren"
   },
   "units": {
     "jumps_one": "{{count}} Sprung",
-    "jumps_other": "{{count}} Sprünge"
+    "jumps_other": "{{count}} Sprünge",
+    "systems_one": "{{count}} System",
+    "systems_other": "{{count}} Systeme"
+  },
+  "createMap": {
+    "title": "Neue Karte",
+    "mapName": "Kartenname",
+    "namePlaceholder": "Neue Karte",
+    "type": "Typ",
+    "personal": "Persönlich",
+    "corp": "Corp",
+    "regionLabel": "Region (optional — leer für eine leere Karte)",
+    "regionPlaceholder": "Zum Suchen tippen…",
+    "clearRegion": "Region löschen",
+    "regionHint": "Erstellt {{count}} Systeme aus {{region}}, positioniert nach ihren Ingame-Koordinaten mit allen Stargate-Verbindungen.",
+    "corpLimit": "Corp-Kartenlimit erreicht ({{max}}).",
+    "personalLimit": "Persönliches Kartenlimit erreicht ({{max}}).",
+    "createFailed": "Karte konnte nicht erstellt werden",
+    "created": "\"{{name}}\" aus {{region}} erstellt",
+    "creating": "Erstelle…",
+    "create": "Karte erstellen"
+  },
+  "sigType": {
+    "wormhole": "Wurmloch",
+    "data": "Daten",
+    "relic": "Relikt",
+    "gas": "Gas",
+    "ore": "Erz",
+    "combat": "Kampf"
+  },
+  "stats": {
+    "title": "Benutzerstatistik",
+    "loading": "Lädt…",
+    "jumps": "Sprünge",
+    "signatures": "Signaturen",
+    "dailyActivity": "Tägliche Aktivität — letzte 30 Tage",
+    "byType": "Signaturen nach Typ",
+    "type": "Typ",
+    "count": "Anzahl",
+    "period": {
+      "day": "Heute",
+      "week": "Diese Woche",
+      "month": "Dieser Monat",
+      "year": "Dieses Jahr",
+      "forever": "Gesamt"
+    }
   },
   "time": {
     "justNow": "gerade eben",
