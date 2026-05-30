@@ -37,6 +37,10 @@ void i18n
     },
     interpolation: { escapeValue: false }, // React already escapes output
     returnNull: false,
+    // <Trans> renders these inline tags straight from the locale string (no
+    // `components` prop needed) — used for the few sentences with embedded
+    // <strong>/<em> emphasis.
+    react: { transKeepBasicHtmlNodesFor: ['br', 'strong', 'i', 'em', 'p'] },
   });
 
 export default i18n;

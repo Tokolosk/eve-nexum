@@ -7,11 +7,68 @@
     "cancel": "Cancel",
     "delete": "Delete",
     "copy": "Copy",
-    "close": "Close"
+    "close": "Close",
+    "ok": "OK"
+  },
+  "confirm": {
+    "title": "Are you sure?",
+    "dontShowAgain": "Don't show this again"
+  },
+  "proximityOptIn": {
+    "title": "Enable threat alerts?",
+    "body": "New Eden is a dangerous place. Nexum can give you a desktop notification and a short audio ping when you're within a few jumps of an active <strong>incursion</strong> or <strong>insurgency</strong> — so you don't blindly autopilot into one.",
+    "sub": "You can change the threshold or turn this off at any time in <em>Map Options → Proximity Alerts</em>.",
+    "maybeLater": "Maybe later",
+    "enable": "Enable notifications"
   },
   "units": {
     "jumps_one": "{{count}} jump",
-    "jumps_other": "{{count}} jumps"
+    "jumps_other": "{{count}} jumps",
+    "systems_one": "{{count}} system",
+    "systems_other": "{{count}} systems"
+  },
+  "createMap": {
+    "title": "New Map",
+    "mapName": "Map name",
+    "namePlaceholder": "New Map",
+    "type": "Type",
+    "personal": "Personal",
+    "corp": "Corp",
+    "regionLabel": "Region (optional — blank for an empty map)",
+    "regionPlaceholder": "Type to search regions…",
+    "clearRegion": "Clear region",
+    "regionHint": "Seeds {{count}} systems from {{region}}, positioned by their in-game coordinates with all stargate links.",
+    "corpLimit": "Corp map limit reached ({{max}}).",
+    "personalLimit": "Personal map limit reached ({{max}}).",
+    "createFailed": "Failed to create map",
+    "created": "Created \"{{name}}\" from {{region}}",
+    "creating": "Creating…",
+    "create": "Create map"
+  },
+  "sigType": {
+    "wormhole": "Wormhole",
+    "data": "Data",
+    "relic": "Relic",
+    "gas": "Gas",
+    "ore": "Ore",
+    "combat": "Combat"
+  },
+  "stats": {
+    "title": "User Stats",
+    "loading": "Loading…",
+    "jumps": "Jumps",
+    "signatures": "Signatures",
+    "dailyActivity": "Daily activity — last 30 days",
+    "byType": "Signatures by type",
+    "type": "Type",
+    "count": "Count",
+    "period": {
+      "day": "Today",
+      "week": "This Week",
+      "month": "This Month",
+      "year": "This Year",
+      "forever": "All Time"
+    }
   },
   "time": {
     "justNow": "just now",
@@ -35,5 +92,51 @@
     "billionKg": "{{value}} B kg",
     "millionKg": "{{value}} M kg",
     "kg": "{{value}} kg"
+  },
+  "toolbar": {
+    "switchMap": "Switch map",
+    "noMap": "No Map",
+    "mapType": {
+      "shared": "Shared",
+      "corp": "Corp",
+      "solo": "Solo"
+    },
+    "lockedTooltip": "Map is locked — systems and connections are frozen. Signatures, structures, and notes can still be edited.",
+    "locked": "Locked",
+    "mapLimitReached": "Map limit reached",
+    "newMap": "+ New Map",
+    "deleteThisMap": "Delete this map",
+    "name": "Name",
+    "totalSystems": "Total Systems",
+    "totalConnections": "Total Connections",
+    "admin": "Admin",
+    "userStats": "User stats",
+    "mapOptions": "Map options",
+    "checking": "Checking…",
+    "tqOnline": "Tranquility: Online",
+    "tqOffline": "Tranquility: Offline",
+    "esiOnline": "ESI: Online",
+    "esiOffline": "ESI: Offline",
+    "trackJumpsOn": "Track jumps: on",
+    "trackJumpsOff": "Track jumps: off",
+    "trackJumpsTooltipOn": "Tracking jumps — new systems are added as you move",
+    "trackJumpsTooltipOff": "Not tracking jumps — only existing systems get the you-are-here indicator",
+    "signOut": "Sign out",
+    "role": "Role: {{role}}",
+    "checkedAgo": "checked {{time}}",
+    "deleteMapConfirm": "Delete \"{{name}}\"? This cannot be undone.",
+    "online": {
+      "offline": "Offline",
+      "statusUnknown": "Status unknown",
+      "onlineInEve": "Online in EVE",
+      "onlineSince": "Online in EVE since {{stamp}} ({{age}})"
+    },
+    "proximity": {
+      "incursion": "Incursion",
+      "insurgency": "Insurgency",
+      "hostileSov": "Hostile sov",
+      "threat": "Threat",
+      "closest": "Closest {{label}} system"
+    }
   }
 }
