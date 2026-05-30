@@ -114,15 +114,15 @@ function useEveServerStatus(): EveStatus | null {
 // orphan session ("online for 6 hours but I crashed at lunchtime") is
 // instantly recognisable from the tooltip alone.
 function onlineTooltip(t: TFunction, online: boolean | null, lastLoginIso: string | null): string {
-  if (online === false) return 'Offline';
-  if (online === null)  return 'Status unknown';
-  if (!lastLoginIso)    return 'Online in EVE';
+  if (online === false) return t('toolbar.online.offline');
+  if (online === null)  return t('toolbar.online.statusUnknown');
+  if (!lastLoginIso)    return t('toolbar.online.onlineInEve');
   const ts = new Date(lastLoginIso);
-  if (!Number.isFinite(ts.getTime())) return 'Online in EVE';
+  if (!Number.isFinite(ts.getTime())) return t('toolbar.online.onlineInEve');
   // DD-MM-YYYY HH:MM UTC matches the rest of the app's date display.
   const pad = (n: number) => String(n).padStart(2, '0');
   const stamp = `${pad(ts.getUTCDate())}-${pad(ts.getUTCMonth() + 1)}-${ts.getUTCFullYear()} ${pad(ts.getUTCHours())}:${pad(ts.getUTCMinutes())} UTC`;
-  return `Online in EVE since ${stamp} (${timeAgo(t, ts)})`;
+  return t('toolbar.online.onlineSince', { stamp, age: timeAgo(t, ts) });
 }
 
 // Self-contained "checked Xs ago" label — owns its own 5 s tick so the rest of
@@ -134,7 +134,7 @@ function CheckedAtLabel({ checkedAt }: { checkedAt: Date }) {
     const id = setInterval(() => setTick((n) => n + 1), 5_000);
     return () => clearInterval(id);
   }, []);
-  return <span className="toolbar__checked-at">checked {timeAgo(t, checkedAt)}</span>;
+  return <span className="toolbar__checked-at">{t('toolbar.checkedAgo', { time: timeAgo(t, checkedAt) })}</span>;
 }
 
 // Persistent indicator for the nearest live threat (incursion / insurgency).
@@ -148,14 +148,14 @@ function ProximityChip() {
   // permanent "20 jumps — …" noise on most maps.
   if (!nearest || nearest.jumps > threshold) return null;
   const { label, Icon }: { label: string; Icon: PhosphorIcon } =
-    nearest.kind === 'incursion'   ? { label: 'Incursion',   Icon: WarningIcon } :
-    nearest.kind === 'insurgency'  ? { label: 'Insurgency',  Icon: SkullIcon } :
-    nearest.kind === 'hostile-sov' ? { label: 'Hostile sov', Icon: XCircleIcon } :
-    { label: 'Threat', Icon: QuestionIcon };
+    nearest.kind === 'incursion'   ? { label: t('toolbar.proximity.incursion'),  Icon: WarningIcon } :
+    nearest.kind === 'insurgency'  ? { label: t('toolbar.proximity.insurgency'), Icon: SkullIcon } :
+    nearest.kind === 'hostile-sov' ? { label: t('toolbar.proximity.hostileSov'), Icon: XCircleIcon } :
+    { label: t('toolbar.proximity.threat'), Icon: QuestionIcon };
   return (
     <span
       className="toolbar__proximity toolbar__proximity--alert"
-      data-tooltip={`Closest ${label.toLowerCase()} system`}
+      data-tooltip={t('toolbar.proximity.closest', { label: label.toLowerCase() })}
     >
       <span className="toolbar__proximity-icon"><Icon size={14} weight="bold" /></span>
       <span className="toolbar__proximity-text">
@@ -222,30 +222,30 @@ export function Toolbar() {
         <button
           className="toolbar__map-name-btn"
           onClick={() => setShowMaps((v) => !v)}
-          title="Switch map"
+          title={t('toolbar.switchMap')}
         >
           {(() => {
             const active = maps.find((m) => m.id === activeMapId);
             if (!active) return null;
             if (active.sharedWithMe) {
-              return <span className="toolbar__map-type toolbar__map-type--shared">Shared</span>;
+              return <span className="toolbar__map-type toolbar__map-type--shared">{t('toolbar.mapType.shared')}</span>;
             }
             if (!user?.corpMode) return null;
             return active.isCorpMap
-              ? <span className="toolbar__map-type toolbar__map-type--corp">Corp</span>
-              : <span className="toolbar__map-type toolbar__map-type--solo">Solo</span>;
+              ? <span className="toolbar__map-type toolbar__map-type--corp">{t('toolbar.mapType.corp')}</span>
+              : <span className="toolbar__map-type toolbar__map-type--solo">{t('toolbar.mapType.solo')}</span>;
           })()}
-          {mapName || 'No Map'}
+          {mapName || t('toolbar.noMap')}
           <span className="toolbar__caret">▾</span>
         </button>
 
         {mapLocked && (
           <span
             className="toolbar__locked-chip"
-            data-tooltip="Map is locked — systems and connections are frozen. Signatures, structures, and notes can still be edited."
+            data-tooltip={t('toolbar.lockedTooltip')}
           >
             <span className="toolbar__locked-icon">🔒</span>
-            Locked
+            {t('toolbar.locked')}
           </span>
         )}
 
@@ -265,11 +265,11 @@ export function Toolbar() {
                 onClick={async () => { setShowMaps(false); await switchMap(m.id); requestFitView(); }}
               >
                 {m.sharedWithMe
-                  ? <span className="map-dropdown__badge map-dropdown__badge--shared">Shared</span>
+                  ? <span className="map-dropdown__badge map-dropdown__badge--shared">{t('toolbar.mapType.shared')}</span>
                   : user?.corpMode && !m.isCorpMap
-                    ? <span className="map-dropdown__badge map-dropdown__badge--solo">Solo</span>
+                    ? <span className="map-dropdown__badge map-dropdown__badge--solo">{t('toolbar.mapType.solo')}</span>
                     : null}
-                {!m.sharedWithMe && m.isCorpMap && <span className="map-dropdown__badge map-dropdown__badge--corp">Corp</span>}
+                {!m.sharedWithMe && m.isCorpMap && <span className="map-dropdown__badge map-dropdown__badge--corp">{t('toolbar.mapType.corp')}</span>}
                 {m.locked    && <span className="map-dropdown__badge map-dropdown__badge--lock">🔒</span>}
                 {m.name}
               </button>
@@ -277,19 +277,19 @@ export function Toolbar() {
             <div className="map-dropdown__divider" />
             <span
               className={`map-dropdown__new-wrap${noCreateOption ? ' map-dropdown__new-wrap--disabled' : ''}`}
-              data-disabled-reason={noCreateOption ? 'Map limit reached' : undefined}
+              data-disabled-reason={noCreateOption ? t('toolbar.mapLimitReached') : undefined}
             >
               <button
                 className="map-dropdown__item map-dropdown__item--action"
                 onClick={() => { setShowMaps(false); setShowCreate(true); }}
                 disabled={noCreateOption}
               >
-                + New Map
+                {t('toolbar.newMap')}
               </button>
             </span>
             {canManageMaps && maps.length > 1 && !maps.find((m) => m.id === activeMapId)?.sharedWithMe && (
               <button className="map-dropdown__item map-dropdown__item--danger" onClick={() => { setShowMaps(false); setDeleteConfirm(true); }}>
-                Delete this map
+                {t('toolbar.deleteThisMap')}
               </button>
             )}
           </div>
@@ -298,7 +298,7 @@ export function Toolbar() {
 
       {/* Map name edit */}
       <div className="toolbar__option">
-        <label className="toolbar__option-label" htmlFor="map-name">Name</label>
+        <label className="toolbar__option-label" htmlFor="map-name">{t('toolbar.name')}</label>
         <input
           id="map-name"
           className="toolbar__map-name"
@@ -312,11 +312,11 @@ export function Toolbar() {
       <div className="toolbar__spacer" />
 
       <div className="toolbar__stats">
-        <span className="toolbar__stat" data-tooltip="Total Systems">
+        <span className="toolbar__stat" data-tooltip={t('toolbar.totalSystems')}>
           <PlanetIcon size={16} weight="regular" />
           <span className="toolbar__stat-count">{systemCount}</span>
         </span>
-        <span className="toolbar__stat" data-tooltip="Total Connections">
+        <span className="toolbar__stat" data-tooltip={t('toolbar.totalConnections')}>
           <LinkSimpleIcon size={16} weight="regular" />
           <span className="toolbar__stat-count">{connectionCount}</span>
         </span>
@@ -330,8 +330,8 @@ export function Toolbar() {
         <button
           className="toolbar__toggle toolbar__toggle--icon toolbar__toggle--prominent"
           onClick={() => { window.location.hash = '#/admin/users'; }}
-          data-tooltip="Admin"
-          aria-label="Admin"
+          data-tooltip={t('toolbar.admin')}
+          aria-label={t('toolbar.admin')}
         >
           <ShieldStarIcon size={18} weight="regular" />
         </button>
@@ -339,8 +339,8 @@ export function Toolbar() {
       <button
         className="toolbar__toggle toolbar__toggle--icon toolbar__toggle--prominent"
         onClick={() => setShowStats(true)}
-        data-tooltip="User stats"
-        aria-label="User stats"
+        data-tooltip={t('toolbar.userStats')}
+        aria-label={t('toolbar.userStats')}
       >
         <ChartBarIcon size={18} weight="regular" />
       </button>
@@ -349,8 +349,8 @@ export function Toolbar() {
         className={`toolbar__toggle toolbar__toggle--icon toolbar__toggle--prominent${mapOptionsOpen ? ' toolbar__toggle--on' : ''}`}
         onClick={() => setMapOptionsOpen(!mapOptionsOpen)}
         aria-pressed={mapOptionsOpen}
-        data-tooltip="Map options"
-        aria-label="Map options"
+        data-tooltip={t('toolbar.mapOptions')}
+        aria-label={t('toolbar.mapOptions')}
       >
         <SlidersHorizontalIcon size={18} weight="regular" />
       </button>
@@ -365,8 +365,8 @@ export function Toolbar() {
               eveStatus.serverUp ? ' toolbar__status-dot--on' : ' toolbar__status-dot--off'
             }`}
             data-tooltip={
-              eveStatus == null ? 'Checking…' :
-              eveStatus.serverUp ? 'Tranquility: Online' : 'Tranquility: Offline'
+              eveStatus == null ? t('toolbar.checking') :
+              eveStatus.serverUp ? t('toolbar.tqOnline') : t('toolbar.tqOffline')
             }
           />
           <span className="toolbar__server-label">TQ</span>
@@ -383,8 +383,8 @@ export function Toolbar() {
               eveStatus.esiOnline ? ' toolbar__status-dot--on' : ' toolbar__status-dot--off'
             }`}
             data-tooltip={
-              eveStatus == null ? 'Checking…' :
-              eveStatus.esiOnline ? 'ESI: Online' : 'ESI: Offline'
+              eveStatus == null ? t('toolbar.checking') :
+              eveStatus.esiOnline ? t('toolbar.esiOnline') : t('toolbar.esiOffline')
             }
           />
           <span className="toolbar__server-label">ESI</span>
@@ -395,10 +395,10 @@ export function Toolbar() {
         className={`toolbar__toggle toolbar__toggle--icon toolbar__toggle--prominent${trackJumps ? ' toolbar__toggle--on' : ''}`}
         onClick={() => setTrackJumps(!trackJumps)}
         aria-pressed={trackJumps}
-        aria-label={trackJumps ? 'Track jumps: on' : 'Track jumps: off'}
+        aria-label={trackJumps ? t('toolbar.trackJumpsOn') : t('toolbar.trackJumpsOff')}
         data-tooltip={trackJumps
-          ? 'Tracking jumps — new systems are added as you move'
-          : 'Not tracking jumps — only existing systems get the you-are-here indicator'}
+          ? t('toolbar.trackJumpsTooltipOn')
+          : t('toolbar.trackJumpsTooltipOff')}
       >
         <FootprintsIcon size={18} weight="regular" />
         <span className={`toolbar__toggle-led${trackJumps ? ' toolbar__toggle-led--on' : ' toolbar__toggle-led--off'}`} />
@@ -438,7 +438,7 @@ export function Toolbar() {
               {user.corpMode && (
                 <span
                   className={`role-badge role-badge--${user.role}`}
-                  title={`Role: ${user.role}`}
+                  title={t('toolbar.role', { role: user.role })}
                 >
                   {user.role}
                 </span>
@@ -449,8 +449,8 @@ export function Toolbar() {
           <button
             className="toolbar__toggle toolbar__toggle--icon toolbar__toggle--prominent"
             onClick={logout}
-            data-tooltip="Sign out"
-            aria-label="Sign out"
+            data-tooltip={t('toolbar.signOut')}
+            aria-label={t('toolbar.signOut')}
           >
             <SignOutIcon size={18} weight="regular" />
           </button>
@@ -462,7 +462,7 @@ export function Toolbar() {
     {showCreate && <CreateMapModal onClose={() => setShowCreate(false)} />}
     {deleteConfirm && (
       <ConfirmModal
-        message={`Delete "${mapName}"? This cannot be undone.`}
+        message={t('toolbar.deleteMapConfirm', { name: mapName })}
         onCancel={() => setDeleteConfirm(false)}
         onConfirm={async () => {
           setDeleteConfirm(false);

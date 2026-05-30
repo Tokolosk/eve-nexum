@@ -35,5 +35,51 @@
     "billionKg": "{{value}} Mrd. kg",
     "millionKg": "{{value}} Mio. kg",
     "kg": "{{value}} kg"
+  },
+  "toolbar": {
+    "switchMap": "Karte wechseln",
+    "noMap": "Keine Karte",
+    "mapType": {
+      "shared": "Geteilt",
+      "corp": "Corp",
+      "solo": "Solo"
+    },
+    "lockedTooltip": "Karte ist gesperrt — Systeme und Verbindungen sind eingefroren. Signaturen, Strukturen und Notizen können weiterhin bearbeitet werden.",
+    "locked": "Gesperrt",
+    "mapLimitReached": "Kartenlimit erreicht",
+    "newMap": "+ Neue Karte",
+    "deleteThisMap": "Diese Karte löschen",
+    "name": "Name",
+    "totalSystems": "Systeme gesamt",
+    "totalConnections": "Verbindungen gesamt",
+    "admin": "Admin",
+    "userStats": "Benutzerstatistik",
+    "mapOptions": "Kartenoptionen",
+    "checking": "Prüfe…",
+    "tqOnline": "Tranquility: Online",
+    "tqOffline": "Tranquility: Offline",
+    "esiOnline": "ESI: Online",
+    "esiOffline": "ESI: Offline",
+    "trackJumpsOn": "Sprünge verfolgen: an",
+    "trackJumpsOff": "Sprünge verfolgen: aus",
+    "trackJumpsTooltipOn": "Sprünge werden verfolgt — neue Systeme werden hinzugefügt, während du dich bewegst",
+    "trackJumpsTooltipOff": "Sprünge werden nicht verfolgt — nur vorhandene Systeme erhalten die Standortanzeige",
+    "signOut": "Abmelden",
+    "role": "Rolle: {{role}}",
+    "checkedAgo": "geprüft {{time}}",
+    "deleteMapConfirm": "\"{{name}}\" löschen? Dies kann nicht rückgängig gemacht werden.",
+    "online": {
+      "offline": "Offline",
+      "statusUnknown": "Status unbekannt",
+      "onlineInEve": "In EVE online",
+      "onlineSince": "In EVE online seit {{stamp}} ({{age}})"
+    },
+    "proximity": {
+      "incursion": "Inkursion",
+      "insurgency": "Aufstand",
+      "hostileSov": "Feindliche Sov",
+      "threat": "Bedrohung",
+      "closest": "Nächstes {{label}}-System"
+    }
   }
 }
