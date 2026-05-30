@@ -159,6 +159,48 @@
     "notNexumMap": "File does not look like a Eve-Nexum map export.",
     "importFailed": "Import failed: {{error}}"
   },
+  "customIntel": {
+    "title": "Custom Intel",
+    "hint": "Define your own intel tags with a colour. They appear in the system right-click menu alongside the built-ins.",
+    "newItem": "New Intel",
+    "labelPlaceholder": "Label",
+    "remove": "Remove intel option",
+    "max": "Maximum {{count}} custom intel tags",
+    "add": "Add intel"
+  },
+  "chainExits": {
+    "noExits": "No K-space exits in this chain.",
+    "hint": "K-space systems currently on the map, by security class. Jita route is gates-only — wormhole shortcuts not counted.",
+    "highSec": "High-sec",
+    "lowSec": "Low-sec",
+    "nullSec": "Null-sec",
+    "nearestJita": "Nearest Jita:",
+    "via": "via"
+  },
+  "mapShares": {
+    "hint": "Grant another character — or every member of a corp — edit access to this personal map. Recipients can edit content and topology but can't rename, delete, or re-share it.",
+    "character": "Character",
+    "corp": "Corp",
+    "placeholderChar": "Exact character name",
+    "placeholderCorp": "Exact corp name",
+    "typeAtLeast3": "Type at least 3 characters",
+    "searching": "Searching…",
+    "found": "Found: {{name}}",
+    "noMatch": "No exact match",
+    "adding": "Adding…",
+    "share": "Share",
+    "loading": "Loading…",
+    "none": "No active shares.",
+    "badgeChar": "Char",
+    "badgeCorp": "Corp",
+    "unknownTarget": "(unknown {{kind}} #{{id}})",
+    "revokeAccess": "Revoke access",
+    "sharedWith": "Shared with {{name}}",
+    "accessRevoked": "Access revoked",
+    "accessRevokedFor": "Access revoked for {{name}}",
+    "addFailed": "Failed to add share",
+    "revokeFailed": "Failed to revoke share"
+  },
   "sigType": {
     "wormhole": "Wormhole",
     "data": "Data",

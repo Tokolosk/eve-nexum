@@ -159,6 +159,48 @@
     "notNexumMap": "Die Datei sieht nicht wie ein Eve-Nexum-Kartenexport aus.",
     "importFailed": "Import fehlgeschlagen: {{error}}"
   },
+  "customIntel": {
+    "title": "Eigene Intel",
+    "hint": "Definiere eigene Intel-Tags mit Farbe. Sie erscheinen im Rechtsklick-Menü des Systems neben den vordefinierten.",
+    "newItem": "Neue Intel",
+    "labelPlaceholder": "Bezeichnung",
+    "remove": "Intel-Option entfernen",
+    "max": "Maximal {{count}} eigene Intel-Tags",
+    "add": "Intel hinzufügen"
+  },
+  "chainExits": {
+    "noExits": "Keine K-Space-Ausgänge in dieser Kette.",
+    "hint": "K-Space-Systeme aktuell auf der Karte, nach Sicherheitsklasse. Jita-Route nur über Gates — Wurmloch-Abkürzungen nicht gezählt.",
+    "highSec": "High-Sec",
+    "lowSec": "Low-Sec",
+    "nullSec": "Null-Sec",
+    "nearestJita": "Nächstes Jita:",
+    "via": "über"
+  },
+  "mapShares": {
+    "hint": "Gewähre einem anderen Charakter — oder jedem Mitglied einer Corp — Bearbeitungszugriff auf diese persönliche Karte. Empfänger können Inhalt und Topologie bearbeiten, aber nicht umbenennen, löschen oder weiter teilen.",
+    "character": "Charakter",
+    "corp": "Corp",
+    "placeholderChar": "Exakter Charaktername",
+    "placeholderCorp": "Exakter Corp-Name",
+    "typeAtLeast3": "Mindestens 3 Zeichen eingeben",
+    "searching": "Suche…",
+    "found": "Gefunden: {{name}}",
+    "noMatch": "Keine exakte Übereinstimmung",
+    "adding": "Füge hinzu…",
+    "share": "Teilen",
+    "loading": "Lädt…",
+    "none": "Keine aktiven Freigaben.",
+    "badgeChar": "Char",
+    "badgeCorp": "Corp",
+    "unknownTarget": "(unbekannt {{kind}} #{{id}})",
+    "revokeAccess": "Zugriff widerrufen",
+    "sharedWith": "Geteilt mit {{name}}",
+    "accessRevoked": "Zugriff widerrufen",
+    "accessRevokedFor": "Zugriff widerrufen für {{name}}",
+    "addFailed": "Freigabe konnte nicht hinzugefügt werden",
+    "revokeFailed": "Freigabe konnte nicht widerrufen werden"
+  },
   "sigType": {
     "wormhole": "Wurmloch",
     "data": "Daten",
