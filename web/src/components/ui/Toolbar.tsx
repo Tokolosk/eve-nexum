@@ -355,8 +355,6 @@ export function Toolbar() {
         <SlidersHorizontalIcon size={18} weight="regular" />
       </button>
 
-      <LanguageSwitcher />
-
       <div className="toolbar__server-status">
         <div className="toolbar__server-row">
           <span
@@ -446,6 +444,7 @@ export function Toolbar() {
             </span>
             {checkedAt && <CheckedAtLabel checkedAt={checkedAt} />}
           </div>
+          <LanguageSwitcher />
           <button
             className="toolbar__toggle toolbar__toggle--icon toolbar__toggle--prominent"
             onClick={logout}
