@@ -80,6 +80,112 @@
       "colTarget": "Target",
       "colChange": "Change",
       "loadFailed": "Failed to load audit log"
+    },
+    "reports": {
+      "title": "Reports",
+      "tabs": {
+        "users": "Users",
+        "systems": "Systems",
+        "ghostSites": "Ghost sites"
+      },
+      "filter": "Filter",
+      "window": "Window",
+      "windowHint": "Pick a filter to apply a window",
+      "windowOptions": {
+        "all": "All time",
+        "24h": "Past 24 hours",
+        "week": "Past week",
+        "month": "Past month",
+        "year": "Past year"
+      },
+      "userFilters": {
+        "all": "All users",
+        "logins": "Logins",
+        "signatures": "Signatures",
+        "structures": "Structures"
+      },
+      "sig": {
+        "data": "Data",
+        "relic": "Relic",
+        "wormhole": "WH",
+        "gas": "Gas",
+        "ore": "Ore",
+        "combat": "Combat",
+        "unknown": "Unknown"
+      },
+      "users": {
+        "loadFailed": "Failed to load users report",
+        "empty": "No users match the current filter.",
+        "totalUsers": "Total users",
+        "uniqueCorps": "Unique corps",
+        "uniqueAlliances": "Unique alliances",
+        "colCharacter": "Character",
+        "colCorp": "Corp",
+        "colAlliance": "Alliance",
+        "colLastLogin": "Last login",
+        "colSystemsAdded": "Systems added",
+        "colSystemsDeleted": "Systems deleted",
+        "colLastCorpStructure": "Last corp structure",
+        "colTotalStructures": "Total structures",
+        "colLastCorpSignature": "Last corp signature",
+        "colTotalSignatures": "Total signatures"
+      },
+      "systems": {
+        "loadFailed": "Failed to load systems report",
+        "empty": "No signatures in this window.",
+        "heading": "Signatures across all maps",
+        "total": "Total",
+        "typeMix": "Signature type mix",
+        "sigLabel": "Signatures",
+        "chart": {
+          "hour24": "Signatures per hour (past 24 hours)",
+          "dayWeek": "Signatures per day (past week)",
+          "dayMonth": "Signatures per day (past month)",
+          "monthYear": "Signatures per month (past year)",
+          "monthAll": "Signatures per month (all time)"
+        },
+        "whHeading": "Wormhole types",
+        "whEmpty": "No wormhole signatures with a recorded type yet.",
+        "colType": "Type",
+        "colCount": "Count"
+      },
+      "ghost": {
+        "loadFailed": "Failed to load ghost sites report",
+        "heading": "Covert Research Facility observations",
+        "empty": "No K-space ghost sites recorded yet.",
+        "colRegion": "Region",
+        "colConstellation": "Constellation",
+        "colSystem": "System",
+        "colClass": "Class",
+        "colSun": "Sun",
+        "colPlanets": "Planets",
+        "colMoons": "Moons",
+        "colObservations": "Observations",
+        "colLastSeen": "Last seen"
+      }
+    },
+    "discord": {
+      "title": "Discord",
+      "titleNotifications": "Discord notifications",
+      "loadFailed": "Failed to load Discord settings",
+      "saveFailed": "Save failed",
+      "updateFailed": "Update failed",
+      "noCorp": "No corp context — Discord notifications apply to corp maps only.",
+      "hint": "Controls which wormhole notifications this corp's maps post to Discord. The webhook itself is set server-side (DISCORD_WEBHOOK_URL). By default every map and region notifies — these settings only subtract.",
+      "regions": "Regions",
+      "notifyAll": "Notify for all regions",
+      "notifySelected": "Only selected regions",
+      "noRegionsSelected": "No regions selected — nothing will notify until you add some.",
+      "removeRegion": "Remove {{name}}",
+      "searchPlaceholder": "Type to search regions…",
+      "saving": "Saving…",
+      "saveRegions": "Save regions",
+      "saved": "Saved",
+      "excludedMaps": "Excluded maps",
+      "excludedHint": "All maps notify by default. Tick a map to exclude it from Discord.",
+      "noCorpMaps": "No corp maps yet.",
+      "colMap": "Map",
+      "colExclude": "Exclude"
     }
   },
   "proximityOptIn": {
