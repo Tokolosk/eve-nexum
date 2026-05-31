@@ -2,10 +2,11 @@ import { useTranslation } from 'react-i18next';
 import { SUPPORTED_LANGUAGES, type SupportedLanguage } from '../../i18n';
 
 // Native language names — these read the same in every locale, so they're not
-// translated (English is always "English", German always "Deutsch").
+// translated (English is always "English", German always "Deutsch"). Prefixed
+// with a flag emoji; English uses the GB flag (the app's English is en-GB).
 const LANGUAGE_NAMES: Record<SupportedLanguage, string> = {
-  en: 'English',
-  de: 'Deutsch',
+  en: '🇬🇧 English',
+  de: '🇩🇪 Deutsch',
 };
 
 export function LanguageSwitcher() {

@@ -104,8 +104,14 @@
       .topnav a { color: var(--muted); text-decoration: none; }
       .lang-select {
         background: var(--panel2); color: var(--text); border: 1px solid var(--border);
-        border-radius: 6px; padding: 4px 8px; font-size: 13px; font-family: inherit; cursor: pointer;
+        border-radius: 4px; padding: 4px 8px; font-size: 13px; font-family: inherit; cursor: pointer;
+        transition: border-color 0.15s ease;
       }
+      .lang-select:hover { border-color: var(--accent); }
+      .lang-select:focus-visible {
+        outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px rgba(91,155,255,0.25);
+      }
+      .lang-select option { background: var(--panel); color: var(--text); }
       header.hero { text-align: center; margin: 28px 0 8px; }
       .logo { font-size: 34px; color: var(--accent); line-height: 1; }
       h1 { color: var(--head); font-size: 30px; line-height: 1.25; margin: 12px 0 6px; }
@@ -142,8 +148,8 @@
       <nav class="topnav">
         <a href="/" data-i18n="nav">&larr; Nexum home</a>
         <select id="lang-select" class="lang-select" aria-label="Language / Sprache">
-          <option value="en">English</option>
-          <option value="de">Deutsch</option>
+          <option value="en">🇬🇧 English</option>
+          <option value="de">🇩🇪 Deutsch</option>
         </select>
       </nav>
 
