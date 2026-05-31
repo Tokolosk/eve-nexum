@@ -778,6 +778,286 @@
       "closest": "Closest {{label}} system"
     }
   },
+  "landing": {
+    "tagline": "Wormhole chain mapping for EVE Online",
+    "demoNote": "◈ Interactive demo — a simplified preview. Sign in to access signatures, kill feeds, connection tracking, activity history, and more.",
+    "cta": {
+      "continueAs": "Continue as",
+      "sessionExpired": "Session expired — click your portrait to log back in via EVE SSO.",
+      "switchChar": "Log in as a different character",
+      "secureLogin": "Secure EVE SSO login — no passwords stored. Character identity only.",
+      "loginAlt": "Log in with EVE Online",
+      "joinDiscord": "Join the Nexum Discord"
+    },
+    "errors": {
+      "not_in_corp": "Your character is not a member of the corporation that runs this Nexum instance. Access is restricted to corp members only.",
+      "corp_check_failed": "Could not verify your corporation membership due to an ESI error. Please try again in a moment.",
+      "unknown": "An unknown error occurred. Please try again."
+    },
+    "sections": {
+      "mapping": "Mapping",
+      "personalCorp": "Personal & corp maps",
+      "sysIntel": "System intelligence",
+      "liveOps": "Live ops",
+      "productivity": "Productivity & UX",
+      "forCorps": "For Corporations",
+      "compare": "How does Nexum compare?",
+      "discordCta": "Got questions, ideas, or bugs?",
+      "about": "About Nexum",
+      "aboutMe": "About Me",
+      "techStack": "Tech Stack",
+      "faqs": "FAQs"
+    },
+    "features": {
+      "interactiveMap": {
+        "title": "Interactive map",
+        "desc": "Drag systems, draw connections, set wormhole class / type / status per connection. Snap-to-grid and an optional minimap."
+      },
+      "seedRegion": {
+        "title": "Seed a map from a region",
+        "desc": "Spin up a new map pre-populated with an entire EVE region — every system laid out from CCP's 2D star-map projection (a Dotlan-style layout) with all stargate connections drawn. Pick a region when creating a map, or leave it blank for an empty one."
+      },
+      "whIntel": {
+        "title": "Wormhole intel",
+        "desc": "Per-connection mass status (stable / destabilized / critical), end-of-life flag with countdown, K162-aware static identification, and frig-hole / gas-site auto-tagging from sig type."
+      },
+      "rollingCalc": {
+        "title": "Rolling calculator",
+        "desc": "Plan and track collapsing a hole from its connection panel. Models the ±10% mass variance and forecasts each pass safe / may-collapse / will-collapse against the worst case. Define a roller ship (cold + prop-on mass, or pull your flown ship from ESI), step through passes with side-tracking that warns before a pass strands you on the far side, and see an \"≈ N passes left\" estimate. Cumulative mass syncs live to everyone viewing the hole."
+      },
+      "whPicker": {
+        "title": "Wormhole type picker",
+        "desc": "Searchable popover for assigning the exact wormhole type to a connection. Statics quick-info on hover shows destination class, mass, and lifetime."
+      },
+      "multiSelect": {
+        "title": "Multi-select bulk operations",
+        "desc": "Shift-click to select multiple systems or signatures, then bulk-assign type, delete, or rename in a single action."
+      },
+      "pngExport": {
+        "title": "PNG export",
+        "desc": "Render the current map — with sig counts, connections, and status — to a PNG you can drop into a fleet ping or a corp Discord."
+      },
+      "sigAging": {
+        "title": "Wormhole sig aging",
+        "desc": "Wormhole sigs tint by their position in the WH type's known lifetime — yellow at 50%, orange at 90%, red past expected close. Catches forgotten chains before they collapse on someone."
+      },
+      "soloCorp": {
+        "title": "Solo / Corp split",
+        "desc": "Every user has personal maps that are always private; in corp mode each corp also gets shared corp maps. Cross-corp visibility is opt-in via a single env flag."
+      },
+      "multiMap": {
+        "title": "Multi-map support",
+        "desc": "Each character (or corp) can maintain multiple independent maps up to configured limits — separate chains for separate ops without losing context."
+      },
+      "mergeMaps": {
+        "title": "Merge maps",
+        "desc": "Fold one map into another. The destination is kept as the source of truth — only missing systems and connections are added, with signatures, structures, and notes merged in, and new systems slotted into the existing layout. Corp maps opt in per role as a merge source and/or destination."
+      },
+      "realtime": {
+        "title": "Real-time collaboration",
+        "desc": "Edits sync live to everyone viewing the same map — systems, connections, rename/lock, signatures, structures, and merges all appear for other viewers within moments, no refresh. Streamed per map (you only get events for maps you can see), with your own changes echo-suppressed and an auto-resync on reconnect."
+      },
+      "mapLocking": {
+        "title": "Map locking",
+        "desc": "Admins can freeze a corp map's topology. Systems and connections lock for non-admins, but signatures, structures, and per-system notes stay editable so ops continue while the layout is pinned."
+      },
+      "rbac": {
+        "title": "Role-based access",
+        "desc": "Four tiers — readonly, edit, full, admin — gating corp-map actions. Personal maps stay yours regardless of role."
+      },
+      "systemPanel": {
+        "title": "System panel",
+        "desc": "Per-system cards for signatures, structures, NPC stations, notes, killboard, and activity charts. Cards are reorderable via drag-and-drop and persist per-user."
+      },
+      "sigMgmt": {
+        "title": "Signature management",
+        "desc": "Paste straight from the probe scanner. Tracks created / updated age per signature, auto-deletes sigs missing from a re-paste, and supports bulk type assignment for multi-select."
+      },
+      "structImport": {
+        "title": "Structure import",
+        "desc": "Paste EVE overview data to import player-owned structures with names, types, owners, and notes in one operation."
+      },
+      "autoStruct": {
+        "title": "Auto-discovered structures",
+        "desc": "Your corp's citadels (via ESI when a member with the Station Manager role logs in) and any publicly-listed structures from a third-party feed appear automatically in the structures pane as read-only entries — already tinted by your standings toward the owner."
+      },
+      "activityCharts": {
+        "title": "Activity charts",
+        "desc": "24-hour rolling history of jumps, ship / pod kills, and NPC kills per system, polled from ESI hourly. The poller persists data for every k-space system — not just ones someone has opened — so charts populate the moment you view a new system."
+      },
+      "sovStation": {
+        "title": "Sovereignty & station data",
+        "desc": "Live alliance / corp / faction sov info and NPC station services, with in-game waypoint and destination actions."
+      },
+      "killboard": {
+        "title": "Killboard pane",
+        "desc": "Recent zKillboard activity per system, with NPC-only kills hidden by default (toggle to include). Rows tint red when a hostile actor is in the chain or a blue gets killed; blue when a friendly scores or a hostile dies. Recent kills also bubble up as highlights on the map."
+      },
+      "effectDigest": {
+        "title": "Chain-wide effect digest",
+        "desc": "A one-line summary at the top of the system info panel lists every Pulsar / Wolf-Rayet / Magnetar / etc. on the current chain. Hover for the modifier list; click to centre."
+      },
+      "standings": {
+        "title": "Standings overlay",
+        "desc": "Your EVE contact list (personal, corp, and alliance — fetched via ESI on login and re-pullable on demand) drives a chain-wide visual layer. Sov holders show inline P/C/A standing pills; structures resolved via their EVE structure ID tint by owner-corp standing; sov-holder system nodes get a coloured halo so hostile territory stands out on the map."
+      },
+      "scout": {
+        "title": "Scout connections",
+        "desc": "Thera and Turnur public Eve-Scout connections surfaced into the sidebar so you can jump straight to known holes."
+      },
+      "a0": {
+        "title": "A0 sun detection",
+        "desc": "Auto-flags systems with A0 (yellow) suns visible via ESI for capital-friendly skirmish planning."
+      },
+      "iceBelt": {
+        "title": "Ice belt systems",
+        "desc": "Flags Empire-space systems that spawn ice anomalies with a ❄ icon — handy when staging mining ops or looking for an alternate harvest spot. Static dataset committed in-repo and resolved to system IDs at startup."
+      },
+      "storms": {
+        "title": "Storm tracking",
+        "desc": "Active null-sec storms — Electric, Gamma, Exotic, Plasma — sourced from the community-maintained EveScout Rescue stormtrack feed surface as a colour-coded ⚡ on matching system nodes. Tooltip shows storm name, last report, and reporter. Refreshed every 30 minutes."
+      },
+      "proximity": {
+        "title": "Proximity alerts",
+        "desc": "Browser notification plus an audio ping when you're within a configurable number of jumps of an active incursion, pirate insurgency, or a sov-holding system whose corp / alliance you've set to red. Persistent toolbar chip shows the nearest threat at a glance."
+      },
+      "discordNotif": {
+        "title": "Discord notifications",
+        "desc": "Push corp chain intel to a Discord channel so alerts land even when nobody's watching the tab. Fires server-side on an inbound K162 or a new wormhole connection, scoped to corp maps. Admins filter which regions and maps notify from the admin panel. Best-effort and rate-limit-aware; bulk operations like region seeding never spam the channel."
+      },
+      "routePlanner": {
+        "title": "Route planner",
+        "desc": "Server-side BFS over stargates plus your live chain, so a route through a wormhole hop is a single click."
+      },
+      "locationTracking": {
+        "title": "Location tracking",
+        "desc": "Opt-in live character location dot in the toolbar, plus a per-map \"you are here\" indicator that updates every 10 seconds via ESI."
+      },
+      "presence": {
+        "title": "Pilot presence",
+        "desc": "See where everyone viewing the same map is right now — a blue dot (pilot name on hover) marks each other viewer's current system, live as they jump. Covers anyone with the map open, not just your fleet; opt-in and nothing is stored."
+      },
+      "onlineStatus": {
+        "title": "Online status",
+        "desc": "Toolbar dot shows whether each logged-in user is currently signed into EVE Online, so you can see at a glance who's actually on grid."
+      },
+      "commandPalette": {
+        "title": "Command palette",
+        "desc": "⌘ / Ctrl + K opens a fuzzy search across systems, sigs, and actions — jump to a system, set a waypoint, or toggle a pane without touching the mouse."
+      },
+      "homeHotkey": {
+        "title": "Home hotkey",
+        "desc": "Hit H to jump the viewport back to your home system from any panel. Right-click a system to set or change which one is home."
+      },
+      "killHighlights": {
+        "title": "Recent-kill highlights",
+        "desc": "Systems with kills in the last hour get a coloured halo so you can see fresh activity at a glance across the chain."
+      },
+      "userStats": {
+        "title": "User stats modal",
+        "desc": "Per-character totals: jumps, signatures by type, broken down by day / week / month / year / forever."
+      },
+      "serverStatus": {
+        "title": "Server status widget",
+        "desc": "Live Tranquility server status, player count, and ESI health in the toolbar. Cross-tab cached so all your open windows share a single ESI poll."
+      },
+      "demoMap": {
+        "title": "Demo map",
+        "desc": "The landing page mounts a non-editable demo map so visitors can see what the tool does before logging in."
+      },
+      "sidebar": {
+        "title": "Collapsible sidebar",
+        "desc": "Map Options, Connections, Proximity Alerts, Stale System Fade, and Shortcuts each expand or collapse independently. Per-section state persists per browser via localStorage."
+      }
+    },
+    "corpFeatures": {
+      "multiCorp": {
+        "title": "Multi-corp deployments",
+        "desc": "CORP_ID accepts a comma-separated list of corporation IDs. One Nexum instance can host several corps; each corp's maps stay scoped to its own members unless CORP_MAP_SHARED=true."
+      },
+      "adminDash": {
+        "title": "Admin dashboard",
+        "desc": "A dedicated /admin page with four tabs: Users, Maps, Reports, and Audit log. Admins reach it from the toolbar's Admin button."
+      },
+      "userMgmt": {
+        "title": "User management",
+        "desc": "Change roles, block / unblock, and force an ESI corp-membership re-check on demand. Self-block, self-demote, and changes to ADMIN_CHAR_ID are guarded against."
+      },
+      "mapMgmt": {
+        "title": "Map management",
+        "desc": "Admins see every corp map with owner avatar, corp ticker, system / connection counts, lock state, and last-active time. Force-lock, force-unlock, and force-delete are one-click each."
+      },
+      "usersReport": {
+        "title": "Users report",
+        "desc": "Per-character last login, systems added / deleted, structures added, signatures broken down by type, and last-corp-activity timestamps. Sortable, filterable by activity and time window, exportable as CSV."
+      },
+      "systemsReport": {
+        "title": "Systems report",
+        "desc": "Aggregate corp-map signatures with a sig-type donut, a daily / monthly activity line chart (bucketing adapts to the window), and a sortable wormhole-type breakdown."
+      },
+      "timeWindowed": {
+        "title": "Time-windowed reporting",
+        "desc": "Every report can be scoped to past 24 hours, week, month, year, or all time. Chart bucketing adapts automatically: hourly for 24h, daily for week / month, monthly for year and all-time."
+      },
+      "auditLog": {
+        "title": "Audit log",
+        "desc": "Every admin action — role change, block / unblock, force-lock, force-delete, ESI corp change, auto-block on corp departure — is recorded with actor, target, old → new value, and timestamp. Exportable as CSV."
+      },
+      "corpTicker": {
+        "title": "Corp ticker resolution",
+        "desc": "Corp IDs in the Users and Maps reports are resolved to in-game tickers via ESI, with a 1-hour in-memory cache to keep report loads cheap."
+      },
+      "perCharAttr": {
+        "title": "Per-character attribution",
+        "desc": "Sigs, structures, and system add / delete actions are recorded with the user who made them, so reports can answer \"who has been scanning what\" with no manual logging."
+      }
+    },
+    "forCorpsBody": "Run Nexum as a shared deployment for your corp or alliance. Members get visible-to-the-corp chain maps and private personal maps in one tool, with role-based permissions, admin tooling, and per-character activity reporting.",
+    "compareBody": "See how Nexum stacks up against Pathfinder, Tripwire and Wanderer — features, hosting and cost, side by side.",
+    "compareLink": "Compare Nexum vs Pathfinder, Tripwire & Wanderer →",
+    "discordCtaBody": "Drop into the Nexum Discord — feedback, feature requests, scanning chat and o7s all welcome.",
+    "aboutBody1": "Nexum is a wormhole and exploration tool. It can be used for mapping routes and logging signatures. It was heavily inspired by Pathfinder — but with Pathfinder no longer actively developed (no new release since 2020), rather than complain about it, Nexum was created.",
+    "aboutBody2": "Nexum is built by a single developer. I'm adding features as we go but get in contact if you want support or feature requests",
+    "aboutMe": "Nexum is written by Addelee as a solo project. I've played eve since Beta back in 2003. You might see me hanging out in the Help channels or the Scanning channel. I've played in all areas of space from living in wormholes and thera, running missions in High Sec, gate camping in lowsec and now, null life with Goonswarm.<br></br><br></br>As a day job, I am a programmer and run <area404>Area 404</area404>. Because of this, I decided I'd write this tool. I'm an avid explorer in Eve therefore I wanted a tool that worked for me.<br></br><br></br>Nexum is open source and I welcome anyone to contribute. I would definitely appreciate feedback and any bugs you encounter so please flag things on <gh>GitHub</gh>",
+    "techStack1": "Nexum is held together with the finest space-age materials money and caffeine can buy. The frontend is <strong>React</strong> with <strong>TypeScript</strong> — because arguing with a compiler is still more productive than arguing with a nullsec alliance. Maps are rendered with <strong>ReactFlow</strong>, which handles all the node-dragging shenanigans so I didn't have to. State is managed by <strong>Zustand</strong>, which is delightfully small and has never once told me to \"just use Redux\".",
+    "techStack2": "The backend is <strong>Node.js</strong> with <strong>Express</strong> — proven, boring, and it works. Data lives in <strong>PostgreSQL</strong>, seeded with CCP's Static Data Export so Nexum actually knows what J213422 is without asking the ESI every five seconds. Authentication is handled by <strong>EVE Online SSO</strong> — your credentials never touch this server, which is exactly how it should be.",
+    "techStack3": "Live system intelligence comes from the <strong>EVE ESI</strong> (CCP's official API) and kill data from <strong>zKillboard</strong>. The whole thing is containerised with <strong>Docker</strong> and proxied through <strong>nginx</strong>, because someone has to keep the lights on while you're getting evicted from your wormhole.",
+    "faq": {
+      "whyNexum": {
+        "q": "Why Nexum?",
+        "a": "Nexum is the Latin word for a bond or connection — which felt appropriate for a tool built around mapping the connections between wormhole systems. It also sounds vaguely like something you'd find floating in a C6 magnetar, which was really the deciding factor."
+      },
+      "multipleAccounts": {
+        "q": "Can I use multiple accounts?",
+        "a": "Yes — each EVE character gets their own set of maps. Just log in with a different character via EVE SSO and Nexum will keep their maps completely separate. No cross-contamination, no accidental sharing of your super-secret wormhole chain with your alt corp."
+      },
+      "dataSafe": {
+        "q": "Is my data safe?",
+        "a": "Nexum never sees your EVE password — authentication is handled entirely by CCP's EVE SSO. The only thing stored is your character identity and the maps you build. Your map data lives in a private database and is not shared with anyone. That said, don't use Nexum for your alliance's top-secret invasion route — no tool on the internet is a substitute for good operational security."
+      },
+      "reportBugs": {
+        "q": "Can I report bugs, add feedback and request features?",
+        "a": "Absolutely. The project is open source on <gh>GitHub</gh> — open an issue for bugs or feature requests, or submit a pull request if you're feeling brave. Feedback via in-game mail to the character tied to this account also works if GitHub isn't your thing."
+      },
+      "runYourself": {
+        "q": "Can I run this myself?",
+        "a": "Yes — Nexum is fully self-hostable. The source is on <gh>GitHub</gh> and the whole stack spins up with a single <code>docker compose up</code>. You'll need to register your own EVE application on the <devportal>CCP developer portal</devportal> to get SSO credentials, but beyond that the README covers everything — including importing the EVE static data and pointing Traefik at it if that's your thing. If something breaks, open an issue. If you fix it, please open a PR.<br></br><br></br>It isn't the most technical thing to run up but I'd recommend you have basic knownledge of docker and whatever server your running on (Linux?)"
+      },
+      "goonTrust": {
+        "q": "But you're a Goon, why would we trust you?",
+        "a": "Fair question, and honestly the correct instinct to have in New Eden. The code is fully open source — you're welcome to read every line, run it yourself, or have someone you trust audit it. Nexum has no interest in your scouting routes, your corp's killboard shame, or whatever you've got parked in that C5. The worst thing a Goon has ever done in a wormhole is get evicted from one, and I'd like to help you avoid that fate."
+      },
+      "roadmap": {
+        "q": "Do you have a roadmap for new features?",
+        "a": "Loosely. Currently the system only works with solo players. The next logical thing would be to implement this for Corporations and Alliances. Once I iron out any bugs from this initial launch, I'll start work on that.<br></br>This does assume real life work doesn't get in the way!<br></br><br></br>If you have any pressing feature you want, drop me a message ingame and we can chat."
+      },
+      "donateIsk": {
+        "q": "Can I donate ISK?",
+        "a": "I prefer it if you did not, no. I'm not doing this for ISK so keep it and spend it on something to blow up in or blow someone else up in!"
+      }
+    },
+    "footer": "EVE Online and the EVE logo are the registered trademarks of CCP hf. All rights reserved worldwide. Nexum is a third-party tool and is not affiliated with or endorsed by CCP hf. · <license>License & EVE IP notice</license>"
+  },
   "mapNode": {
     "unknown": "Unknown",
     "homeSystem": "Home system",
