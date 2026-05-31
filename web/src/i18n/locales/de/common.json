@@ -80,6 +80,112 @@
       "colTarget": "Ziel",
       "colChange": "Änderung",
       "loadFailed": "Audit-Log konnte nicht geladen werden"
+    },
+    "reports": {
+      "title": "Berichte",
+      "tabs": {
+        "users": "Benutzer",
+        "systems": "Systeme",
+        "ghostSites": "Ghost-Sites"
+      },
+      "filter": "Filter",
+      "window": "Zeitraum",
+      "windowHint": "Wähle einen Filter, um einen Zeitraum anzuwenden",
+      "windowOptions": {
+        "all": "Gesamte Zeit",
+        "24h": "Letzte 24 Stunden",
+        "week": "Letzte Woche",
+        "month": "Letzter Monat",
+        "year": "Letztes Jahr"
+      },
+      "userFilters": {
+        "all": "Alle Benutzer",
+        "logins": "Logins",
+        "signatures": "Signaturen",
+        "structures": "Strukturen"
+      },
+      "sig": {
+        "data": "Daten",
+        "relic": "Relikt",
+        "wormhole": "WH",
+        "gas": "Gas",
+        "ore": "Erz",
+        "combat": "Kampf",
+        "unknown": "Unbekannt"
+      },
+      "users": {
+        "loadFailed": "Benutzerbericht konnte nicht geladen werden",
+        "empty": "Keine Benutzer entsprechen dem aktuellen Filter.",
+        "totalUsers": "Benutzer gesamt",
+        "uniqueCorps": "Eindeutige Corps",
+        "uniqueAlliances": "Eindeutige Allianzen",
+        "colCharacter": "Charakter",
+        "colCorp": "Corp",
+        "colAlliance": "Allianz",
+        "colLastLogin": "Letzter Login",
+        "colSystemsAdded": "Systeme hinzugefügt",
+        "colSystemsDeleted": "Systeme gelöscht",
+        "colLastCorpStructure": "Letzte Corp-Struktur",
+        "colTotalStructures": "Strukturen gesamt",
+        "colLastCorpSignature": "Letzte Corp-Signatur",
+        "colTotalSignatures": "Signaturen gesamt"
+      },
+      "systems": {
+        "loadFailed": "Systembericht konnte nicht geladen werden",
+        "empty": "Keine Signaturen in diesem Zeitraum.",
+        "heading": "Signaturen über alle Karten",
+        "total": "Gesamt",
+        "typeMix": "Signaturtyp-Verteilung",
+        "sigLabel": "Signaturen",
+        "chart": {
+          "hour24": "Signaturen pro Stunde (letzte 24 Stunden)",
+          "dayWeek": "Signaturen pro Tag (letzte Woche)",
+          "dayMonth": "Signaturen pro Tag (letzter Monat)",
+          "monthYear": "Signaturen pro Monat (letztes Jahr)",
+          "monthAll": "Signaturen pro Monat (gesamte Zeit)"
+        },
+        "whHeading": "Wurmlochtypen",
+        "whEmpty": "Noch keine Wurmloch-Signaturen mit erfasstem Typ.",
+        "colType": "Typ",
+        "colCount": "Anzahl"
+      },
+      "ghost": {
+        "loadFailed": "Ghost-Sites-Bericht konnte nicht geladen werden",
+        "heading": "Beobachtungen von Covert Research Facilities",
+        "empty": "Noch keine K-Space-Ghost-Sites erfasst.",
+        "colRegion": "Region",
+        "colConstellation": "Konstellation",
+        "colSystem": "System",
+        "colClass": "Klasse",
+        "colSun": "Sonne",
+        "colPlanets": "Planeten",
+        "colMoons": "Monde",
+        "colObservations": "Beobachtungen",
+        "colLastSeen": "Zuletzt gesehen"
+      }
+    },
+    "discord": {
+      "title": "Discord",
+      "titleNotifications": "Discord-Benachrichtigungen",
+      "loadFailed": "Discord-Einstellungen konnten nicht geladen werden",
+      "saveFailed": "Speichern fehlgeschlagen",
+      "updateFailed": "Aktualisierung fehlgeschlagen",
+      "noCorp": "Kein Corp-Kontext — Discord-Benachrichtigungen gelten nur für Corp-Karten.",
+      "hint": "Legt fest, welche Wurmloch-Benachrichtigungen die Karten dieser Corp an Discord senden. Der Webhook selbst wird serverseitig gesetzt (DISCORD_WEBHOOK_URL). Standardmäßig benachrichtigt jede Karte und Region — diese Einstellungen schränken nur ein.",
+      "regions": "Regionen",
+      "notifyAll": "Für alle Regionen benachrichtigen",
+      "notifySelected": "Nur ausgewählte Regionen",
+      "noRegionsSelected": "Keine Regionen ausgewählt — es wird nichts benachrichtigt, bis du welche hinzufügst.",
+      "removeRegion": "{{name}} entfernen",
+      "searchPlaceholder": "Tippen, um Regionen zu suchen…",
+      "saving": "Speichert…",
+      "saveRegions": "Regionen speichern",
+      "saved": "Gespeichert",
+      "excludedMaps": "Ausgeschlossene Karten",
+      "excludedHint": "Alle Karten benachrichtigen standardmäßig. Hake eine Karte an, um sie von Discord auszuschließen.",
+      "noCorpMaps": "Noch keine Corp-Karten.",
+      "colMap": "Karte",
+      "colExclude": "Ausschließen"
     }
   },
   "proximityOptIn": {
