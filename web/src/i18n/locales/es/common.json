@@ -1180,7 +1180,7 @@
   },
   "routeToast": {
     "destinationSet": "Destino establecido en {{system}}",
-    "waypointAdded": "Punto de ruta añadido: {{system}}",
+    "waypointAdded": "{{system}} añadido a los puntos de ruta correctamente.",
     "failed": "No se pudo establecer el punto de ruta — ¿está tu personaje en línea?"
   },
   "mapNode": {

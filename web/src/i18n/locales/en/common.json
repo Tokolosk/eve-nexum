@@ -1180,7 +1180,7 @@
   },
   "routeToast": {
     "destinationSet": "Destination set to {{system}}",
-    "waypointAdded": "Waypoint added: {{system}}",
+    "waypointAdded": "{{system}} successfully added to waypoints.",
     "failed": "Failed to set waypoint — is your character online?"
   },
   "mapNode": {

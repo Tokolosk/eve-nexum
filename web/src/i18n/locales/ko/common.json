@@ -1180,7 +1180,7 @@
   },
   "routeToast": {
     "destinationSet": "목적지가 {{system}}(으)로 설정됨",
-    "waypointAdded": "경유지 추가됨: {{system}}",
+    "waypointAdded": "{{system}}이(가) 경유지에 추가되었습니다.",
     "failed": "경유지 설정 실패 — 당신의 캐릭터가 온라인인가요?"
   },
   "mapNode": {

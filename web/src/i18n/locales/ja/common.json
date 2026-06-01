@@ -1180,7 +1180,7 @@
   },
   "routeToast": {
     "destinationSet": "目的地を {{system}} に設定しました",
-    "waypointAdded": "ウェイポイントを追加しました: {{system}}",
+    "waypointAdded": "{{system}} を経由地に追加しました。",
     "failed": "ウェイポイントの設定に失敗しました — キャラクターはオンラインですか？"
   },
   "mapNode": {
