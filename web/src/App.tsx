@@ -106,14 +106,22 @@ function AppShell() {
   const { user, loading } = useAuth();
   const [path] = useHashRoute();
 
-  // After the add-character SSO flow the server redirects with ?added=<name>.
-  // Confirm it once, then strip the param so a refresh doesn't re-toast.
+  // After the add-character SSO flow the server redirects with ?added=<name>
+  // on success or ?link_error=<code> on failure (e.g. the character isn't in
+  // the corp). Toast the outcome once, then strip the params so a refresh
+  // doesn't re-toast.
   useEffect(() => {
-    const added = new URLSearchParams(window.location.search).get('added');
-    if (!added) return;
-    toast.success(i18n.t('account.characterAdded', { name: added }));
+    const params = new URLSearchParams(window.location.search);
+    const added = params.get('added');
+    const linkError = params.get('link_error');
+    if (!added && !linkError) return;
+    if (added) toast.success(i18n.t('account.characterAdded', { name: added }));
+    if (linkError) {
+      toast.error(i18n.t(linkError === 'not_in_corp' ? 'account.linkFailedNotInCorp' : 'account.linkFailed'));
+    }
     const url = new URL(window.location.href);
     url.searchParams.delete('added');
+    url.searchParams.delete('link_error');
     window.history.replaceState({}, '', url.toString());
   }, []);
 

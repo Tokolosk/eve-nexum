@@ -9,7 +9,9 @@
     "characterAdded": "已添加 {{name}}",
     "switchTo": "切换到 {{name}}",
     "focusLocation": "以 {{name}} 为中心并从其位置规划路线",
-    "noLocation": "没有 {{name}} 的已知位置"
+    "noLocation": "没有 {{name}} 的已知位置",
+    "linkFailedNotInCorp": "无法添加该角色——其不在该军团中。",
+    "linkFailed": "无法添加该角色，请重试。"
   },
   "actions": {
     "save": "保存",
