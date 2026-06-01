@@ -9,7 +9,9 @@
     "characterAdded": "Added {{name}}",
     "switchTo": "Switch to {{name}}",
     "focusLocation": "Centre & route from {{name}}",
-    "noLocation": "No known location for {{name}}"
+    "noLocation": "No known location for {{name}}",
+    "linkFailedNotInCorp": "Couldn't add that character — they're not in the corporation.",
+    "linkFailed": "Couldn't add that character. Please try again."
   },
   "actions": {
     "save": "Save",

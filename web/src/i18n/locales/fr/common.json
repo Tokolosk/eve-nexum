@@ -9,7 +9,9 @@
     "characterAdded": "{{name}} ajouté",
     "switchTo": "Basculer vers {{name}}",
     "focusLocation": "Centrer et router depuis {{name}}",
-    "noLocation": "Aucune position connue pour {{name}}"
+    "noLocation": "Aucune position connue pour {{name}}",
+    "linkFailedNotInCorp": "Impossible d'ajouter ce personnage — il n'est pas dans la corporation.",
+    "linkFailed": "Impossible d'ajouter ce personnage. Veuillez réessayer."
   },
   "actions": {
     "save": "Enregistrer",

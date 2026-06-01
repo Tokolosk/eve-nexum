@@ -9,7 +9,9 @@
     "characterAdded": "{{name}} を追加しました",
     "switchTo": "{{name}} に切り替え",
     "focusLocation": "{{name}} を中心に表示し、そこからルート計算",
-    "noLocation": "{{name}} の既知の位置がありません"
+    "noLocation": "{{name}} の既知の位置がありません",
+    "linkFailedNotInCorp": "そのキャラクターを追加できませんでした — コーポに所属していません。",
+    "linkFailed": "そのキャラクターを追加できませんでした。もう一度お試しください。"
   },
   "actions": {
     "save": "保存",

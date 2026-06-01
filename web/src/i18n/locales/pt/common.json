@@ -9,7 +9,9 @@
     "characterAdded": "{{name}} adicionado",
     "switchTo": "Mudar para {{name}}",
     "focusLocation": "Centrar e traçar rota a partir de {{name}}",
-    "noLocation": "Nenhuma localização conhecida de {{name}}"
+    "noLocation": "Nenhuma localização conhecida de {{name}}",
+    "linkFailedNotInCorp": "Não foi possível adicionar esse personagem — não está na corporação.",
+    "linkFailed": "Não foi possível adicionar esse personagem. Tenta novamente."
   },
   "actions": {
     "save": "Guardar",

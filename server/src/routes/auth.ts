@@ -106,6 +106,13 @@ authRouter.get('/callback', async (req, res) => {
   const addCharacterOwnerId = req.session.addCharacterOwnerId;
   delete req.session.addCharacterOwnerId;
 
+  // Failure redirect target. For an add-character attempt the pilot is still
+  // logged in (as their active character), so they land on the app, not the
+  // landing page — use ?link_error= so the app can toast the reason. A fresh
+  // login uses ?error= which the landing page renders inline.
+  const failUrl = (code: string) =>
+    `${FRONTEND_URL}?${addCharacterOwnerId != null ? 'link_error' : 'error'}=${code}`;
+
   try {
     // Exchange code for tokens
     const tokenRes = await fetch(EVE_TOKEN_URL, {
@@ -156,7 +163,7 @@ authRouter.get('/callback', async (req, res) => {
       const esiChar = await fetch(`https://esi.evetech.net/v4/characters/${characterId}/`);
       if (!esiChar.ok) {
         if (config.corpMode) {
-          res.redirect(`${FRONTEND_URL}?error=corp_check_failed`);
+          res.redirect(failUrl('corp_check_failed'));
           return;
         }
         // Solo mode: ESI hiccup shouldn't block login.
@@ -166,13 +173,13 @@ authRouter.get('/callback', async (req, res) => {
         userCorpId     = charData.corporation_id;
         userAllianceId = charData.alliance_id ?? null;
         if (config.corpMode && !config.corpIds.includes(userCorpId)) {
-          res.redirect(`${FRONTEND_URL}?error=not_in_corp`);
+          res.redirect(failUrl('not_in_corp'));
           return;
         }
       }
     } catch {
       if (config.corpMode) {
-        res.redirect(`${FRONTEND_URL}?error=corp_check_failed`);
+        res.redirect(failUrl('corp_check_failed'));
         return;
       }
     }
@@ -219,7 +226,7 @@ authRouter.get('/callback', async (req, res) => {
     // it can't be blocked by the role/block flow, but if the DB row somehow
     // ends up flagged we still let the configured admin character through.
     if (rows[0].blocked && characterId !== config.adminCharId) {
-      res.redirect(`${FRONTEND_URL}?error=blocked`);
+      res.redirect(failUrl('blocked'));
       return;
     }
 
@@ -238,7 +245,7 @@ authRouter.get('/callback', async (req, res) => {
     // onto the owner (merge); the per-owner map cap is enforced at creation
     // time (phase 3) so nothing is deleted here.
     if (addCharacterOwnerId != null) {
-      if (!req.session.userId) { res.redirect(`${FRONTEND_URL}?error=not_authenticated`); return; }
+      if (!req.session.userId) { res.redirect(failUrl('not_authenticated')); return; }
       await db.query(`UPDATE users SET owner_id = $1 WHERE id = $2`, [addCharacterOwnerId, userId]);
       await db.query(`UPDATE maps  SET owner_id = $1 WHERE user_id = $2`, [addCharacterOwnerId, userId]);
       req.session.ownerId = addCharacterOwnerId;

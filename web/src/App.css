@@ -6140,7 +6140,7 @@ select.sig-toolbar-btn option {
 /* ── Toaster ─────────────────────────────────────────────── */
 .toaster {
   position: fixed;
-  bottom: 16px;
+  top: 16px;
   right: 16px;
   display: flex;
   flex-direction: column;
