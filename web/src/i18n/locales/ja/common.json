@@ -16,7 +16,8 @@
     "removeCharacter": "{{name}} を削除",
     "removeConfirm": "{{name}} をアカウントから削除しますか？後でキャラクターを再度リンクできます。",
     "characterRemoved": "{{name}} を削除しました",
-    "removeFailed": "そのキャラクターを削除できませんでした。もう一度お試しください。"
+    "removeFailed": "そのキャラクターを削除できませんでした。もう一度お試しください。",
+    "locationUnknown": "現在地不明"
   },
   "actions": {
     "save": "保存",

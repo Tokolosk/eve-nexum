@@ -16,7 +16,8 @@
     "removeCharacter": "Remove {{name}}",
     "removeConfirm": "Remove {{name}} from your account? You can add them again later by linking the character.",
     "characterRemoved": "Removed {{name}}",
-    "removeFailed": "Couldn't remove that character. Please try again."
+    "removeFailed": "Couldn't remove that character. Please try again.",
+    "locationUnknown": "Location unknown"
   },
   "actions": {
     "save": "Save",
