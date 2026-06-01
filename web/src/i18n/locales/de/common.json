@@ -1180,7 +1180,7 @@
   },
   "routeToast": {
     "destinationSet": "Ziel festgelegt auf {{system}}",
-    "waypointAdded": "Wegpunkt hinzugefügt: {{system}}",
+    "waypointAdded": "{{system}} erfolgreich zu den Wegpunkten hinzugefügt.",
     "failed": "Wegpunkt konnte nicht gesetzt werden — ist dein Charakter online?"
   },
   "mapNode": {

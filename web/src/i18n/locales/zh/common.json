@@ -1180,7 +1180,7 @@
   },
   "routeToast": {
     "destinationSet": "目的地已设为 {{system}}",
-    "waypointAdded": "已添加航路点：{{system}}",
+    "waypointAdded": "{{system}} 已成功添加到航点。",
     "failed": "设置航路点失败 — 你的角色在线吗？"
   },
   "mapNode": {

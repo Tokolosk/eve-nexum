@@ -572,12 +572,12 @@ export function MapCanvas() {
           {
             label: t('waypoint.setDestination'),
             icon: <MapPinSimpleIcon size={16} weight="regular" color="#3ddc84" />,
-            action: () => setDestination(sys.eveSystemId!).catch(() => toast.error(t('ctxMenu.failSetDest'))),
+            action: () => { setDestination(sys.eveSystemId!, sys.name).catch(() => {}); },
           },
           {
             label: t('waypoint.addWaypoint'),
             icon: <PathIcon size={16} weight="regular" color="#5a9af8" />,
-            action: () => addWaypoint(sys.eveSystemId!).catch(() => toast.error(t('ctxMenu.failAddWaypoint'))),
+            action: () => { addWaypoint(sys.eveSystemId!, sys.name).catch(() => {}); },
           },
         ];
       }
@@ -694,12 +694,12 @@ export function MapCanvas() {
         {
           label: t('waypoint.setDestination'),
           icon: <MapPinSimpleIcon size={16} weight="regular" color="#3ddc84" />,
-          action: () => setDestination(sys.eveSystemId!).catch(() => toast.error(t('ctxMenu.failSetDest'))),
+          action: () => { setDestination(sys.eveSystemId!, sys.name).catch(() => {}); },
         },
         {
           label: t('waypoint.addWaypoint'),
           icon: <PathIcon size={16} weight="regular" color="#5a9af8" />,
-          action: () => addWaypoint(sys.eveSystemId!).catch(() => toast.error(t('ctxMenu.failAddWaypoint'))),
+          action: () => { addWaypoint(sys.eveSystemId!, sys.name).catch(() => {}); },
         },
       ] : [];
 

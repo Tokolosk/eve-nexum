@@ -1180,7 +1180,7 @@
   },
   "routeToast": {
     "destinationSet": "Destination définie sur {{system}}",
-    "waypointAdded": "Point de cheminement ajouté : {{system}}",
+    "waypointAdded": "{{system}} ajouté aux points de passage avec succès.",
     "failed": "Échec de la définition du point de cheminement — votre personnage est-il en ligne ?"
   },
   "mapNode": {
