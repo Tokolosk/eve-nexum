@@ -371,7 +371,8 @@
       "removeSelected": "Eliminar sistemas seleccionados",
       "undo": "Deshacer",
       "multiSelect": "Selección múltiple de sistemas",
-      "rubberBand": "Selección por recuadro"
+      "rubberBand": "Selección por recuadro",
+      "overwriteSigs": "Pegar firmas en modo sobrescritura (eliminar las desaparecidas)"
     },
     "canvasNotFound": "No se pudo encontrar el lienzo del mapa",
     "exportFailed": "Error al exportar: {{error}}",
@@ -630,7 +631,11 @@
   },
   "scout": {
     "noConnections": "No hay conexiones de {{system}}.",
-    "expiring": "caducando"
+    "expiring": "caducando",
+    "sortLabel": "Ordenar",
+    "sortAge": "Edad del WH",
+    "sortShortest": "Ruta más corta",
+    "sortSecure": "Ruta segura"
   },
   "activity": {
     "thisHour": "esta hora",
@@ -699,6 +704,14 @@
     "deleteAllConfirm_one": "¿Eliminar {{count}} firma?",
     "deleteAllConfirm_other": "¿Eliminar las {{count}} firmas?",
     "addSignature": "Añadir firma",
+    "overwriteToggle": "Sobrescribir al pegar",
+    "overwriteTooltip": "Cuando está activo, pegar reemplaza la lista — se eliminan las firmas que ya no están en el escaneo. O mantén Mayús al pegar para sobrescribir solo una vez.",
+    "removeDelayLabel": "Retardo de eliminación",
+    "removeDelayTooltip": "Cuánto tiempo permanece visible (tachada) una firma desaparecida antes de que un pegado en sobrescritura la elimine — tiempo para borrar su marcador en el juego.",
+    "removeDelayInstant": "Inmediato",
+    "filterLabel": "Filtrar por tipo",
+    "filterClear": "Limpiar",
+    "noMatchFilter": "Ninguna firma coincide con el filtro",
     "setTypeAria": "Establecer el tipo de las firmas seleccionadas",
     "setType": "Establecer tipo ({{count}})…",
     "deleteSelected": "Eliminar seleccionadas ({{count}})",

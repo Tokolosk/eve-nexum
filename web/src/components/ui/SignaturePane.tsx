@@ -110,6 +110,18 @@ const DEFAULT_WIDTHS: Record<ColKey, number> = {
   updated: 80,
 };
 
+// Grace-period choices (seconds) offered before an overwrite-paste actually
+// deletes a despawned sig. 0 = delete immediately. Compact s/m labels read
+// fine across locales; only "Instant" is translated.
+const OVERWRITE_DELAY_OPTIONS = [0, 5, 10, 30, 60, 120] as const;
+const OVERWRITE_DELAY_DEFAULT = 10;
+function formatDelay(sec: number): string {
+  return sec >= 60 ? `${sec / 60}m` : `${sec}s`;
+}
+
+// Order the type-filter chips most-useful-first. Covers every SigType.
+const SIG_TYPE_FILTER_ORDER: SigType[] = ['wormhole', 'data', 'relic', 'gas', 'ore', 'combat', 'unknown'];
+
 // Single module-level 1 s tick shared across every ElapsedCell instance.
 // Previously each SignaturePane drove a state update every second, which
 // re-rendered every row including its embedded MDEditor — extremely expensive.
@@ -178,6 +190,18 @@ export function SignaturePane({ systemId }: { systemId: string }) {
   // alphabetical position. User clicks on column headers override this.
   const [sortCol, setSortCol]         = useState<SortCol | null>('sigId');
   const [sortDir, setSortDir]         = useState<'asc' | 'desc'>('asc');
+  // Multi-select type filter. Empty = show all; otherwise show only the
+  // selected sig types. A view-only filter, so it isn't persisted.
+  const [typeFilter, setTypeFilter]   = useState<Set<SigType>>(new Set());
+
+  const toggleTypeFilter = (type: SigType) => {
+    setTypeFilter((prev) => {
+      const next = new Set(prev);
+      if (next.has(type)) next.delete(type);
+      else next.add(type);
+      return next;
+    });
+  };
   // Persist column widths so a user-tuned layout follows them from one
   // system to the next (and across reloads). Stored under a single
   // ui_settings key — drag-resize re-saves on every mousemove tick, but
@@ -199,12 +223,63 @@ export function SignaturePane({ systemId }: { systemId: string }) {
   const sigsRef        = useRef<Signature[]>([]);
   sigsRef.current = sigs;
 
+  // Overwrite-on-paste mode. When on (or when Shift is held during a paste),
+  // a paste also deletes signatures whose ID is absent from the pasted scan —
+  // for re-scanning a system after sites have despawned. Off by default so the
+  // long-standing additive behaviour is preserved.
+  const [overwriteOnPaste, setOverwriteOnPaste] = useUserSetting<boolean>(
+    'nexum.sigPane.overwriteOnPaste',
+    false,
+  );
+  // Shift is tracked in a ref because the `paste` ClipboardEvent carries no
+  // modifier state, so Shift+Ctrl+V is detected via this.
+  const shiftHeldRef = useRef(false);
+
+  // Grace period (seconds) before an overwrite-paste actually deletes a
+  // despawned sig. During it the row stays visible with a "being removed"
+  // indicator so the user can note it / clear in-game bookmarks. 0 = instant.
+  const [overwriteDelay, setOverwriteDelay] = useUserSetting<number>(
+    'nexum.sigPane.overwriteDelay',
+    OVERWRITE_DELAY_DEFAULT,
+  );
+  // Sigs currently shown with the pending-removal indicator, plus the timers
+  // that delete them once the grace period elapses.
+  const [removing, setRemoving] = useState<Set<string>>(new Set());
+  const removalTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+
+  // Clear any outstanding removal timers when the pane unmounts.
+  useEffect(() => () => {
+    for (const tm of removalTimers.current.values()) clearTimeout(tm);
+    removalTimers.current.clear();
+  }, []);
+
+  // Track whether Shift is physically held — the `paste` ClipboardEvent itself
+  // carries no modifier state, so Shift+Ctrl+V is detected via this ref.
+  useEffect(() => {
+    const onDown = (e: KeyboardEvent) => { if (e.key === 'Shift') shiftHeldRef.current = true; };
+    const onUp   = (e: KeyboardEvent) => { if (e.key === 'Shift') shiftHeldRef.current = false; };
+    const reset  = () => { shiftHeldRef.current = false; };
+    window.addEventListener('keydown', onDown);
+    window.addEventListener('keyup', onUp);
+    window.addEventListener('blur', reset);
+    return () => {
+      window.removeEventListener('keydown', onDown);
+      window.removeEventListener('keyup', onUp);
+      window.removeEventListener('blur', reset);
+    };
+  }, []);
+
   const { isShareMode } = useShareMode();
   // Bumped when another client changes this system's sigs (live sync).
   const sigRev = useMapStore((s) => s.sigRev[systemId] ?? 0);
 
   useEffect(() => {
     if (!activeMapId) return;
+    // Cancel any pending overwrite-removals carried over from the previous
+    // system — their timers reference rows that are about to be cleared.
+    for (const tm of removalTimers.current.values()) clearTimeout(tm);
+    removalTimers.current.clear();
+    setRemoving(new Set());
     setSigs([]);
     setSelected(new Set());
 
@@ -272,8 +347,20 @@ export function SignaturePane({ systemId }: { systemId: string }) {
     }, 500));
   };
 
+  // Drop any pending overwrite-removal timer/indicator for this id (the row is
+  // being deleted now, whether by the timer firing or a manual delete).
+  const clearRemoval = (id: string) => {
+    const tm = removalTimers.current.get(id);
+    if (tm) { clearTimeout(tm); removalTimers.current.delete(id); }
+    setRemoving((prev) => {
+      if (!prev.has(id)) return prev;
+      const next = new Set(prev); next.delete(id); return next;
+    });
+  };
+
   const deleteSig = (id: string) => {
     if (!activeMapId) return;
+    clearRemoval(id);
     const deleted = sigsRef.current.find((s) => s.id === id);
     setSigs((prev) => prev.filter((s) => s.id !== id));
     setSelected((prev) => { const next = new Set(prev); next.delete(id); return next; });
@@ -289,7 +376,23 @@ export function SignaturePane({ systemId }: { systemId: string }) {
       .catch(() => toast.error(t('signatures.deleteFailed')));
   };
 
-  const processPaste = useCallback(async (parsed: ParsedSig[]) => {
+  // Mark a despawned sig for removal after `delaySec`, keeping it visible with
+  // the indicator meanwhile. delaySec <= 0 deletes immediately. Reschedules
+  // cleanly if the sig was already pending.
+  const scheduleRemoval = (id: string, delaySec: number) => {
+    const existing = removalTimers.current.get(id);
+    if (existing) clearTimeout(existing);
+    if (delaySec <= 0) {
+      removalTimers.current.delete(id);
+      deleteSig(id);
+      return;
+    }
+    setRemoving((prev) => { const next = new Set(prev); next.add(id); return next; });
+    const tm = setTimeout(() => deleteSig(id), delaySec * 1000);
+    removalTimers.current.set(id, tm);
+  };
+
+  const processPaste = useCallback(async (parsed: ParsedSig[], overwrite: boolean, delaySec: number) => {
     if (!activeMapId) return;
     const existing = sigsRef.current;
     const toUpdate: { id: string; updates: Partial<Signature> }[] = [];
@@ -307,8 +410,21 @@ export function SignaturePane({ systemId }: { systemId: string }) {
       }
     }
 
-    // Sigs not present in the paste are left alone — pastes are additive.
-    // If you want to clear stale sigs, use the toolbar's delete buttons.
+    // In overwrite mode, remove scanned sigs that are no longer in the paste
+    // (despawned since the last scan). Rather than deleting outright they're
+    // flagged for removal and deleted after `delaySec`, so the user gets a
+    // visible indicator and time to clear in-game bookmarks. A sig that
+    // reappears in this paste has any pending removal cancelled. Rows still
+    // present keep their age, type, and connection links; blank/manually-added
+    // rows (no sig ID) are left alone. Default (additive) mode is untouched.
+    if (overwrite) {
+      const pastedIds = new Set(parsed.map((p) => p.sigId));
+      for (const s of existing) {
+        if (!s.sigId) continue;
+        if (pastedIds.has(s.sigId)) clearRemoval(s.id);
+        else scheduleRemoval(s.id, delaySec);
+      }
+    }
 
     for (const { id, updates } of toUpdate) updateSig(id, updates);
 
@@ -346,25 +462,29 @@ export function SignaturePane({ systemId }: { systemId: string }) {
 
       e.preventDefault();
 
+      // Overwrite when the mode is toggled on OR Shift is held for this paste.
+      const overwrite = overwriteOnPaste || shiftHeldRef.current;
+      const delaySec = overwriteDelay;
+
       // Warn if the character is in a different system than the one being edited
       if (currentSystemId && currentSystemId !== systemId) {
         const currentName  = map.systems.find((s) => s.id === currentSystemId)?.name  ?? 'unknown';
         const selectedName = map.systems.find((s) => s.id === systemId)?.name ?? 'unknown';
         setPendingAction({
           message: t('signatures.pasteDifferentSystem', { current: currentName, selected: selectedName }),
-          fn: () => processPaste(parsed),
+          fn: () => processPaste(parsed, overwrite, delaySec),
           confirmLabel: t('actions.ok'),
           showDontAskAgain: false,
         });
         return;
       }
 
-      processPaste(parsed);
+      processPaste(parsed, overwrite, delaySec);
     };
 
     window.addEventListener('paste', handlePaste);
     return () => window.removeEventListener('paste', handlePaste);
-  }, [activeMapId, systemId, currentSystemId, map.systems, processPaste, t]);
+  }, [activeMapId, systemId, currentSystemId, map.systems, processPaste, overwriteOnPaste, overwriteDelay, t]);
 
   const addSig = async () => {
     if (!activeMapId) return;
@@ -417,14 +537,15 @@ export function SignaturePane({ systemId }: { systemId: string }) {
   };
 
   const sortedSigs = useMemo(() => {
-    if (!sortCol) return sigs;
-    return [...sigs].sort((a, b) => {
+    const base = typeFilter.size ? sigs.filter((s) => typeFilter.has(s.sigType)) : sigs;
+    if (!sortCol) return base;
+    return [...base].sort((a, b) => {
       const av = (a[sortCol] ?? '').toLowerCase();
       const bv = (b[sortCol] ?? '').toLowerCase();
       const cmp = av.localeCompare(bv);
       return sortDir === 'asc' ? cmp : -cmp;
     });
-  }, [sigs, sortCol, sortDir]);
+  }, [sigs, sortCol, sortDir, typeFilter]);
 
   const startResize = (col: ColKey, e: React.MouseEvent) => {
     e.preventDefault();
@@ -471,6 +592,31 @@ export function SignaturePane({ systemId }: { systemId: string }) {
       {canEdit && !isShareMode && (
         <div className="sig-pane__toolbar">
           <button className="icon-btn" onClick={addSig} title={t('signatures.addSignature')}>{t('signatures.addSignature')}</button>
+          <label
+            className={`sig-overwrite-toggle${overwriteOnPaste ? ' sig-overwrite-toggle--active' : ''}`}
+            data-tooltip={t('signatures.overwriteTooltip')}
+          >
+            <input
+              type="checkbox"
+              className="map-sidebar__toggle-input"
+              checked={overwriteOnPaste}
+              onChange={(e) => setOverwriteOnPaste(e.target.checked)}
+            />
+            <span>{t('signatures.overwriteToggle')}</span>
+          </label>
+          <select
+            className="sig-toolbar-btn"
+            value={overwriteDelay}
+            onChange={(e) => setOverwriteDelay(Number(e.target.value))}
+            aria-label={t('signatures.removeDelayLabel')}
+            data-tooltip={t('signatures.removeDelayTooltip')}
+          >
+            {OVERWRITE_DELAY_OPTIONS.map((s) => (
+              <option key={s} value={s}>
+                {s === 0 ? t('signatures.removeDelayInstant') : formatDelay(s)}
+              </option>
+            ))}
+          </select>
           {selected.size > 0 && (
             <>
               <select
@@ -505,11 +651,35 @@ export function SignaturePane({ systemId }: { systemId: string }) {
         </div>
       )}
 
+      {sigs.length > 0 && (
+        <div className="sig-pane__filter" role="group" aria-label={t('signatures.filterLabel')}>
+          {SIG_TYPE_FILTER_ORDER.map((type) => (
+            <button
+              key={type}
+              type="button"
+              className={`sig-filter-chip sig-filter-chip--${type}${typeFilter.has(type) ? ' sig-filter-chip--active' : ''}`}
+              aria-pressed={typeFilter.has(type)}
+              onClick={() => toggleTypeFilter(type)}
+            >
+              {t(`sigType.${type}`)}
+            </button>
+          ))}
+          {typeFilter.size > 0 && (
+            <button type="button" className="sig-filter-clear" onClick={() => setTypeFilter(new Set())}>
+              {t('signatures.filterClear')}
+            </button>
+          )}
+        </div>
+      )}
+
       {sigs.length === 0 ? (
         <div className={`sig-pane__empty${isShareMode ? ' sig-pane__empty--shared' : ''}`}>
           {isShareMode ? t('signatures.emptyShared') : t('signatures.empty')}
         </div>
+      ) : sortedSigs.length === 0 ? (
+        <div className="sig-pane__empty">{t('signatures.noMatchFilter')}</div>
       ) : (
+        <div className="sig-table-wrap">
         <table className="sig-table">
           <colgroup>
             {/* In share mode the checkbox and per-row delete cells are
@@ -572,12 +742,16 @@ export function SignaturePane({ systemId }: { systemId: string }) {
                 {t('signatures.colUpdated')}{sortInd('updatedAt')}
                 <div className="sig-th__resize" onMouseDown={(e) => startResize('updated', e)} />
               </th>
-              {!isShareMode && <th />}
+              {!isShareMode && <th className="sig-cell--actions" />}
             </tr>
           </thead>
           <tbody>
             {sortedSigs.map((sig) => (
-              <tr key={sig.id} className={`${selected.has(sig.id) ? 'sig-row--selected' : ''} ${sig.sigType === 'unknown' ? 'sig-row--unknown' : ''} ${whAgeRowClass(sig.sigType, sig.whType, sig.createdAt, tickNow)}`}>
+              <tr
+                key={sig.id}
+                className={`${selected.has(sig.id) ? 'sig-row--selected' : ''} ${sig.sigType === 'unknown' ? 'sig-row--unknown' : ''} ${whAgeRowClass(sig.sigType, sig.whType, sig.createdAt, tickNow)} ${removing.has(sig.id) ? 'sig-row--removing' : ''}`}
+                style={removing.has(sig.id) && overwriteDelay > 0 ? { animationDuration: `${overwriteDelay}s` } : undefined}
+              >
                 {!isShareMode && (
                   <td>
                     <input
@@ -674,7 +848,7 @@ export function SignaturePane({ systemId }: { systemId: string }) {
                 />
                 <ElapsedCell iso={sig.updatedAt} className="sig-td--time sig-td--updated" />
                 {!isShareMode && (
-                  <td>
+                  <td className="sig-cell--actions">
                     {canEdit && (
                       <button
                         className="icon-btn icon-btn--danger"
@@ -688,6 +862,7 @@ export function SignaturePane({ systemId }: { systemId: string }) {
             ))}
           </tbody>
         </table>
+        </div>
       )}
     </div>
     </>

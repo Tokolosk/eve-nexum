@@ -371,7 +371,8 @@
       "removeSelected": "選択した星系を削除",
       "undo": "元に戻す",
       "multiSelect": "星系を複数選択",
-      "rubberBand": "ドラッグで星系を選択"
+      "rubberBand": "ドラッグで星系を選択",
+      "overwriteSigs": "上書きモードでシグネチャを貼り付け（消滅したものを削除）"
     },
     "canvasNotFound": "マップキャンバスが見つかりませんでした",
     "exportFailed": "エクスポートに失敗しました: {{error}}",
@@ -630,7 +631,11 @@
   },
   "scout": {
     "noConnections": "{{system}} の接続はありません。",
-    "expiring": "まもなく期限切れ"
+    "expiring": "まもなく期限切れ",
+    "sortLabel": "並び替え",
+    "sortAge": "WH 寿命",
+    "sortShortest": "最短ルート",
+    "sortSecure": "安全ルート"
   },
   "activity": {
     "thisHour": "今時間",
@@ -699,6 +704,14 @@
     "deleteAllConfirm_one": "{{count}} 件のシグネチャをすべて削除しますか？",
     "deleteAllConfirm_other": "{{count}} 件のシグネチャをすべて削除しますか？",
     "addSignature": "シグネチャを追加",
+    "overwriteToggle": "貼り付け時に上書き",
+    "overwriteTooltip": "オンにすると、貼り付けでリストを置き換えます — スキャンに存在しなくなったシグネチャは削除されます。または貼り付け時に Shift を押すと一度だけ上書きします。",
+    "removeDelayLabel": "削除までの猶予",
+    "removeDelayTooltip": "消滅したシグネチャが上書き貼り付けで削除されるまで（取り消し線付きで）表示される時間 — ゲーム内ブックマークを整理する時間です。",
+    "removeDelayInstant": "即時",
+    "filterLabel": "タイプで絞り込み",
+    "filterClear": "クリア",
+    "noMatchFilter": "フィルターに一致するシグネチャはありません",
     "setTypeAria": "選択したシグネチャのタイプを設定",
     "setType": "タイプを設定（{{count}}）…",
     "deleteSelected": "選択を削除（{{count}}）",

@@ -208,6 +208,42 @@
   flex-direction: column;
 }
 
+.scout-pane__sort {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border-bottom: 1px solid #141c2e;
+}
+.scout-pane__sort-label {
+  font-size: calc(12px * var(--font-scale, 1));
+  color: #7a90a8;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.scout-pane__sort-select {
+  flex: 1;
+  background: #0a0e1a;
+  border: 1px solid #1e2740;
+  border-radius: 4px;
+  color: #c8d0e0;
+  font-family: inherit;
+  font-size: calc(13px * var(--font-scale, 1));
+  padding: 3px 6px;
+  cursor: pointer;
+  transition: border-color 0.15s ease;
+}
+.scout-pane__sort-select:hover { border-color: #4d9de0; }
+.scout-pane__sort-select:focus-visible {
+  outline: none;
+  border-color: #4d9de0;
+  box-shadow: 0 0 0 2px rgba(77, 157, 224, 0.25);
+}
+.scout-pane__sort-select option {
+  background: #0d1117;
+  color: #c8d0e0;
+}
+
 .scout-row {
   display: flex;
   flex-direction: column;
@@ -3202,6 +3238,44 @@ div.system-node__easy-handle {
   justify-content: flex-end;
 }
 
+/* Multi-select signature-type filter. Left-aligned chips above the table;
+   click to show only the selected types (none selected = show all). */
+.sig-pane__filter {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 0 6px;
+}
+.sig-filter-chip {
+  background: transparent;
+  border: 1px solid #2e3a52;
+  border-radius: 999px;
+  color: #8a9ab5;
+  font-family: inherit;
+  font-size: calc(13px * var(--font-scale, 1));
+  padding: 2px 11px;
+  cursor: pointer;
+  transition: border-color 0.12s, color 0.12s, background 0.12s;
+}
+.sig-filter-chip:hover { border-color: #4d9de0; color: #c8d0e0; }
+.sig-filter-chip--active {
+  border-color: #5a9af8;
+  background: rgba(90, 154, 248, 0.18);
+  color: #e8f0ff;
+}
+.sig-filter-clear {
+  background: transparent;
+  border: none;
+  color: #6a8ab0;
+  font-family: inherit;
+  font-size: calc(12px * var(--font-scale, 1));
+  padding: 2px 6px;
+  cursor: pointer;
+  text-decoration: underline;
+}
+.sig-filter-clear:hover { color: #9ec0e8; }
+
 .sig-pane__empty {
   font-size: calc(16px * var(--font-scale, 1));
   color: #6a7a98;
@@ -3250,7 +3324,33 @@ div.system-node__easy-handle {
 
 .sig-col--check   { width: 24px; }
 .sig-col--whtype  { overflow: visible; }
-.sig-col--actions { width: 24px; }
+.sig-col--actions { width: 28px; }
+
+/* When the resizable columns sum wider than the pane, let the table scroll
+   horizontally inside its card instead of being clipped by the card's
+   overflow:hidden. */
+.sig-table-wrap {
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+/* Pin the per-row delete (and its header) to the right edge so it's always
+   reachable no matter how narrow the pane is or how the columns are sized.
+   The cell needs an opaque background per row state, otherwise scrolled
+   columns would show through the pinned column. Scoped under .sig-table so
+   these win over the semi-transparent .sig-row--* td tints. */
+.sig-table th.sig-cell--actions,
+.sig-table td.sig-cell--actions {
+  position: sticky;
+  right: 0;
+  z-index: 1;
+  box-shadow: -6px 0 8px -6px rgba(0, 0, 0, 0.55);
+}
+.sig-table th.sig-cell--actions             { background: #080e1a; }          /* card backdrop */
+.sig-table tbody td.sig-cell--actions        { background: #0b0f18; }          /* odd rows */
+.sig-table tbody tr:nth-child(even) td.sig-cell--actions { background: #0d1220; }
+.sig-table tbody tr:hover td.sig-cell--actions           { background: #111a28; }
+.sig-table tbody tr.sig-row--selected td.sig-cell--actions { background: #0a1525; }
 
 .sig-th {
   position: relative;
@@ -3308,6 +3408,27 @@ div.system-node__easy-handle {
    apply on a wormhole row that's also flagged unknown — unusual but
    possible). Selected rows still override via !important. */
 .sig-row--unknown td { background: rgba(231,76,60,0.06); }
+
+/* Overwrite-paste pending removal: the row stays visible with a struck-through
+   red treatment and slowly fades over the configured grace period, so the user
+   can see exactly which sigs are about to be deleted (and clear any in-game
+   bookmarks) before they go. animation-duration is set inline to match the
+   delay. */
+.sig-row--removing {
+  animation: sig-row-removing-fade linear forwards;
+}
+.sig-row--removing td {
+  text-decoration: line-through;
+  color: #e88a8a;
+  background: rgba(231,76,60,0.16);
+}
+/* The pinned actions cell needs an opaque red so scrolled columns don't show
+   through it (it can't use the semi-transparent tint above). */
+.sig-table tbody tr.sig-row--removing td.sig-cell--actions { background: #1f1014; }
+@keyframes sig-row-removing-fade {
+  from { opacity: 1; }
+  to   { opacity: 0.4; }
+}
 
 /* Structures pane row tints, mirroring the EVE standings palette used
    by the sov pills and killboard rows. owner_corp_id is resolved via
@@ -3442,6 +3563,30 @@ div.system-node__easy-handle {
     &:hover { border-color: #e25a5a; color: #ff6b6b; }
   }
 }
+
+/* Overwrite-on-paste toggle: a labelled checkbox styled to sit inline with
+   the sig toolbar buttons. The native checkbox (accent-coloured) gives an
+   unambiguous on/off tick; the active outline reinforces it. */
+.sig-overwrite-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid #2e4a7a;
+  border-radius: 4px;
+  padding: 2px 10px;
+  color: #c0ccde;
+  font-size: calc(14px * var(--font-scale, 1));
+  cursor: pointer;
+  -webkit-user-select: none;
+  user-select: none;
+}
+.sig-overwrite-toggle:hover { border-color: #5a9af8; }
+.sig-overwrite-toggle--active {
+  border-color: #5a9af8;
+  background: rgba(90, 154, 248, 0.16);
+  color: #e8f0ff;
+}
+.sig-overwrite-toggle .map-sidebar__toggle-input { cursor: pointer; }
 
 /* Native <select> uses the page background for the dropdown panel and OS
    defaults for option rows — both render as light on a dark theme. Force

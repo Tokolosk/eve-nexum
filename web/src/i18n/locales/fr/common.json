@@ -371,7 +371,8 @@
       "removeSelected": "Supprimer les systèmes sélectionnés",
       "undo": "Annuler",
       "multiSelect": "Sélection multiple de systèmes",
-      "rubberBand": "Sélection par rectangle"
+      "rubberBand": "Sélection par rectangle",
+      "overwriteSigs": "Coller les signatures en mode écrasement (supprimer les disparues)"
     },
     "canvasNotFound": "Impossible de trouver le canvas de la carte",
     "exportFailed": "Échec de l'export : {{error}}",
@@ -630,7 +631,11 @@
   },
   "scout": {
     "noConnections": "Aucune connexion {{system}}.",
-    "expiring": "expire"
+    "expiring": "expire",
+    "sortLabel": "Trier",
+    "sortAge": "Âge du WH",
+    "sortShortest": "Route la plus courte",
+    "sortSecure": "Route sécurisée"
   },
   "activity": {
     "thisHour": "cette heure",
@@ -699,6 +704,14 @@
     "deleteAllConfirm_one": "Supprimer {{count}} signature ?",
     "deleteAllConfirm_other": "Supprimer les {{count}} signatures ?",
     "addSignature": "Ajouter une signature",
+    "overwriteToggle": "Écraser au collage",
+    "overwriteTooltip": "Si activé, le collage remplace la liste — les signatures absentes du scan sont supprimées. Ou maintenez Maj en collant pour écraser une seule fois.",
+    "removeDelayLabel": "Délai de suppression",
+    "removeDelayTooltip": "Durée pendant laquelle une signature disparue reste visible (barrée) avant qu'un collage en écrasement ne la supprime — le temps d'effacer son signet en jeu.",
+    "removeDelayInstant": "Immédiat",
+    "filterLabel": "Filtrer par type",
+    "filterClear": "Effacer",
+    "noMatchFilter": "Aucune signature ne correspond au filtre",
     "setTypeAria": "Définir le type des signatures sélectionnées",
     "setType": "Définir le type ({{count}})…",
     "deleteSelected": "Supprimer la sélection ({{count}})",
