@@ -692,7 +692,7 @@
     opacity: 0;
     transition: opacity 0.1s;
   }
-  &:hover::after { opacity: 1; }
+  /* Reveal handled by the global TooltipLayer (viewport-clamped). */
 
   &.toolbar__status-dot--on  { background: #3ddc84; box-shadow: 0 0 4px #3ddc8466; }
   &.toolbar__status-dot--off { background: #e05a5a; box-shadow: 0 0 4px #e05a5a66; }
@@ -743,7 +743,11 @@
     transition: opacity 0.1s;
     z-index: 9999;
   }
-  &:hover::after { opacity: 1; }
+  /* Hover reveal is handled by the JS-positioned TooltipLayer (see
+     TooltipLayer.tsx), which clamps the chip inside the viewport so it can't
+     spill off-screen the way this centred pseudo-element does. The ::after
+     above is kept (invisible) so the legacy markup/variant classes are inert
+     rather than removed wholesale. */
 }
 
 /* Portal-rendered floating tooltip (see Tooltip.tsx). Anchored via
@@ -762,6 +766,16 @@
   white-space: nowrap;
   pointer-events: none;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.6);
+}
+
+/* Variant used by the global TooltipLayer. Allows long labels to wrap within
+   a bounded width so that, combined with the layer's viewport clamping, the
+   chip always fits on-screen. Short labels still render on a single line. */
+.floating-tooltip--auto {
+  max-width: min(360px, calc(100vw - 12px));
+  white-space: normal;
+  text-align: center;
+  line-height: 1.35;
 }
 
 /* Right-side variant. Elements at the bottom of the System Panel (links,
@@ -3800,9 +3814,8 @@ select.sig-toolbar-btn option {
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.6);
 }
 
-.npc-svc-icon:hover::after {
-  opacity: 1;
-}
+/* Reveal handled by the global TooltipLayer (viewport-clamped) — the invisible
+   ::after above is kept only so this rule's plate styling stays documented. */
 
 
 .icon-btn--danger {
