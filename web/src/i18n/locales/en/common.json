@@ -11,7 +11,12 @@
     "focusLocation": "Centre & route from {{name}}",
     "noLocation": "No known location for {{name}}",
     "linkFailedNotInCorp": "Couldn't add that character — they're not in the corporation.",
-    "linkFailed": "Couldn't add that character. Please try again."
+    "linkFailed": "Couldn't add that character. Please try again.",
+    "remove": "Remove",
+    "removeCharacter": "Remove {{name}}",
+    "removeConfirm": "Remove {{name}} from your account? You can add them again later by linking the character.",
+    "characterRemoved": "Removed {{name}}",
+    "removeFailed": "Couldn't remove that character. Please try again."
   },
   "actions": {
     "save": "Save",
@@ -902,6 +907,10 @@
       "soloCorp": {
         "title": "Solo / Corp split",
         "desc": "Every user has personal maps that are always private; in corp mode each corp also gets shared corp maps. Cross-corp visibility is opt-in via a single env flag."
+      },
+      "multiCharacter": {
+        "title": "Multi-character accounts",
+        "desc": "Link your alts to one account and switch between them without logging in again — each character's maps merge in on link. Follow an alt's live location while you fly your main, and unlink a character whenever you like."
       },
       "multiMap": {
         "title": "Multi-map support",

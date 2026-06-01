@@ -11,7 +11,12 @@
     "focusLocation": "Centrar e traçar rota a partir de {{name}}",
     "noLocation": "Nenhuma localização conhecida de {{name}}",
     "linkFailedNotInCorp": "Não foi possível adicionar esse personagem — não está na corporação.",
-    "linkFailed": "Não foi possível adicionar esse personagem. Tenta novamente."
+    "linkFailed": "Não foi possível adicionar esse personagem. Tenta novamente.",
+    "remove": "Remover",
+    "removeCharacter": "Remover {{name}}",
+    "removeConfirm": "Remover {{name}} da tua conta? Podes voltar a vincular o personagem mais tarde.",
+    "characterRemoved": "{{name}} removido",
+    "removeFailed": "Não foi possível remover esse personagem. Tenta novamente."
   },
   "actions": {
     "save": "Guardar",
@@ -902,6 +907,10 @@
       "soloCorp": {
         "title": "Separação Solo / Corp",
         "desc": "Cada utilizador tem mapas pessoais que são sempre privados; no modo corp cada corp obtém também mapas de corp partilhados. A visibilidade entre corps é ativada através de uma única variável de ambiente."
+      },
+      "multiCharacter": {
+        "title": "Contas com vários personagens",
+        "desc": "Vincula os teus alts a uma única conta e alterna entre eles sem voltar a iniciar sessão — os mapas de cada personagem são fundidos ao vincular. Segue a localização em tempo real de um alt enquanto pilotas o teu principal e desvincula um personagem quando quiseres."
       },
       "multiMap": {
         "title": "Suporte multimapa",
