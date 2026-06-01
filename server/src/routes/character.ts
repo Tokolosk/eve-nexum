@@ -144,6 +144,54 @@ characterRouter.get('/:targetUserId/location', async (req, res) => {
   }
 });
 
+// Lightweight current-system read for the map markers: online + system only
+// (no ship, no jump event — background detection mustn't inflate stats).
+// Refreshes last_known as a free side effect. Throws on a dead token.
+async function readCharacterSystem(userId: number, characterId: number): Promise<{ online: boolean; eveSystemId: number; name: string } | null> {
+  const token = await getValidToken(userId);
+  const onlineRes = await fetch(`https://esi.evetech.net/latest/characters/${characterId}/online/`,
+    { headers: { Authorization: `Bearer ${token}` } });
+  if (!onlineRes.ok) return null;
+  if (!isReallyOnline(await onlineRes.json() as EsiOnlineResponse)) return null;
+  const locRes = await fetch(`https://esi.evetech.net/latest/characters/${characterId}/location/`,
+    { headers: { Authorization: `Bearer ${token}` } });
+  if (!locRes.ok) return null;
+  const { solar_system_id } = await locRes.json() as { solar_system_id: number };
+  db.query(`UPDATE users SET last_known_system_id = $1, last_known_system_at = NOW()
+              WHERE id = $2 AND last_known_system_id IS DISTINCT FROM $1`,
+    [solar_system_id, userId]).catch(() => {});
+  const { rows } = await db.query<{ eveSystemId: number; name: string }>(
+    `SELECT id AS "eveSystemId", name FROM solar_systems WHERE id = $1`, [solar_system_id]);
+  return rows.length ? { online: true, eveSystemId: rows[0].eveSystemId, name: rows[0].name } : null;
+}
+
+// GET /api/character/account-locations — where each of the account's OTHER
+// characters currently is (live when online, else their last known system), so
+// the map can show your alts. The active character has its own you-are-here.
+characterRouter.get('/account-locations', async (req, res) => {
+  const ownerId = await resolveOwnerId(req);
+  if (ownerId == null) { res.json({ characters: [] }); return; }
+  const { rows } = await db.query<{ id: number; characterId: number; characterName: string; lksId: number | null; lksName: string | null }>(
+    `SELECT u.id, u.character_id AS "characterId", u.character_name AS "characterName",
+            u.last_known_system_id AS "lksId", s.name AS "lksName"
+       FROM users u LEFT JOIN solar_systems s ON s.id = u.last_known_system_id
+      WHERE u.owner_id = $1 AND u.id <> $2`,
+    [ownerId, req.session.userId],
+  );
+  const characters = await Promise.all(rows.map(async (r) => {
+    let online = false;
+    let eveSystemId: number | null = null;
+    let systemName: string | null = null;
+    try {
+      const cur = await readCharacterSystem(r.id, r.characterId);
+      if (cur) { online = true; eveSystemId = cur.eveSystemId; systemName = cur.name; }
+    } catch { /* dead/revoked token — fall back to last known */ }
+    if (eveSystemId == null && r.lksId != null) { eveSystemId = Number(r.lksId); systemName = r.lksName; }
+    return { charId: r.id, characterId: r.characterId, characterName: r.characterName, online, eveSystemId, systemName };
+  }));
+  res.json({ characters: characters.filter((c) => c.eveSystemId != null) });
+});
+
 // POST /api/character/waypoint
 characterRouter.post('/waypoint', async (req, res) => {
   const { destinationId, addToBeginning = false, clearOtherWaypoints = false } =

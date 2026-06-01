@@ -1960,6 +1960,46 @@
   display: block;
 }
 
+/* Account characters (your own alts) in this system. Gold — distinct from the
+   purple fleet dot and blue presence dot. Offline alts (shown at their last
+   known system) get a "(last known)" qualifier. */
+.system-node__alt-dot-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  margin-right: 4px;
+}
+.system-node__alt-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #f5b96a;
+  box-shadow: 0 0 5px #f5b96a;
+  flex-shrink: 0;
+  cursor: help;
+}
+.system-node__alt-tooltip {
+  display: none;
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  background: #111827;
+  border: 1px solid #5a4a2e;
+  border-radius: 6px;
+  padding: 5px 8px;
+  white-space: nowrap;
+  z-index: 9999;
+  flex-direction: column;
+  gap: 2px;
+  pointer-events: none;
+  font-size: calc(13px * var(--font-scale, 1));
+  color: #f0e2c8;
+}
+.system-node__alt-dot-wrap:hover .system-node__alt-tooltip { display: flex; }
+.react-flow__node:has(.system-node__alt-dot-wrap:hover) { z-index: 9999 !important; }
+.system-node__alt-tooltip-row { display: block; }
+.system-node__alt-offline { margin-left: 6px; color: #8a7a5a; font-size: 0.85em; }
+
 /* Presence: other pilots viewing this map who are in this system. Blue, to
    distinguish from the purple fleet dot; hover reveals their names. */
 .system-node__presence-dot-wrap {
