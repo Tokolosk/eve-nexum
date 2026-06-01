@@ -467,6 +467,13 @@ export async function migrate() {
     CREATE UNIQUE INDEX IF NOT EXISTS uq_map_shares_corp ON map_shares (map_id, target_corp_id)      WHERE target_corp_id      IS NOT NULL;
     CREATE INDEX IF NOT EXISTS idx_map_shares_char ON map_shares (target_character_id) WHERE target_character_id IS NOT NULL;
     CREATE INDEX IF NOT EXISTS idx_map_shares_corp ON map_shares (target_corp_id)      WHERE target_corp_id      IS NOT NULL;
+
+    -- Last known solar system per user, updated from the ESI location poll as
+    -- the pilot jumps. Lets the profile remember where they were last seen.
+    -- INTEGER to match solar_systems.id (SDE-seeded); nullable until the first
+    -- poll lands. No FK — system ids are immutable SDE data.
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS last_known_system_id INTEGER;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS last_known_system_at TIMESTAMPTZ;
   `);
 
   await encryptLegacyTokens();
