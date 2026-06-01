@@ -13,6 +13,7 @@ import { apiUrl } from '../../api/client';
 import { SUPPORTED_LANGUAGES, LANGUAGE_NAMES } from '../../i18n';
 import { DemoMap } from './DemoMap';
 import { LanguageSwitcher } from './LanguageSwitcher';
+import { LangFlag } from './LangFlag';
 import portraitImg from '../../assets/portrait.jpeg';
 interface LastCharacter { characterId: number; characterName: string; }
 
@@ -409,7 +410,10 @@ export function LandingPage() {
           </p>
           <ul className="landing__lang-list">
             {SUPPORTED_LANGUAGES.map((lng) => (
-              <li key={lng} className="landing__lang-chip">{LANGUAGE_NAMES[lng]}</li>
+              <li key={lng} className="landing__lang-chip">
+                <LangFlag lang={lng} className="landing__lang-flag" />
+                {LANGUAGE_NAMES[lng]}
+              </li>
             ))}
           </ul>
         </section>
