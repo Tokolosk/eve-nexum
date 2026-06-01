@@ -207,10 +207,8 @@ export function MapCanvas() {
     if (centerRequestEveId == null) return;
     const target = systems.find((s) => s.eveSystemId === centerRequestEveId);
     const zoom = Math.max(getZoom(), 1.1);
-    console.log('[NEXUM-DEBUG] center effect', { centerRequestEveId, targetId: target?.id, zoom });
     const raf = requestAnimationFrame(() => {
-      const ok = target ? centerOnSystem(target.id, zoom) : false;
-      console.log('[NEXUM-DEBUG] center rAF', { targetId: target?.id, centerOnSystemResult: ok });
+      if (target) centerOnSystem(target.id, zoom);
       clearCenterRequest();
     });
     return () => cancelAnimationFrame(raf);

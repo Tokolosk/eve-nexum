@@ -218,7 +218,6 @@ export function Toolbar() {
   // Clicking the system centres the map on it — but only when it's actually on
   // the current map.
   const shownSystemOnMap = shownSystemEveId != null && mapSystems.some((s) => s.eveSystemId === shownSystemEveId);
-  console.log('[NEXUM-DEBUG] toolbar system', { shownSystem, shownSystemEveId, shownSystemOnMap, locOnline, mapSystemCount: mapSystems.length, sampleEveIds: mapSystems.slice(0, 5).map((s) => s.eveSystemId) });
   const eveStatus = useEveServerStatus();
   const [showMaps, setShowMaps]   = useState(false);
   const [showStats, setShowStats] = useState(false);
@@ -468,7 +467,7 @@ export function Toolbar() {
                   type="button"
                   className="toolbar__char-system toolbar__char-system--clickable"
                   data-tooltip={t('toolbar.centerOnSystem', { system: shownSystem })}
-                  onClick={() => { console.log('[NEXUM-DEBUG] toolbar system CLICK', shownSystemEveId); if (shownSystemEveId != null) requestCenterOnEveSystem(shownSystemEveId); }}
+                  onClick={() => { if (shownSystemEveId != null) requestCenterOnEveSystem(shownSystemEveId); }}
                 >
                   <MapPinIcon size={11} weight="fill" />
                   {shownSystem}

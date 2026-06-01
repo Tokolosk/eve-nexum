@@ -296,8 +296,10 @@ authRouter.get('/me', async (req, res) => {
     [req.session.userId],
   );
   const lk = lksRows[0];
+  // Number() guards against node-pg returning the id as a string (it does for
+  // BIGINT columns) — the client compares it numerically against map system ids.
   const lastKnownSystem = lk?.id != null
-    ? { id: lk.id, name: lk.name, systemClass: lk.systemClass, at: lk.at }
+    ? { id: Number(lk.id), name: lk.name, systemClass: lk.systemClass, at: lk.at }
     : null;
 
   res.json({
