@@ -799,6 +799,8 @@
     "signOut": "Abmelden",
     "role": "Rolle: {{role}}",
     "checkedAgo": "geprüft {{time}}",
+    "lastKnownSystem": "Letztes bekanntes System",
+    "currentSystem": "Aktuelles System",
     "deleteMapConfirm": "\"{{name}}\" löschen? Dies kann nicht rückgängig gemacht werden.",
     "online": {
       "offline": "Offline",

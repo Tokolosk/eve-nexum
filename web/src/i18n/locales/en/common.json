@@ -799,6 +799,8 @@
     "signOut": "Sign out",
     "role": "Role: {{role}}",
     "checkedAgo": "checked {{time}}",
+    "lastKnownSystem": "Last known system",
+    "currentSystem": "Current system",
     "deleteMapConfirm": "Delete \"{{name}}\"? This cannot be undone.",
     "online": {
       "offline": "Offline",

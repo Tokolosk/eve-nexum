@@ -799,6 +799,8 @@
     "signOut": "Se déconnecter",
     "role": "Rôle : {{role}}",
     "checkedAgo": "vérifié {{time}}",
+    "lastKnownSystem": "Dernier système connu",
+    "currentSystem": "Système actuel",
     "deleteMapConfirm": "Supprimer « {{name}} » ? Cette action est irréversible.",
     "online": {
       "offline": "Hors ligne",

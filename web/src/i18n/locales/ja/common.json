@@ -799,6 +799,8 @@
     "signOut": "ログアウト",
     "role": "権限: {{role}}",
     "checkedAgo": "{{time}} 確認",
+    "lastKnownSystem": "最後に確認されたシステム",
+    "currentSystem": "現在のシステム",
     "deleteMapConfirm": "「{{name}}」を削除しますか？この操作は取り消せません。",
     "online": {
       "offline": "オフライン",

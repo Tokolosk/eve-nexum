@@ -831,6 +831,8 @@
     "signOut": "Выйти",
     "role": "Роль: {{role}}",
     "checkedAgo": "проверено {{time}}",
+    "lastKnownSystem": "Последняя известная система",
+    "currentSystem": "Текущая система",
     "deleteMapConfirm": "Удалить «{{name}}»? Это нельзя отменить.",
     "online": {
       "offline": "Офлайн",

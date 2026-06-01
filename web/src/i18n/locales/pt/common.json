@@ -799,6 +799,8 @@
     "signOut": "Terminar sessão",
     "role": "Função: {{role}}",
     "checkedAgo": "verificado {{time}}",
+    "lastKnownSystem": "Último sistema conhecido",
+    "currentSystem": "Sistema atual",
     "deleteMapConfirm": "Eliminar «{{name}}»? Esta ação não pode ser desfeita.",
     "online": {
       "offline": "Offline",

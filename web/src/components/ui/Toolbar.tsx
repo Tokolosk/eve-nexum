@@ -17,7 +17,7 @@ import { useProximityAlerts } from '../../hooks/useProximityAlerts';
 import {
   WarningIcon, SkullIcon, XCircleIcon, QuestionIcon,
   ShieldStarIcon, ChartBarIcon, SlidersHorizontalIcon, FootprintsIcon,
-  SignOutIcon, PlanetIcon, LinkSimpleIcon,
+  SignOutIcon, PlanetIcon, LinkSimpleIcon, ClockCountdownIcon, MapPinIcon,
 } from '@phosphor-icons/react';
 import type { Icon as PhosphorIcon } from '@phosphor-icons/react';
 
@@ -125,16 +125,25 @@ function onlineTooltip(t: TFunction, online: boolean | null, lastLoginIso: strin
   return t('toolbar.online.onlineSince', { stamp, age: timeAgo(t, ts) });
 }
 
-// Self-contained "checked Xs ago" label — owns its own 5 s tick so the rest of
-// the Toolbar doesn't re-render every five seconds along with it.
-function CheckedAtLabel({ checkedAt }: { checkedAt: Date }) {
+// Compact "last checked" indicator: a clock icon whose tooltip carries the
+// "checked Xs ago" text. Owns its own 5 s tick so the rest of the Toolbar
+// doesn't re-render every five seconds along with it.
+function CheckedAtIcon({ checkedAt }: { checkedAt: Date }) {
   const { t } = useTranslation();
   const [, setTick] = useState(0);
   useEffect(() => {
     const id = setInterval(() => setTick((n) => n + 1), 5_000);
     return () => clearInterval(id);
   }, []);
-  return <span className="toolbar__checked-at">{t('toolbar.checkedAgo', { time: timeAgo(t, checkedAt) })}</span>;
+  return (
+    <span
+      className="toolbar__checked-icon"
+      data-tooltip={t('toolbar.checkedAgo', { time: timeAgo(t, checkedAt) })}
+      aria-label={t('toolbar.checkedAgo', { time: timeAgo(t, checkedAt) })}
+    >
+      <ClockCountdownIcon size={12} weight="regular" />
+    </span>
+  );
 }
 
 // Persistent indicator for the nearest live threat (incursion / insurgency).
@@ -196,9 +205,13 @@ export function Toolbar() {
   // corp slots full too). Gates the single "+ New Map" action.
   const noCreateOption = atMapLimit && (!canCorpCreate || atCorpMapLimit);
   const { online, checkedAt, lastLogin } = useOnlineStatus(!!user);
-  // Ship comes from the same poll that drives passive location tracking, so
-  // no extra ESI traffic — we just surface a field that's already on hand.
-  const { ship } = useCharacterLocation();
+  // Ship + live system come from the same poll that drives passive location
+  // tracking, so no extra ESI traffic — we just surface fields already on hand.
+  const { ship, system: liveSystem, online: locOnline } = useCharacterLocation();
+  // What to show next to the avatar: the live system when the pilot is online
+  // in EVE, otherwise the last known system from their profile.
+  const shownSystem = (locOnline && liveSystem?.name) ? liveSystem.name : (user?.lastKnownSystem?.name ?? null);
+  const shownSystemIsLast = !(locOnline && liveSystem?.name);
   const eveStatus = useEveServerStatus();
   const [showMaps, setShowMaps]   = useState(false);
   const [showStats, setShowStats] = useState(false);
@@ -442,7 +455,18 @@ export function Toolbar() {
                 </span>
               )}
             </span>
-            {checkedAt && <CheckedAtLabel checkedAt={checkedAt} />}
+            <div className="toolbar__char-sub">
+              {shownSystem && (
+                <span
+                  className="toolbar__char-system"
+                  data-tooltip={shownSystemIsLast ? t('toolbar.lastKnownSystem') : t('toolbar.currentSystem')}
+                >
+                  <MapPinIcon size={11} weight="fill" />
+                  {shownSystem}
+                </span>
+              )}
+              {checkedAt && <CheckedAtIcon checkedAt={checkedAt} />}
+            </div>
           </div>
           <LanguageSwitcher />
           <button
