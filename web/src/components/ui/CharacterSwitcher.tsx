@@ -137,9 +137,18 @@ export function CharacterSwitcher() {
                     src={`https://images.evetech.net/characters/${c.characterId}/portrait?size=32`}
                     alt=""
                   />
-                  <span className="character-switcher__name">
-                    {c.characterName}
-                    {c.blocked && <span className="character-switcher__blocked">{t('account.blocked')}</span>}
+                  <span className="character-switcher__identity">
+                    <span className="character-switcher__name">
+                      {c.characterName}
+                      {c.blocked && <span className="character-switcher__blocked">{t('account.blocked')}</span>}
+                    </span>
+                    <span className="character-switcher__location">
+                      {c.lastKnownSystemName
+                        ? (c.lastKnownSystemClass
+                            ? `${c.lastKnownSystemName} · ${c.lastKnownSystemClass}`
+                            : c.lastKnownSystemName)
+                        : t('account.locationUnknown')}
+                    </span>
                   </span>
                   {c.active && <CheckIcon size={13} weight="bold" />}
                 </button>

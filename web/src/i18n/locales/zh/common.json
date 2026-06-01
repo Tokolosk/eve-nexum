@@ -16,7 +16,8 @@
     "removeCharacter": "移除 {{name}}",
     "removeConfirm": "要从你的账户中移除 {{name}} 吗？你之后可以重新关联该角色。",
     "characterRemoved": "已移除 {{name}}",
-    "removeFailed": "无法移除该角色，请重试。"
+    "removeFailed": "无法移除该角色，请重试。",
+    "locationUnknown": "位置未知"
   },
   "actions": {
     "save": "保存",

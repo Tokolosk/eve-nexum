@@ -16,7 +16,8 @@
     "removeCharacter": "Retirer {{name}}",
     "removeConfirm": "Retirer {{name}} de votre compte ? Vous pourrez le réassocier plus tard.",
     "characterRemoved": "{{name}} retiré",
-    "removeFailed": "Impossible de retirer ce personnage. Veuillez réessayer."
+    "removeFailed": "Impossible de retirer ce personnage. Veuillez réessayer.",
+    "locationUnknown": "Position inconnue"
   },
   "actions": {
     "save": "Enregistrer",

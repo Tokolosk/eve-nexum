@@ -16,7 +16,8 @@
     "removeCharacter": "Quitar a {{name}}",
     "removeConfirm": "¿Quitar a {{name}} de tu cuenta? Puedes volver a vincular el personaje más tarde.",
     "characterRemoved": "{{name}} quitado",
-    "removeFailed": "No se pudo quitar ese personaje. Inténtalo de nuevo."
+    "removeFailed": "No se pudo quitar ese personaje. Inténtalo de nuevo.",
+    "locationUnknown": "Ubicación desconocida"
   },
   "actions": {
     "save": "Guardar",
