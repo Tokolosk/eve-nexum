@@ -3788,7 +3788,11 @@ select.sig-toolbar-btn option {
 /* Language picker (toolbar + landing hero). Matches the site's dark
    selects; native option rows forced dark so the dropdown panel isn't
    light on a dark page. */
-.toolbar__lang-select {
+.lang-switcher { position: relative; display: inline-flex; }
+.lang-switcher__trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   background: #0a0e1a;
   border: 1px solid #1e2740;
   border-radius: 4px;
@@ -3799,18 +3803,54 @@ select.sig-toolbar-btn option {
   cursor: pointer;
   transition: border-color 0.15s ease;
 }
-.toolbar__lang-select:hover {
-  border-color: #4d9de0;
-}
-.toolbar__lang-select:focus-visible {
+.lang-switcher__trigger:hover { border-color: #4d9de0; }
+.lang-switcher__trigger:focus-visible {
   outline: none;
   border-color: #4d9de0;
   box-shadow: 0 0 0 2px rgba(77, 157, 224, 0.25);
 }
-.toolbar__lang-select option {
-  background: #0d1117;
-  color: #c8d0e0;
+.lang-switcher__flag {
+  width: 18px;
+  height: 12px;
+  flex-shrink: 0;
+  border-radius: 2px;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.25);
 }
+.lang-switcher__menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 1000;
+  min-width: 170px;
+  max-height: 60vh;
+  overflow-y: auto;
+  background: #0d1117;
+  border: 1px solid #1e2740;
+  border-radius: 6px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.6);
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.lang-switcher__option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  color: #c0ccde;
+  font-family: inherit;
+  font-size: calc(13px * var(--font-scale, 1));
+  text-align: left;
+  cursor: pointer;
+}
+.lang-switcher__option:hover { background: #162032; }
+.lang-switcher__option-name { flex: 1; white-space: nowrap; }
+.lang-switcher__option--active { color: #e8f0ff; }
 
 .sig-notes-cell {
   vertical-align: top;
@@ -5748,6 +5788,9 @@ select.sig-toolbar-btn option {
   max-width: 680px;
 }
 .landing__lang-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   padding: 7px 14px;
   background: rgba(91, 155, 255, 0.08);
   border: 1px solid rgba(91, 155, 255, 0.28);
@@ -5756,6 +5799,13 @@ select.sig-toolbar-btn option {
   font-size: calc(14px * var(--font-scale, 1));
   font-weight: 600;
   white-space: nowrap;
+}
+.landing__lang-flag {
+  width: 20px;
+  height: 13px;
+  flex-shrink: 0;
+  border-radius: 2px;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.3);
 }
 
 .landing__portrait {
