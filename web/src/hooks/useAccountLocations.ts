@@ -9,22 +9,25 @@ export interface AccountCharLocation {
   online:        boolean;        // false = position is from last known system
   eveSystemId:   number;
   systemName:    string | null;
+  systemClass:   string | null;
 }
 
 export interface AccountLocations {
   /** solarSystemId → the account's characters currently shown there. */
   bySystem: Map<number, AccountCharLocation[]>;
+  /** users.id → that character's location (for following a tracked character). */
+  byChar:   Map<number, AccountCharLocation>;
 }
 
 interface RawResponse {
   characters: Array<{
     charId: number; characterId: number; characterName: string;
-    online: boolean; eveSystemId: number; systemName: string | null;
+    online: boolean; eveSystemId: number; systemName: string | null; systemClass: string | null;
   }>;
 }
 
 const POLL_MS = 30_000;
-const EMPTY: AccountLocations = { bySystem: new Map() };
+const EMPTY: AccountLocations = { bySystem: new Map(), byChar: new Map() };
 
 let moduleCache: { data: AccountLocations; fetchedAt: number } | null = null;
 let inflight: Promise<AccountLocations> | null = null;
@@ -47,7 +50,9 @@ function load() {
   if (inflight) return inflight;
   inflight = api<RawResponse>('/api/character/account-locations')
     .then((r) => {
-      const data: AccountLocations = { bySystem: indexBySystem(r.characters) };
+      const byChar = new Map<number, AccountCharLocation>();
+      for (const c of r.characters) byChar.set(c.charId, c);
+      const data: AccountLocations = { bySystem: indexBySystem(r.characters), byChar };
       moduleCache = { data, fetchedAt: Date.now() };
       inflight = null;
       notify(data);
