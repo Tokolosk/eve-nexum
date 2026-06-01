@@ -154,7 +154,7 @@ function ProximityChip() {
     { label: t('toolbar.proximity.threat'), Icon: QuestionIcon };
   return (
     <span
-      className="toolbar__proximity toolbar__proximity--alert"
+      className="toolbar__proximity toolbar__proximity--alert tooltip-right"
       data-tooltip={t('toolbar.proximity.closest', { label: label.toLowerCase() })}
     >
       <span className="toolbar__proximity-icon"><Icon size={14} weight="bold" /></span>
