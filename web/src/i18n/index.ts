@@ -22,16 +22,18 @@ export type SupportedLanguage = (typeof SUPPORTED_LANGUAGES)[number];
 // in every locale (English is always "English", Deutsch always "Deutsch") so
 // they are NOT translated. English uses the GB flag (the app's English is
 // en-GB). Used by the LanguageSwitcher and the landing-page language section.
+// Native language names. Flags are rendered separately as bundled SVGs (see
+// LangFlag) rather than emoji, since Windows has no country-flag glyphs.
 export const LANGUAGE_NAMES: Record<SupportedLanguage, string> = {
-  en: '🇬🇧 English',
-  de: '🇩🇪 Deutsch',
-  fr: '🇫🇷 Français',
-  es: '🇪🇸 Español',
-  pt: '🇵🇹 Português',
-  zh: '🇨🇳 简体中文',
-  ko: '🇰🇷 한국어',
-  ja: '🇯🇵 日本語',
-  ru: '🇷🇺 Русский',
+  en: 'English',
+  de: 'Deutsch',
+  fr: 'Français',
+  es: 'Español',
+  pt: 'Português',
+  zh: '简体中文',
+  ko: '한국어',
+  ja: '日本語',
+  ru: 'Русский',
 };
 
 // One namespace ('common') for now. Split into feature namespaces
