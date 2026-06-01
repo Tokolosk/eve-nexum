@@ -908,6 +908,10 @@
         "title": "Solo- / Corp-Trennung",
         "desc": "Jeder Benutzer hat persönliche Karten, die immer privat sind; im Corp-Modus erhält jede Corp zusätzlich gemeinsame Corp-Karten. Corp-übergreifende Sichtbarkeit ist über eine einzige Umgebungsvariable aktivierbar."
       },
+      "multiCharacter": {
+        "title": "Konten mit mehreren Charakteren",
+        "desc": "Verknüpfe deine Twinks mit einem Konto und wechsle zwischen ihnen, ohne dich erneut anzumelden — die Karten jedes Charakters werden beim Verknüpfen zusammengeführt. Folge dem Live-Standort eines Twinks, während du deinen Main fliegst, und löse einen Charakter jederzeit wieder."
+      },
       "multiMap": {
         "title": "Mehrkarten-Unterstützung",
         "desc": "Jeder Charakter (oder jede Corp) kann mehrere unabhängige Karten bis zu konfigurierten Grenzen pflegen — getrennte Ketten für getrennte Ops, ohne den Kontext zu verlieren."

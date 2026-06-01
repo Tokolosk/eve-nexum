@@ -908,6 +908,10 @@
         "title": "Separación Solo / Corp",
         "desc": "Cada usuario tiene mapas personales que siempre son privados; en modo corp cada corp obtiene además mapas de corp compartidos. La visibilidad entre corps se activa mediante una sola variable de entorno."
       },
+      "multiCharacter": {
+        "title": "Cuentas con varios personajes",
+        "desc": "Vincula tus alts a una sola cuenta y cambia entre ellos sin volver a iniciar sesión: los mapas de cada personaje se fusionan al vincularlos. Sigue la ubicación en vivo de un alt mientras pilotas tu principal y desvincula un personaje cuando quieras."
+      },
       "multiMap": {
         "title": "Soporte multimapa",
         "desc": "Cada personaje (o corp) puede mantener varios mapas independientes hasta los límites configurados — cadenas separadas para operaciones separadas sin perder el contexto."

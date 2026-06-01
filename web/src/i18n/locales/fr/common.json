@@ -908,6 +908,10 @@
         "title": "Séparation Solo / Corp",
         "desc": "Chaque utilisateur a des cartes personnelles toujours privées ; en mode corp, chaque corp obtient aussi des cartes de corp partagées. La visibilité inter-corp est activable via un seul drapeau d'environnement."
       },
+      "multiCharacter": {
+        "title": "Comptes multi-personnages",
+        "desc": "Associez vos alts à un seul compte et passez de l'un à l'autre sans vous reconnecter — les cartes de chaque personnage sont fusionnées lors de l'association. Suivez la position en direct d'un alt pendant que vous pilotez votre main, et dissociez un personnage quand vous le souhaitez."
+      },
       "multiMap": {
         "title": "Prise en charge multi-cartes",
         "desc": "Chaque personnage (ou corp) peut maintenir plusieurs cartes indépendantes jusqu'aux limites configurées — des chaînes séparées pour des ops séparées sans perdre le contexte."
