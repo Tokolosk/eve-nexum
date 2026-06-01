@@ -510,6 +510,7 @@ export function SignaturePane({ systemId }: { systemId: string }) {
           {isShareMode ? t('signatures.emptyShared') : t('signatures.empty')}
         </div>
       ) : (
+        <div className="sig-table-wrap">
         <table className="sig-table">
           <colgroup>
             {/* In share mode the checkbox and per-row delete cells are
@@ -572,7 +573,7 @@ export function SignaturePane({ systemId }: { systemId: string }) {
                 {t('signatures.colUpdated')}{sortInd('updatedAt')}
                 <div className="sig-th__resize" onMouseDown={(e) => startResize('updated', e)} />
               </th>
-              {!isShareMode && <th />}
+              {!isShareMode && <th className="sig-cell--actions" />}
             </tr>
           </thead>
           <tbody>
@@ -674,7 +675,7 @@ export function SignaturePane({ systemId }: { systemId: string }) {
                 />
                 <ElapsedCell iso={sig.updatedAt} className="sig-td--time sig-td--updated" />
                 {!isShareMode && (
-                  <td>
+                  <td className="sig-cell--actions">
                     {canEdit && (
                       <button
                         className="icon-btn icon-btn--danger"
@@ -688,6 +689,7 @@ export function SignaturePane({ systemId }: { systemId: string }) {
             ))}
           </tbody>
         </table>
+        </div>
       )}
     </div>
     </>
