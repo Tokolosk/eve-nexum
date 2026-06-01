@@ -114,16 +114,20 @@ function AppShell() {
     const params = new URLSearchParams(window.location.search);
     const added = params.get('added');
     const linkError = params.get('link_error');
-    console.log('[NEXUM-DEBUG] AppShell load url=', window.location.href, { added, linkError });
     if (!added && !linkError) return;
-    if (added) toast.success(i18n.t('account.characterAdded', { name: added }));
-    if (linkError) {
-      toast.error(i18n.t(linkError === 'not_in_corp' ? 'account.linkFailedNotInCorp' : 'account.linkFailed'));
-    }
+    // Strip the params synchronously so a refresh — or StrictMode's dev
+    // re-run of this effect — doesn't repeat the toast.
     const url = new URL(window.location.href);
     url.searchParams.delete('added');
     url.searchParams.delete('link_error');
     window.history.replaceState({}, '', url.toString());
+    // Emit on a macrotask so the Toaster (a sibling) has subscribed before we
+    // notify, and deliberately do NOT clear it on cleanup — otherwise
+    // StrictMode's mount/unmount/remount would cancel it and nothing shows.
+    setTimeout(() => {
+      if (added) toast.success(i18n.t('account.characterAdded', { name: added }));
+      if (linkError) toast.error(i18n.t(linkError === 'not_in_corp' ? 'account.linkFailedNotInCorp' : 'account.linkFailed'));
+    }, 0);
   }, []);
 
   // Share links bypass the entire auth gate — a guest with the URL should
