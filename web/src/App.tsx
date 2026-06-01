@@ -12,6 +12,7 @@ import { ProximityOptInModal } from './components/ui/ProximityOptInModal';
 import { CommandPaletteModal } from './components/ui/CommandPaletteModal';
 import { LandingPage } from './components/ui/LandingPage';
 import { Toaster } from './components/ui/Toaster';
+import { TooltipLayer } from './components/ui/TooltipLayer';
 import { AdminPage } from './components/ui/AdminPage';
 import { SharedMapView } from './components/ui/SharedMapView';
 import { useMapStore } from './store/mapStore';
@@ -135,6 +136,7 @@ export default function App() {
     <AuthProvider>
       <AppShell />
       <Toaster />
+      <TooltipLayer />
     </AuthProvider>
   );
 }
