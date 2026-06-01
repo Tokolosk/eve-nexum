@@ -3238,6 +3238,44 @@ div.system-node__easy-handle {
   justify-content: flex-end;
 }
 
+/* Multi-select signature-type filter. Left-aligned chips above the table;
+   click to show only the selected types (none selected = show all). */
+.sig-pane__filter {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 0 6px;
+}
+.sig-filter-chip {
+  background: transparent;
+  border: 1px solid #2e3a52;
+  border-radius: 999px;
+  color: #8a9ab5;
+  font-family: inherit;
+  font-size: calc(13px * var(--font-scale, 1));
+  padding: 2px 11px;
+  cursor: pointer;
+  transition: border-color 0.12s, color 0.12s, background 0.12s;
+}
+.sig-filter-chip:hover { border-color: #4d9de0; color: #c8d0e0; }
+.sig-filter-chip--active {
+  border-color: #5a9af8;
+  background: rgba(90, 154, 248, 0.18);
+  color: #e8f0ff;
+}
+.sig-filter-clear {
+  background: transparent;
+  border: none;
+  color: #6a8ab0;
+  font-family: inherit;
+  font-size: calc(12px * var(--font-scale, 1));
+  padding: 2px 6px;
+  cursor: pointer;
+  text-decoration: underline;
+}
+.sig-filter-clear:hover { color: #9ec0e8; }
+
 .sig-pane__empty {
   font-size: calc(16px * var(--font-scale, 1));
   color: #6a7a98;

@@ -119,6 +119,9 @@ function formatDelay(sec: number): string {
   return sec >= 60 ? `${sec / 60}m` : `${sec}s`;
 }
 
+// Order the type-filter chips most-useful-first. Covers every SigType.
+const SIG_TYPE_FILTER_ORDER: SigType[] = ['wormhole', 'data', 'relic', 'gas', 'ore', 'combat', 'unknown'];
+
 // Single module-level 1 s tick shared across every ElapsedCell instance.
 // Previously each SignaturePane drove a state update every second, which
 // re-rendered every row including its embedded MDEditor — extremely expensive.
@@ -187,6 +190,18 @@ export function SignaturePane({ systemId }: { systemId: string }) {
   // alphabetical position. User clicks on column headers override this.
   const [sortCol, setSortCol]         = useState<SortCol | null>('sigId');
   const [sortDir, setSortDir]         = useState<'asc' | 'desc'>('asc');
+  // Multi-select type filter. Empty = show all; otherwise show only the
+  // selected sig types. A view-only filter, so it isn't persisted.
+  const [typeFilter, setTypeFilter]   = useState<Set<SigType>>(new Set());
+
+  const toggleTypeFilter = (type: SigType) => {
+    setTypeFilter((prev) => {
+      const next = new Set(prev);
+      if (next.has(type)) next.delete(type);
+      else next.add(type);
+      return next;
+    });
+  };
   // Persist column widths so a user-tuned layout follows them from one
   // system to the next (and across reloads). Stored under a single
   // ui_settings key — drag-resize re-saves on every mousemove tick, but
@@ -522,14 +537,15 @@ export function SignaturePane({ systemId }: { systemId: string }) {
   };
 
   const sortedSigs = useMemo(() => {
-    if (!sortCol) return sigs;
-    return [...sigs].sort((a, b) => {
+    const base = typeFilter.size ? sigs.filter((s) => typeFilter.has(s.sigType)) : sigs;
+    if (!sortCol) return base;
+    return [...base].sort((a, b) => {
       const av = (a[sortCol] ?? '').toLowerCase();
       const bv = (b[sortCol] ?? '').toLowerCase();
       const cmp = av.localeCompare(bv);
       return sortDir === 'asc' ? cmp : -cmp;
     });
-  }, [sigs, sortCol, sortDir]);
+  }, [sigs, sortCol, sortDir, typeFilter]);
 
   const startResize = (col: ColKey, e: React.MouseEvent) => {
     e.preventDefault();
@@ -635,10 +651,33 @@ export function SignaturePane({ systemId }: { systemId: string }) {
         </div>
       )}
 
+      {sigs.length > 0 && (
+        <div className="sig-pane__filter" role="group" aria-label={t('signatures.filterLabel')}>
+          {SIG_TYPE_FILTER_ORDER.map((type) => (
+            <button
+              key={type}
+              type="button"
+              className={`sig-filter-chip sig-filter-chip--${type}${typeFilter.has(type) ? ' sig-filter-chip--active' : ''}`}
+              aria-pressed={typeFilter.has(type)}
+              onClick={() => toggleTypeFilter(type)}
+            >
+              {t(`sigType.${type}`)}
+            </button>
+          ))}
+          {typeFilter.size > 0 && (
+            <button type="button" className="sig-filter-clear" onClick={() => setTypeFilter(new Set())}>
+              {t('signatures.filterClear')}
+            </button>
+          )}
+        </div>
+      )}
+
       {sigs.length === 0 ? (
         <div className={`sig-pane__empty${isShareMode ? ' sig-pane__empty--shared' : ''}`}>
           {isShareMode ? t('signatures.emptyShared') : t('signatures.empty')}
         </div>
+      ) : sortedSigs.length === 0 ? (
+        <div className="sig-pane__empty">{t('signatures.noMatchFilter')}</div>
       ) : (
         <div className="sig-table-wrap">
         <table className="sig-table">
