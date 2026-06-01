@@ -371,7 +371,8 @@
       "removeSelected": "Eliminar sistemas seleccionados",
       "undo": "Deshacer",
       "multiSelect": "Selección múltiple de sistemas",
-      "rubberBand": "Selección por recuadro"
+      "rubberBand": "Selección por recuadro",
+      "overwriteSigs": "Pegar firmas en modo sobrescritura (eliminar las desaparecidas)"
     },
     "canvasNotFound": "No se pudo encontrar el lienzo del mapa",
     "exportFailed": "Error al exportar: {{error}}",

@@ -371,7 +371,8 @@
       "removeSelected": "Supprimer les systèmes sélectionnés",
       "undo": "Annuler",
       "multiSelect": "Sélection multiple de systèmes",
-      "rubberBand": "Sélection par rectangle"
+      "rubberBand": "Sélection par rectangle",
+      "overwriteSigs": "Coller les signatures en mode écrasement (supprimer les disparues)"
     },
     "canvasNotFound": "Impossible de trouver le canvas de la carte",
     "exportFailed": "Échec de l'export : {{error}}",

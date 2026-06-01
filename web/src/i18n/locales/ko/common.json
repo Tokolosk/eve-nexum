@@ -371,7 +371,8 @@
       "removeSelected": "선택한 성계 제거",
       "undo": "실행 취소",
       "multiSelect": "성계 다중 선택",
-      "rubberBand": "드래그로 성계 선택"
+      "rubberBand": "드래그로 성계 선택",
+      "overwriteSigs": "덮어쓰기 모드로 시그니처 붙여넣기 (사라진 항목 제거)"
     },
     "canvasNotFound": "지도 캔버스를 찾을 수 없습니다",
     "exportFailed": "내보내기 실패: {{error}}",

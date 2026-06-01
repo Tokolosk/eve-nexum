@@ -371,7 +371,8 @@
       "removeSelected": "Remover sistemas selecionados",
       "undo": "Desfazer",
       "multiSelect": "Seleção múltipla de sistemas",
-      "rubberBand": "Seleção por retângulo"
+      "rubberBand": "Seleção por retângulo",
+      "overwriteSigs": "Colar assinaturas em modo de substituição (remover as desaparecidas)"
     },
     "canvasNotFound": "Não foi possível encontrar a tela do mapa",
     "exportFailed": "Falha na exportação: {{error}}",

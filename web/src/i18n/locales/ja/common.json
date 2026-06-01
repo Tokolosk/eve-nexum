@@ -371,7 +371,8 @@
       "removeSelected": "選択した星系を削除",
       "undo": "元に戻す",
       "multiSelect": "星系を複数選択",
-      "rubberBand": "ドラッグで星系を選択"
+      "rubberBand": "ドラッグで星系を選択",
+      "overwriteSigs": "上書きモードでシグネチャを貼り付け（消滅したものを削除）"
     },
     "canvasNotFound": "マップキャンバスが見つかりませんでした",
     "exportFailed": "エクスポートに失敗しました: {{error}}",

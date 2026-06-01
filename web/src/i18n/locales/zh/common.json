@@ -371,7 +371,8 @@
       "removeSelected": "移除选定星系",
       "undo": "撤销",
       "multiSelect": "多选星系",
-      "rubberBand": "框选星系"
+      "rubberBand": "框选星系",
+      "overwriteSigs": "以覆盖模式粘贴信号（移除已消失的）"
     },
     "canvasNotFound": "找不到地图画布",
     "exportFailed": "导出失败：{{error}}",
