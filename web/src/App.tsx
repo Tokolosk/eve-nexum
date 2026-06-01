@@ -114,6 +114,7 @@ function AppShell() {
     const params = new URLSearchParams(window.location.search);
     const added = params.get('added');
     const linkError = params.get('link_error');
+    console.log('[NEXUM-DEBUG] AppShell load url=', window.location.href, { added, linkError });
     if (!added && !linkError) return;
     if (added) toast.success(i18n.t('account.characterAdded', { name: added }));
     if (linkError) {

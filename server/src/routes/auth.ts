@@ -110,8 +110,12 @@ authRouter.get('/callback', async (req, res) => {
   // logged in (as their active character), so they land on the app, not the
   // landing page — use ?link_error= so the app can toast the reason. A fresh
   // login uses ?error= which the landing page renders inline.
-  const failUrl = (code: string) =>
-    `${FRONTEND_URL}?${addCharacterOwnerId != null ? 'link_error' : 'error'}=${code}`;
+  log.info(`[NEXUM-DEBUG] callback addCharacterOwnerId=${addCharacterOwnerId ?? 'undefined'}`);
+  const failUrl = (code: string) => {
+    const url = `${FRONTEND_URL}?${addCharacterOwnerId != null ? 'link_error' : 'error'}=${code}`;
+    log.info(`[NEXUM-DEBUG] failUrl -> ${url}`);
+    return url;
+  };
 
   try {
     // Exchange code for tokens
