@@ -511,15 +511,18 @@ export function SignaturePane({ systemId }: { systemId: string }) {
       {canEdit && !isShareMode && (
         <div className="sig-pane__toolbar">
           <button className="icon-btn" onClick={addSig} title={t('signatures.addSignature')}>{t('signatures.addSignature')}</button>
-          <button
-            type="button"
-            className={`sig-toolbar-btn${overwriteOnPaste ? ' sig-toolbar-btn--active' : ''}`}
-            onClick={() => setOverwriteOnPaste(!overwriteOnPaste)}
-            aria-pressed={overwriteOnPaste}
+          <label
+            className={`sig-overwrite-toggle${overwriteOnPaste ? ' sig-overwrite-toggle--active' : ''}`}
             data-tooltip={t('signatures.overwriteTooltip')}
           >
-            {t('signatures.overwriteToggle')}
-          </button>
+            <input
+              type="checkbox"
+              className="map-sidebar__toggle-input"
+              checked={overwriteOnPaste}
+              onChange={(e) => setOverwriteOnPaste(e.target.checked)}
+            />
+            <span>{t('signatures.overwriteToggle')}</span>
+          </label>
           {selected.size > 0 && (
             <>
               <select
