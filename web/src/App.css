@@ -3286,7 +3286,33 @@ div.system-node__easy-handle {
 
 .sig-col--check   { width: 24px; }
 .sig-col--whtype  { overflow: visible; }
-.sig-col--actions { width: 24px; }
+.sig-col--actions { width: 28px; }
+
+/* When the resizable columns sum wider than the pane, let the table scroll
+   horizontally inside its card instead of being clipped by the card's
+   overflow:hidden. */
+.sig-table-wrap {
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+/* Pin the per-row delete (and its header) to the right edge so it's always
+   reachable no matter how narrow the pane is or how the columns are sized.
+   The cell needs an opaque background per row state, otherwise scrolled
+   columns would show through the pinned column. Scoped under .sig-table so
+   these win over the semi-transparent .sig-row--* td tints. */
+.sig-table th.sig-cell--actions,
+.sig-table td.sig-cell--actions {
+  position: sticky;
+  right: 0;
+  z-index: 1;
+  box-shadow: -6px 0 8px -6px rgba(0, 0, 0, 0.55);
+}
+.sig-table th.sig-cell--actions             { background: #080e1a; }          /* card backdrop */
+.sig-table tbody td.sig-cell--actions        { background: #0b0f18; }          /* odd rows */
+.sig-table tbody tr:nth-child(even) td.sig-cell--actions { background: #0d1220; }
+.sig-table tbody tr:hover td.sig-cell--actions           { background: #111a28; }
+.sig-table tbody tr.sig-row--selected td.sig-cell--actions { background: #0a1525; }
 
 .sig-th {
   position: relative;
