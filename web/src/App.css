@@ -3371,6 +3371,27 @@ div.system-node__easy-handle {
    possible). Selected rows still override via !important. */
 .sig-row--unknown td { background: rgba(231,76,60,0.06); }
 
+/* Overwrite-paste pending removal: the row stays visible with a struck-through
+   red treatment and slowly fades over the configured grace period, so the user
+   can see exactly which sigs are about to be deleted (and clear any in-game
+   bookmarks) before they go. animation-duration is set inline to match the
+   delay. */
+.sig-row--removing {
+  animation: sig-row-removing-fade linear forwards;
+}
+.sig-row--removing td {
+  text-decoration: line-through;
+  color: #e88a8a;
+  background: rgba(231,76,60,0.16);
+}
+/* The pinned actions cell needs an opaque red so scrolled columns don't show
+   through it (it can't use the semi-transparent tint above). */
+.sig-table tbody tr.sig-row--removing td.sig-cell--actions { background: #1f1014; }
+@keyframes sig-row-removing-fade {
+  from { opacity: 1; }
+  to   { opacity: 0.4; }
+}
+
 /* Structures pane row tints, mirroring the EVE standings palette used
    by the sov pills and killboard rows. owner_corp_id is resolved via
    ESI on insert (and only when an eve_id was supplied), so rows without
