@@ -28,9 +28,14 @@ import { pickHandles } from './edgeUtils';
 import { setDestination, addWaypoint } from '../../api/waypoint';
 import { toast } from '../ui/Toaster';
 import { useCustomIntel } from '../../hooks/useCustomIntel';
+import { useUserSetting } from '../../hooks/useUserSetting';
 import { resolveIntelColor } from '../../utils/intelColors';
 
 const NODE_TYPES = { system: SystemNode };
+
+// Zoom bounds — shared by the <ReactFlow> props and the inverted-wheel handler.
+const MIN_ZOOM = 0.2;
+const MAX_ZOOM = 2;
 
 function resolveOverlaps(
   items: Array<{ id: string; x: number; y: number; w: number; h: number; locked: boolean }>,
@@ -127,11 +132,45 @@ export function MapCanvas() {
   const accountLocations     = useAccountLocations();
   const pushUndo             = useMapStore((s) => s.pushUndo);
   const canEdit              = useCanEdit();
-  const { screenToFlowPosition, setViewport, getNode, getNodes, getZoom, fitView } = useReactFlow();
+  const { screenToFlowPosition, setViewport, getViewport, getNode, getNodes, getZoom, fitView } = useReactFlow();
+  // Invert mouse-wheel / trackpad zoom (per-user, cross-device). Off by default.
+  const [invertZoom] = useUserSetting<boolean>('nexum.map.invertZoom', false);
 
   const [pendingPosition, setPendingPosition] = useState<{ x: number; y: number } | null>(null);
   const [contextMenu, setContextMenu]         = useState<CtxMenu | null>(null);
   const [customIntel] = useCustomIntel();
+  const wrapperRef = useRef<HTMLDivElement>(null);
+
+  // Inverted-zoom handler. React Flow's own wheel zoom is off when this is on
+  // (zoomOnScroll={!invertZoom}); we zoom ourselves with the direction flipped,
+  // anchored at the cursor, matching d3-zoom's scaling so the feel is unchanged.
+  // Pinch (ctrl+wheel) is left to React Flow's zoomOnPinch so it stays natural.
+  // Non-passive listener so we can preventDefault the page scroll.
+  useEffect(() => {
+    if (!invertZoom) return;
+    const el = wrapperRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      if (e.ctrlKey) return; // pinch-zoom — leave it to React Flow
+      e.preventDefault();
+      const delta  = e.deltaY * (e.deltaMode === 1 ? 0.05 : e.deltaMode ? 1 : 0.002);
+      const factor = Math.pow(2, delta); // no negation → scroll-up zooms out
+      const { x, y, zoom } = getViewport();
+      const next = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, zoom * factor));
+      if (next === zoom) return;
+      const rect = el.getBoundingClientRect();
+      const px = e.clientX - rect.left;
+      const py = e.clientY - rect.top;
+      // Keep the flow point under the cursor fixed across the zoom.
+      setViewport({
+        x: px - ((px - x) / zoom) * next,
+        y: py - ((py - y) / zoom) * next,
+        zoom: next,
+      });
+    };
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => el.removeEventListener('wheel', onWheel);
+  }, [invertZoom, getViewport, setViewport]);
 
   // React Flow's <Controls> buttons read their hover title + aria-label from
   // ariaLabelConfig (merged with the library defaults), so this translates the
@@ -855,7 +894,7 @@ export function MapCanvas() {
   })();
 
   return (
-    <div className="map-canvas">
+    <div className="map-canvas" ref={wrapperRef}>
       <ReactFlow
         ariaLabelConfig={ariaLabelConfig}
         nodes={nodes}
@@ -882,8 +921,9 @@ export function MapCanvas() {
         snapToGrid={snapToGrid}
         snapGrid={[20, 20]}
         fitView
-        minZoom={0.2}
-        maxZoom={2}
+        minZoom={MIN_ZOOM}
+        maxZoom={MAX_ZOOM}
+        zoomOnScroll={!invertZoom}
         deleteKeyCode={null}
       >
         <Background
