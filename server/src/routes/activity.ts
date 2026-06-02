@@ -227,12 +227,21 @@ router.get('/:systemId(\\d+)', async (req, res) => {
 router.get('/current-kills', async (_req, res) => {
   const snap = await fetchEsi();
   if (!snap) { res.json([]); return; }
-  const arr = Array.from(snap.kills.values()).map((k) => ({
-    systemId:  k.system_id,
-    shipKills: k.ship_kills,
-    podKills:  k.pod_kills,
-    npcKills:  k.npc_kills,
-  }));
+  // Union of systems with kills and/or jumps so the client has every active
+  // system's full metric set (ship/pod/npc kills + jumps) in one payload —
+  // feeds the activity heatmaps. Jumps is a separate ESI map and covers
+  // different systems (e.g. a quiet system with jumps but no kills).
+  const ids = new Set<number>([...snap.kills.keys(), ...snap.jumps.keys()]);
+  const arr = Array.from(ids, (id) => {
+    const k = snap.kills.get(id);
+    return {
+      systemId:  id,
+      shipKills: k?.ship_kills ?? 0,
+      podKills:  k?.pod_kills ?? 0,
+      npcKills:  k?.npc_kills ?? 0,
+      jumps:     snap.jumps.get(id) ?? 0,
+    };
+  });
   res.json(arr);
 });
 

@@ -27,6 +27,8 @@ import { useNow30s } from '../../hooks/useNow30s';
 import { useStaleThreshold } from '../../hooks/useStaleThreshold';
 import { useCustomIntel } from '../../hooks/useCustomIntel';
 import { resolveIntelColor, resolveIntelLabel } from '../../utils/intelColors';
+import { useHeatmap } from '../../context/HeatmapContext';
+import { heatValue, heatColor } from '../../utils/heatmap';
 import { WHTypeInfo } from '../ui/WHTypeInfo';
 import { truesecColor } from '../../utils/truesec';
 
@@ -52,7 +54,6 @@ export const SystemNode = memo(({ data, selected }: NodeProps) => {
   const fleet                = useFleet();
   const { user }             = useAuth();
   const [showFleetMembers]   = useUserSetting<boolean>('nexum.fleet.showMembers', true);
-  const [fleetHeatmap]       = useUserSetting<boolean>('nexum.fleet.heatmap', false);
   // Fleet members in this exact system, minus the logged-in user — the
   // green you-are-here dot already represents them, so a purple dot
   // alongside would just be noise. When the only member here is the user,
@@ -65,19 +66,6 @@ export const SystemNode = memo(({ data, selected }: NodeProps) => {
     const myId = user?.characterId;
     return myId ? all.filter((m) => m.characterId !== myId) : all;
   }, [showFleetMembers, fleet.bySystem, sys.eveSystemId, user?.characterId]);
-
-  // Heatmap glow intensity (0..1) from the fleet headcount in this system,
-  // scaled so 1 member is a faint halo and ~8+ saturates. Independent of the
-  // count-badge toggle — it's its own setting. 0 = no glow.
-  const fleetHeat = useMemo(() => {
-    if (!fleetHeatmap || sys.eveSystemId == null) return 0;
-    const all = fleet.bySystem.get(sys.eveSystemId);
-    if (!all || all.length === 0) return 0;
-    const myId = user?.characterId;
-    const count = myId ? all.filter((m) => m.characterId !== myId).length : all.length;
-    // Floor at 0.45 so a single pilot is already a clear halo; saturates ~6+.
-    return count === 0 ? 0 : Math.min(1, Math.max(0.45, count / 6));
-  }, [fleetHeatmap, fleet.bySystem, sys.eveSystemId, user?.characterId]);
 
   // The account's other characters (alts) located in this system — live when
   // online, else their last known position. The active character has its own
@@ -134,6 +122,22 @@ export const SystemNode = memo(({ data, selected }: NodeProps) => {
   const allKills        = useCurrentHourKills();
   const myKills         = sys.eveSystemId !== null ? allKills.get(sys.eveSystemId) : undefined;
   const hotKills        = !!myKills && myKills.shipKills + myKills.podKills > 0;
+
+  // Active heatmap glow for this node — value for the selected metric,
+  // normalised against the per-map max (from HeatmapContext). null = no glow
+  // (heatmap off, or this system has no value for the metric).
+  const heatmap = useHeatmap();
+  const heat = useMemo(() => {
+    const metric = heatmap.metric;
+    if (metric === 'none' || heatmap.max <= 0) return null;
+    const v = heatValue(metric, sys.eveSystemId, allKills, fleet, user?.characterId);
+    if (v <= 0) return null;
+    // Raw 0..1 share drives the colour (yellow→orange→red); the glow strength
+    // is that share times the user intensity, so the busiest system on the map
+    // is the reference point and the slider just brightens/dims the rest.
+    const raw = Math.min(1, v / heatmap.max);
+    return { glow: Math.min(1, raw * heatmap.intensity), color: heatColor(raw) };
+  }, [heatmap.metric, heatmap.max, heatmap.intensity, sys.eveSystemId, allKills, fleet, user?.characterId]);
   const now             = useNow30s();
   const [staleHours]    = useStaleThreshold();
   const isStale         = !!sys.lastActivityAt &&
@@ -192,12 +196,12 @@ export const SystemNode = memo(({ data, selected }: NodeProps) => {
       style={{
         '--class-color': color,
         ...(intelColor ? { '--intel-color': intelColor } : null),
-        ...(fleetHeat ? { '--fleet-heat': fleetHeat } : null),
+        ...(heat ? { '--heat': heat.glow, '--heat-color': heat.color } : null),
         ...(uniformSize && uniformWidth  > 0 ? { minWidth:  uniformWidth  } : null),
         ...(uniformSize && uniformHeight > 0 ? { minHeight: uniformHeight } : null),
       } as React.CSSProperties}
       data-selected={selected}
-      data-fleet-heat={fleetHeat ? '' : undefined}
+      data-heat={heat ? '' : undefined}
       data-status={sys.status}
       data-intel={sys.intel ?? undefined}
       data-home={sys.isHome}
