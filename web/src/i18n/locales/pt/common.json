@@ -1,4 +1,7 @@
 {
+  "session": {
+    "idleLogout": "Sessão terminada por inatividade."
+  },
   "fleet": {
     "notInFleet": "Não estás numa frota",
     "noMembers": "Nenhum membro da frota visível",
@@ -337,6 +340,11 @@
       "topLeft": "Superior esquerdo"
     },
     "fontSize": "Tamanho da letra",
+    "placement": "Posicionamento de novos sistemas",
+    "placementOptions": {
+      "horizontal": "Horizontal (direita)",
+      "vertical": "Vertical (abaixo)"
+    },
     "resetZoom": "Repor para 100 %",
     "compact": "Compacto",
     "uniformSize": "Tamanho uniforme",

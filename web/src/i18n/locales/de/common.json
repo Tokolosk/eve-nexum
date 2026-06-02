@@ -1,4 +1,7 @@
 {
+  "session": {
+    "idleLogout": "Wegen Inaktivität abgemeldet."
+  },
   "fleet": {
     "notInFleet": "In keiner Flotte",
     "noMembers": "Keine Flottenmitglieder sichtbar",
@@ -337,6 +340,11 @@
       "topLeft": "Oben links"
     },
     "fontSize": "Schriftgröße",
+    "placement": "Platzierung neuer Systeme",
+    "placementOptions": {
+      "horizontal": "Horizontal (rechts)",
+      "vertical": "Vertikal (unten)"
+    },
     "resetZoom": "Auf 100% zurücksetzen",
     "compact": "Kompakt",
     "uniformSize": "Einheitliche Größe",

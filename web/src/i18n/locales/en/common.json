@@ -1,4 +1,7 @@
 {
+  "session": {
+    "idleLogout": "Signed out due to inactivity."
+  },
   "fleet": {
     "notInFleet": "Not in a fleet",
     "noMembers": "No fleet members visible",
@@ -337,6 +340,11 @@
       "topLeft": "Top left"
     },
     "fontSize": "Font Size",
+    "placement": "New system placement",
+    "placementOptions": {
+      "horizontal": "Horizontal (right)",
+      "vertical": "Vertical (below)"
+    },
     "resetZoom": "Reset to 100%",
     "compact": "Compact",
     "uniformSize": "Uniform Size",

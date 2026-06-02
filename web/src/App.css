@@ -395,6 +395,7 @@
 
 .scout-row__meta {
   display: flex;
+  align-items: center;
   gap: 8px;
   color: #8a9ab8;
   font-size: calc(13px * var(--font-scale, 1));
@@ -1360,7 +1361,7 @@
   top: 0;
   right: 0;
   height: 100%;
-  width: 220px;
+  width: 250px;
   transform: translateX(100%);
   transition: transform 0.2s ease;
   background: #0d1117;
@@ -2022,8 +2023,8 @@
 }
 
 .system-node {
-  min-width: 150px;
-  min-height: 80px; /* at least 4 snap-grid squares tall */
+  min-width: 160px;  /* 8 snap-grid squares — keep node size a grid multiple */
+  min-height: 80px;  /* 4 snap-grid squares tall */
   background: #111827;
   border: 1.5px solid color-mix(in srgb, var(--class-color) 40%, #1e2740);
   border-radius: 8px;
