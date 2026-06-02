@@ -4,6 +4,44 @@ import { useCharacterLocation } from './useCharacterLocation';
 import { useCanEdit } from './useCanEdit';
 import type { SystemClass, WormholeEffect } from '../types';
 
+interface Box { position: { x: number; y: number } }
+
+// AABB overlap test between two top-left-anchored w×h boxes, padded by `gap`.
+function boxesOverlap(ax: number, ay: number, bx: number, by: number, w: number, h: number, gap: number): boolean {
+  return ax < bx + w + gap && ax + w + gap > bx && ay < by + h + gap && ay + h + gap > by;
+}
+
+// Pick a position for a newly auto-added system: the intended spot if it's
+// clear, otherwise the nearest free slot on an expanding grid around it. Stops
+// a second jump out of the same system from landing on top of the first one.
+function findFreePosition(
+  start: { x: number; y: number },
+  systems: Box[],
+  w: number,
+  h: number,
+  gap: number,
+): { x: number; y: number } {
+  const collides = (x: number, y: number) =>
+    systems.some((s) => boxesOverlap(x, y, s.position.x, s.position.y, w, h, gap));
+  if (!collides(start.x, start.y)) return start;
+
+  const stepX = w + gap;
+  const stepY = h + gap;
+  // Search rings (Chebyshev distance) outward so we return the closest free
+  // slot to the intended position.
+  for (let ring = 1; ring <= 12; ring++) {
+    for (let dy = -ring; dy <= ring; dy++) {
+      for (let dx = -ring; dx <= ring; dx++) {
+        if (Math.max(Math.abs(dx), Math.abs(dy)) !== ring) continue; // perimeter only
+        const x = start.x + dx * stepX;
+        const y = start.y + dy * stepY;
+        if (!collides(x, y)) return { x, y };
+      }
+    }
+  }
+  return start; // map is unusually dense — fall back rather than loop forever
+}
+
 /**
  * Map-side reaction to character location changes. The actual polling lives
  * in `useCharacterLocation` (10s, module-level, shared with the sidebar);
@@ -19,7 +57,7 @@ export function useLocationTracking(enabled: boolean) {
 
   useEffect(() => {
     if (!enabled) return;
-    const { map, addSystem, addConnection, optimizeConnections, selectSystem, setCurrentSystem, uniformWidth } = useMapStore.getState();
+    const { map, addSystem, addConnection, optimizeConnections, selectSystem, setCurrentSystem, uniformWidth, uniformHeight } = useMapStore.getState();
 
     // No active map loaded yet (mid switchMap / first paint) — wait for the
     // next location update rather than racing addSystem against an empty store.
@@ -72,11 +110,16 @@ export function useLocationTracking(enabled: boolean) {
       // overlaps the one it's placed next to (positions are top-left corners;
       // a flat +200 touched because nodes are ~200 wide). Falls back to a
       // generous constant before any node has been measured.
-      const stepX = (uniformWidth || 220) + 60;
-      let position: { x: number; y: number };
+      const w = uniformWidth || 220;
+      const h = uniformHeight || 120;
+      const gap = 30;
+      const stepX = w + 60;
+      // Intended spot: just to the right of the system we jumped from (or the
+      // map centroid for the very first auto-add).
+      let intended: { x: number; y: number };
       if (prevMapSystemId) {
         const prevSys = map.systems.find((s) => s.id === prevMapSystemId)!;
-        position = { x: prevSys.position.x + stepX, y: prevSys.position.y };
+        intended = { x: prevSys.position.x + stepX, y: prevSys.position.y };
       } else {
         const cx = map.systems.length
           ? map.systems.reduce((sum, s) => sum + s.position.x, 0) / map.systems.length
@@ -84,8 +127,10 @@ export function useLocationTracking(enabled: boolean) {
         const cy = map.systems.length
           ? map.systems.reduce((sum, s) => sum + s.position.y, 0) / map.systems.length
           : 0;
-        position = { x: cx + stepX, y: cy };
+        intended = { x: cx + stepX, y: cy };
       }
+      // ...but never on top of an existing node — find the nearest free slot.
+      const position = findFreePosition(intended, map.systems, w, h, gap);
 
       mapSystemId = addSystem(
         system.name,
