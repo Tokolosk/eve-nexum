@@ -1827,11 +1827,11 @@
 }
 
 /* Folded-corner triangle in the top-right when intel is set — a second,
-   shape-based cue so the intel state reads at a glance alongside the coloured
-   border. CSS-only via ::after, keyed off data-intel and the same
+   shape-based cue alongside the coloured border. A real element (rendered by
+   SystemNode) rather than a ::after so it can carry a tooltip with the intel
+   label on hover; pointer-events enabled for exactly that. Uses the same
    --intel-color SystemNode sets inline. */
-.system-node[data-intel]::after {
-  content: '';
+.system-node__intel-corner {
   position: absolute;
   top: 0;
   right: 0;
@@ -1840,7 +1840,7 @@
   border-top: 16px solid var(--intel-color);
   border-left: 16px solid transparent;
   border-top-right-radius: 6px;
-  pointer-events: none;
+  pointer-events: auto;
 }
 
 .system-node {
