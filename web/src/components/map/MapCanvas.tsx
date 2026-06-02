@@ -141,20 +141,25 @@ export function MapCanvas() {
   const [customIntel] = useCustomIntel();
   const wrapperRef = useRef<HTMLDivElement>(null);
 
-  // Inverted-zoom handler. React Flow's own wheel zoom is off when this is on
-  // (zoomOnScroll={!invertZoom}); we zoom ourselves with the direction flipped,
-  // anchored at the cursor, matching d3-zoom's scaling so the feel is unchanged.
-  // Pinch (ctrl+wheel) is left to React Flow's zoomOnPinch so it stays natural.
-  // Non-passive listener so we can preventDefault the page scroll.
+  // Inverted-zoom handler. When on, React Flow's own wheel AND pinch zoom are
+  // off (zoomOnScroll / zoomOnPinch = !invertZoom) and we handle both here with
+  // the direction flipped, anchored at the cursor, matching d3-zoom's scaling so
+  // the feel is unchanged. Covers a mac trackpad pinch too — the browser
+  // delivers that as a ctrl+wheel event, so it must NOT be skipped. Non-passive
+  // listener so we can preventDefault the page scroll / browser pinch-zoom.
   useEffect(() => {
     if (!invertZoom) return;
     const el = wrapperRef.current;
     if (!el) return;
     const onWheel = (e: WheelEvent) => {
-      if (e.ctrlKey) return; // pinch-zoom — leave it to React Flow
       e.preventDefault();
-      const delta  = e.deltaY * (e.deltaMode === 1 ? 0.05 : e.deltaMode ? 1 : 0.002);
-      const factor = Math.pow(2, delta); // no negation → scroll-up zooms out
+      // Match d3-zoom's wheelDelta (incl. its x10 for ctrl/pinch) so the speed
+      // is identical to React Flow's native zoom; only the sign is flipped (no
+      // negation here) so scroll-up / pinch-out zooms out instead of in.
+      const delta  = e.deltaY
+        * (e.deltaMode === 1 ? 0.05 : e.deltaMode ? 1 : 0.002)
+        * (e.ctrlKey ? 10 : 1);
+      const factor = Math.pow(2, delta);
       const { x, y, zoom } = getViewport();
       const next = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, zoom * factor));
       if (next === zoom) return;
@@ -924,6 +929,7 @@ export function MapCanvas() {
         minZoom={MIN_ZOOM}
         maxZoom={MAX_ZOOM}
         zoomOnScroll={!invertZoom}
+        zoomOnPinch={!invertZoom}
         deleteKeyCode={null}
       >
         <Background
