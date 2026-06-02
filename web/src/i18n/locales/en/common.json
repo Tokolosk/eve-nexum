@@ -372,6 +372,18 @@
     "activityNpcDelta": "NPC Delta",
     "fleetHint": "Render fleet-mates as purple dots on the system they're in. Hover a dot to see the names.",
     "showFleetMembers": "Show fleet members",
+    "heatmap": "Heatmap",
+    "heatIntensity": "Intensity",
+    "resetIntensity": "Reset intensity",
+    "heatmapOptions": {
+      "none": "None",
+      "fleet": "Fleet",
+      "shipKills": "Ship kills",
+      "podKills": "Pod kills",
+      "npcKills": "NPC kills",
+      "jumps": "Jumps"
+    },
+    "fleetHeatmap": "Fleet heatmap",
     "showAccountChars": "Show my characters",
     "staleHint": "Visually dim systems that haven't been updated for the chosen interval, so old chain residue is easy to spot at a glance.",
     "exportJson": "↓ Export as JSON",

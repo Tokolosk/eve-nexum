@@ -27,6 +27,8 @@ import { useNow30s } from '../../hooks/useNow30s';
 import { useStaleThreshold } from '../../hooks/useStaleThreshold';
 import { useCustomIntel } from '../../hooks/useCustomIntel';
 import { resolveIntelColor, resolveIntelLabel } from '../../utils/intelColors';
+import { useHeatmap } from '../../context/HeatmapContext';
+import { heatValue, heatColor } from '../../utils/heatmap';
 import { WHTypeInfo } from '../ui/WHTypeInfo';
 import { truesecColor } from '../../utils/truesec';
 
@@ -120,6 +122,22 @@ export const SystemNode = memo(({ data, selected }: NodeProps) => {
   const allKills        = useCurrentHourKills();
   const myKills         = sys.eveSystemId !== null ? allKills.get(sys.eveSystemId) : undefined;
   const hotKills        = !!myKills && myKills.shipKills + myKills.podKills > 0;
+
+  // Active heatmap glow for this node — value for the selected metric,
+  // normalised against the per-map max (from HeatmapContext). null = no glow
+  // (heatmap off, or this system has no value for the metric).
+  const heatmap = useHeatmap();
+  const heat = useMemo(() => {
+    const metric = heatmap.metric;
+    if (metric === 'none' || heatmap.max <= 0) return null;
+    const v = heatValue(metric, sys.eveSystemId, allKills, fleet, user?.characterId);
+    if (v <= 0) return null;
+    // Raw 0..1 share drives the colour (yellow→orange→red); the glow strength
+    // is that share times the user intensity, so the busiest system on the map
+    // is the reference point and the slider just brightens/dims the rest.
+    const raw = Math.min(1, v / heatmap.max);
+    return { glow: Math.min(1, raw * heatmap.intensity), color: heatColor(raw) };
+  }, [heatmap.metric, heatmap.max, heatmap.intensity, sys.eveSystemId, allKills, fleet, user?.characterId]);
   const now             = useNow30s();
   const [staleHours]    = useStaleThreshold();
   const isStale         = !!sys.lastActivityAt &&
@@ -178,10 +196,12 @@ export const SystemNode = memo(({ data, selected }: NodeProps) => {
       style={{
         '--class-color': color,
         ...(intelColor ? { '--intel-color': intelColor } : null),
+        ...(heat ? { '--heat': heat.glow, '--heat-color': heat.color } : null),
         ...(uniformSize && uniformWidth  > 0 ? { minWidth:  uniformWidth  } : null),
         ...(uniformSize && uniformHeight > 0 ? { minHeight: uniformHeight } : null),
       } as React.CSSProperties}
       data-selected={selected}
+      data-heat={heat ? '' : undefined}
       data-status={sys.status}
       data-intel={sys.intel ?? undefined}
       data-home={sys.isHome}

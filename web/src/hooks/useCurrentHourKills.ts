@@ -6,6 +6,7 @@ export interface SystemKills {
   shipKills: number;
   podKills:  number;
   npcKills:  number;
+  jumps:     number;
 }
 
 const POLL_MS = 5 * 60 * 1000;

@@ -1016,6 +1016,46 @@
 .toolbar__toggle-led--on  { background: #3ddc84; box-shadow: 0 0 4px #3ddc8466; }
 .toolbar__toggle-led--off { background: #e05a5a; box-shadow: 0 0 4px #e05a5a66; }
 
+/* Heatmap toolbar control — icon button + horizontal popover (type + intensity). */
+.heatmap-menu { position: relative; display: inline-flex; }
+.heatmap-menu__pop {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+  background: #0d1117;
+  border: 1px solid #1e2740;
+  border-radius: 6px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.6);
+  padding: 8px 10px;
+}
+.heatmap-menu__label { color: #8a9ab5; font-size: calc(12px * var(--font-scale, 1)); }
+.heatmap-menu__select {
+  background: #0a0e1a;
+  border: 1px solid #1e2740;
+  border-radius: 4px;
+  color: #c8d0e0;
+  font-family: inherit;
+  font-size: calc(12px * var(--font-scale, 1));
+  padding: 3px 6px;
+  cursor: pointer;
+}
+.heatmap-menu__slider { width: 110px; }
+.heatmap-menu__value {
+  background: transparent;
+  border: 1px solid #1e2740;
+  border-radius: 4px;
+  color: #c8d0e0;
+  font-size: calc(11px * var(--font-scale, 1));
+  padding: 2px 6px;
+  min-width: 46px;
+  cursor: pointer;
+}
+
 /* ── Generic instant tooltip ─────────────────────────────── */
 [data-tooltip] {
   position: relative;
@@ -1955,6 +1995,30 @@
   border-left: 16px solid transparent;
   border-top-right-radius: 6px;
   pointer-events: auto;
+}
+
+/* Heatmap halo behind any node with a value for the active metric. Intensity
+   (--heat, 0..1) and colour (--heat-color) are set inline by SystemNode; the
+   metric (fleet / kills / pods / npc / jumps) just changes the colour. Drawn
+   on ::before behind the node so it doesn't fight the node's own border
+   box-shadows (hover / selected / current / sov). Two layers — a tight bright
+   inner ring + a soft wide outer halo — so even the lowest value reads. */
+.system-node[data-heat]::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  z-index: -1;
+  pointer-events: none;
+  /* Opacity + size scale almost entirely with --heat so cold systems barely
+     glow and hot ones pop — that's what gives the map contrast. */
+  box-shadow:
+    0 0 calc(6px  + var(--heat, 0) * 20px)
+        calc(1px  + var(--heat, 0) * 7px)
+        color-mix(in srgb, var(--heat-color, #f97316) calc(12% + var(--heat, 0) * 78%), transparent),
+    0 0 calc(16px + var(--heat, 0) * 46px)
+        calc(4px  + var(--heat, 0) * 15px)
+        color-mix(in srgb, var(--heat-color, #f97316) calc(var(--heat, 0) * 55%), transparent);
 }
 
 .system-node {
