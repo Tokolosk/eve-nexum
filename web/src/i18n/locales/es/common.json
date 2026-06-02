@@ -372,6 +372,15 @@
     "activityNpcDelta": "Delta de PNJ",
     "fleetHint": "Muestra a los compañeros de flota como puntos morados en el sistema en el que están. Pasa el ratón por un punto para ver los nombres.",
     "showFleetMembers": "Mostrar miembros de la flota",
+    "heatmap": "Mapa de calor",
+    "heatmapOptions": {
+      "none": "Ninguno",
+      "fleet": "Flota",
+      "shipKills": "Naves destruidas",
+      "podKills": "Cápsulas destruidas",
+      "npcKills": "PNJ destruidos",
+      "jumps": "Saltos"
+    },
     "fleetHeatmap": "Mapa de calor de flota",
     "showAccountChars": "Mostrar mis personajes",
     "staleHint": "Atenúa visualmente los sistemas que no se han actualizado en el intervalo elegido, para detectar de un vistazo los restos de cadenas antiguas.",

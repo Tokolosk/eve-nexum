@@ -1957,28 +1957,26 @@
   pointer-events: auto;
 }
 
-/* Fleet heatmap: a purple halo behind any node with fleet members in it, its
-   size + opacity scaled by --fleet-heat (0..1, set by SystemNode from the
-   headcount). Toggled by the data-fleet-heat attribute. Drawn on ::before
-   behind the node so it doesn't fight the node's own border box-shadows
-   (hover / selected / current / sov). */
-.system-node[data-fleet-heat]::before {
+/* Heatmap halo behind any node with a value for the active metric. Intensity
+   (--heat, 0..1) and colour (--heat-color) are set inline by SystemNode; the
+   metric (fleet / kills / pods / npc / jumps) just changes the colour. Drawn
+   on ::before behind the node so it doesn't fight the node's own border
+   box-shadows (hover / selected / current / sov). Two layers — a tight bright
+   inner ring + a soft wide outer halo — so even the lowest value reads. */
+.system-node[data-heat]::before {
   content: '';
   position: absolute;
   inset: 0;
   border-radius: inherit;
   z-index: -1;
   pointer-events: none;
-  /* Two layers: a tight bright inner ring + a soft wide outer halo, both
-     scaled by --fleet-heat (0..1), so even a low headcount reads clearly and
-     the colour stays distinct from the blue selected/sov glows. */
   box-shadow:
-    0 0 calc(8px  + var(--fleet-heat, 0) * 22px)
-        calc(2px  + var(--fleet-heat, 0) * 6px)
-        rgba(192, 132, 252, calc(0.55 + var(--fleet-heat, 0) * 0.4)),
-    0 0 calc(20px + var(--fleet-heat, 0) * 50px)
-        calc(6px  + var(--fleet-heat, 0) * 16px)
-        rgba(168, 85,  247, calc(0.30 + var(--fleet-heat, 0) * 0.4));
+    0 0 calc(8px  + var(--heat, 0) * 22px)
+        calc(2px  + var(--heat, 0) * 6px)
+        color-mix(in srgb, var(--heat-color, #c084fc) calc(55% + var(--heat, 0) * 40%), transparent),
+    0 0 calc(20px + var(--heat, 0) * 50px)
+        calc(6px  + var(--heat, 0) * 16px)
+        color-mix(in srgb, var(--heat-color, #c084fc) calc(30% + var(--heat, 0) * 40%), transparent);
 }
 
 .system-node {

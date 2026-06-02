@@ -29,6 +29,10 @@ import { setDestination, addWaypoint } from '../../api/waypoint';
 import { toast } from '../ui/Toaster';
 import { useCustomIntel } from '../../hooks/useCustomIntel';
 import { useUserSetting } from '../../hooks/useUserSetting';
+import { useCurrentHourKills } from '../../hooks/useCurrentHourKills';
+import { useFleet } from '../../hooks/useFleet';
+import { HeatmapContext } from '../../context/HeatmapContext';
+import { heatValue, type HeatMetric } from '../../utils/heatmap';
 import { resolveIntelColor } from '../../utils/intelColors';
 
 const NODE_TYPES = { system: SystemNode };
@@ -135,6 +139,23 @@ export function MapCanvas() {
   const { screenToFlowPosition, setViewport, getViewport, getNode, getNodes, getZoom, fitView } = useReactFlow();
   // Invert mouse-wheel / trackpad zoom (per-user, cross-device). Off by default.
   const [invertZoom] = useUserSetting<boolean>('nexum.map.invertZoom', false);
+
+  // Active heatmap. The per-map max is computed once here and shared via
+  // HeatmapContext so each node only divides its own value by it.
+  const [heatMetric] = useUserSetting<HeatMetric>('nexum.map.heatmap', 'none');
+  const heatKills    = useCurrentHourKills();
+  const heatFleet    = useFleet();
+  const selfCharId   = useAuth().user?.characterId ?? null;
+  const heatMax = useMemo(() => {
+    if (heatMetric === 'none') return 0;
+    let max = 0;
+    for (const s of systems) {
+      const v = heatValue(heatMetric, s.eveSystemId, heatKills, heatFleet, selfCharId);
+      if (v > max) max = v;
+    }
+    return max;
+  }, [heatMetric, systems, heatKills, heatFleet, selfCharId]);
+  const heatmapState = useMemo(() => ({ metric: heatMetric, max: heatMax }), [heatMetric, heatMax]);
 
   const [pendingPosition, setPendingPosition] = useState<{ x: number; y: number } | null>(null);
   const [contextMenu, setContextMenu]         = useState<CtxMenu | null>(null);
@@ -899,6 +920,7 @@ export function MapCanvas() {
   })();
 
   return (
+    <HeatmapContext.Provider value={heatmapState}>
     <div className="map-canvas" ref={wrapperRef}>
       <ReactFlow
         ariaLabelConfig={ariaLabelConfig}
@@ -989,5 +1011,6 @@ export function MapCanvas() {
         <AddSystemModal position={pendingPosition} onClose={() => setPendingPosition(null)} />
       )}
     </div>
+    </HeatmapContext.Provider>
   );
 }

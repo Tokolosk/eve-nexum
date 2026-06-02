@@ -17,6 +17,7 @@ import {
   type MinimapPosition,
 } from "../../hooks/useMinimapPosition";
 import { useUserSetting } from "../../hooks/useUserSetting";
+import { HEAT_METRICS, type HeatMetric } from "../../utils/heatmap";
 import { toPng } from "html-to-image";
 import { CaretLeftIcon, CaretRightIcon } from "@phosphor-icons/react";
 import { ChainExitsSection } from "./ChainExitsSection";
@@ -50,6 +51,28 @@ function SettingToggle({
         onChange={(e) => setEnabled(e.target.checked)}
       />
     </label>
+  );
+}
+
+// Active-heatmap picker. One metric at a time (incl. 'none' = off), persisted
+// cross-device. MapCanvas reads the same key to compute the per-map max.
+function HeatmapSelect() {
+  const { t } = useTranslation();
+  const [metric, setMetric] = useUserSetting<HeatMetric>("nexum.map.heatmap", "none");
+  return (
+    <div className="map-sidebar__row">
+      <label className="map-sidebar__label" htmlFor="heatmap-metric">{t("mapSidebar.heatmap")}</label>
+      <select
+        id="heatmap-metric"
+        className="map-sidebar__select"
+        value={metric}
+        onChange={(e) => setMetric(e.target.value as HeatMetric)}
+      >
+        {HEAT_METRICS.map((m) => (
+          <option key={m} value={m}>{t(`mapSidebar.heatmapOptions.${m}`)}</option>
+        ))}
+      </select>
+    </div>
   );
 }
 
@@ -726,6 +749,8 @@ export function MapSidebar() {
               </button>
             </div>
           </div>
+
+          <HeatmapSelect />
         </CollapsibleSection>
 
         <CollapsibleSection title={t("mapSidebar.sections.mapControls")} {...sectionProps("mapControls")}>
@@ -970,11 +995,6 @@ export function MapSidebar() {
           <SettingToggle
             settingKey="nexum.fleet.showMembers"
             label={t("mapSidebar.showFleetMembers")}
-          />
-          <SettingToggle
-            settingKey="nexum.fleet.heatmap"
-            label={t("mapSidebar.fleetHeatmap")}
-            defaultOn={false}
           />
           <SettingToggle
             settingKey="nexum.account.showOnMap"

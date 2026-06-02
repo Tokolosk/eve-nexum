@@ -372,6 +372,15 @@
     "activityNpcDelta": "NPC 增量",
     "fleetHint": "将舰队成员显示为其所在星系上的紫色圆点。悬停圆点可查看名称。",
     "showFleetMembers": "显示舰队成员",
+    "heatmap": "热力图",
+    "heatmapOptions": {
+      "none": "无",
+      "fleet": "舰队",
+      "shipKills": "船只击杀",
+      "podKills": "逃生舱击杀",
+      "npcKills": "NPC击杀",
+      "jumps": "跳跃"
+    },
     "fleetHeatmap": "舰队热力图",
     "showAccountChars": "显示我的角色",
     "staleHint": "将在选定间隔内未更新的星系视觉上淡化，以便一眼看出旧链残留。",
