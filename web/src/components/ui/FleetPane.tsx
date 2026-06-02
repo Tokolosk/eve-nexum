@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ArrowUpIcon, ArrowDownIcon } from '@phosphor-icons/react';
 import { useFleet } from '../../hooks/useFleet';
@@ -53,6 +53,14 @@ export function FleetPane() {
     return Number.isFinite(n) && n > 0 ? Math.min(n, 255) : 0;
   }, []);
 
+  // Filter box — debounced so we don't re-filter 255 rows on every keystroke.
+  const [query, setQuery] = useState('');
+  const [debounced, setDebounced] = useState('');
+  useEffect(() => {
+    const id = setTimeout(() => setDebounced(query.trim().toLowerCase()), 200);
+    return () => clearTimeout(id);
+  }, [query]);
+
   // Jumps from the route origin to each member's system. w-space members have
   // no stargate route → no entry → jumps shown as "—" (location still shows).
   const memberSystemIds = useMemo(
@@ -74,8 +82,12 @@ export function FleetPane() {
             jumps:    route ? route.jumps : null,
           };
         });
+    const matched = debounced
+      ? list.filter((r) => r.name.toLowerCase().includes(debounced)
+                        || (r.location ?? '').toLowerCase().includes(debounced))
+      : list;
     const dir = sortDir === 'asc' ? 1 : -1;
-    list.sort((a, b) => {
+    matched.sort((a, b) => {
       if (sortBy === 'name') return dir * a.name.localeCompare(b.name);
       // distance: unknown/unreachable always sinks to the bottom, either way
       if (a.jumps == null && b.jumps == null) return a.name.localeCompare(b.name);
@@ -83,11 +95,14 @@ export function FleetPane() {
       if (b.jumps == null) return -1;
       return dir * (a.jumps - b.jumps) || a.name.localeCompare(b.name);
     });
-    return list;
-  }, [simCount, user?.characterId, fleet.members, routes, sortBy, sortDir, t]);
+    return matched;
+  }, [simCount, user?.characterId, fleet.members, routes, sortBy, sortDir, debounced, t]);
 
-  if (!simCount && !fleet.inFleet)   return <div className="scout-pane__empty">{t('fleet.notInFleet')}</div>;
-  if (!simCount && rows.length === 0) return <div className="scout-pane__empty">{t('fleet.noMembers')}</div>;
+  // Roster size before the search filter — distinguishes "no members" from
+  // "no matches for the query" so the empty states don't lie.
+  const total = simCount || fleet.members.length;
+  if (!simCount && !fleet.inFleet) return <div className="scout-pane__empty">{t('fleet.notInFleet')}</div>;
+  if (total === 0)                 return <div className="scout-pane__empty">{t('fleet.noMembers')}</div>;
 
   return (
     <div className="fleet-pane">
@@ -119,6 +134,18 @@ export function FleetPane() {
         </button>
       </div>
 
+      <input
+        type="text"
+        className="fleet-pane__search"
+        placeholder={t('fleet.searchPlaceholder')}
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        aria-label={t('fleet.searchPlaceholder')}
+      />
+
+      {rows.length === 0 ? (
+        <div className="scout-pane__empty">{t('fleet.noMatches')}</div>
+      ) : (
       <ul className="fleet-pane__list">
         {rows.map((r) => (
           <li key={r.key} className="fleet-pane__row">
@@ -138,6 +165,7 @@ export function FleetPane() {
           </li>
         ))}
       </ul>
+      )}
     </div>
   );
 }

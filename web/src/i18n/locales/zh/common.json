@@ -7,7 +7,9 @@
     "ascending": "升序",
     "descending": "降序",
     "unknownLoc": "未知",
-    "unknownPilot": "未知飞行员"
+    "unknownPilot": "未知飞行员",
+    "searchPlaceholder": "按飞行员或星系筛选",
+    "noMatches": "无匹配项"
   },
   "language": {
     "label": "语言"

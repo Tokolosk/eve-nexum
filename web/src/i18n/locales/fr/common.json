@@ -7,7 +7,9 @@
     "ascending": "Croissant",
     "descending": "Décroissant",
     "unknownLoc": "Inconnu",
-    "unknownPilot": "Pilote inconnu"
+    "unknownPilot": "Pilote inconnu",
+    "searchPlaceholder": "Filtrer par pilote ou système",
+    "noMatches": "Aucun résultat"
   },
   "language": {
     "label": "Langue"

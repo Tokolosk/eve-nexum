@@ -495,6 +495,22 @@
   cursor: pointer;
 }
 .fleet-pane__dir:hover { border-color: #4d9de0; color: #c8d0e0; }
+.fleet-pane__search {
+  margin: 6px 8px 0;
+  background: #0a0e1a;
+  border: 1px solid #1e2740;
+  border-radius: 4px;
+  color: #c8d0e0;
+  font-family: inherit;
+  font-size: calc(12px * var(--font-scale, 1));
+  padding: 4px 8px;
+}
+.fleet-pane__search::placeholder { color: #5a6a85; }
+.fleet-pane__search:focus-visible {
+  outline: none;
+  border-color: #4d9de0;
+  box-shadow: 0 0 0 2px rgba(77, 157, 224, 0.25);
+}
 .fleet-pane__list {
   list-style: none;
   margin: 0;

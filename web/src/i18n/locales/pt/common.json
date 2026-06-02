@@ -7,7 +7,9 @@
     "ascending": "Crescente",
     "descending": "Decrescente",
     "unknownLoc": "Desconhecido",
-    "unknownPilot": "Piloto desconhecido"
+    "unknownPilot": "Piloto desconhecido",
+    "searchPlaceholder": "Filtrar por piloto ou sistema",
+    "noMatches": "Sem correspondências"
   },
   "language": {
     "label": "Idioma"

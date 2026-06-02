@@ -7,7 +7,9 @@
     "ascending": "昇順",
     "descending": "降順",
     "unknownLoc": "不明",
-    "unknownPilot": "不明なパイロット"
+    "unknownPilot": "不明なパイロット",
+    "searchPlaceholder": "パイロットまたはシステムで絞り込み",
+    "noMatches": "一致なし"
   },
   "language": {
     "label": "言語"

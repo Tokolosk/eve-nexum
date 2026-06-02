@@ -7,7 +7,9 @@
     "ascending": "По возрастанию",
     "descending": "По убыванию",
     "unknownLoc": "Неизвестно",
-    "unknownPilot": "Неизвестный пилот"
+    "unknownPilot": "Неизвестный пилот",
+    "searchPlaceholder": "Фильтр по пилоту или системе",
+    "noMatches": "Совпадений нет"
   },
   "language": {
     "label": "Язык"

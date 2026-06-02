@@ -7,7 +7,9 @@
     "ascending": "오름차순",
     "descending": "내림차순",
     "unknownLoc": "알 수 없음",
-    "unknownPilot": "알 수 없는 파일럿"
+    "unknownPilot": "알 수 없는 파일럿",
+    "searchPlaceholder": "파일럿 또는 시스템으로 필터",
+    "noMatches": "일치 항목 없음"
   },
   "language": {
     "label": "언어"
