@@ -59,20 +59,48 @@ function SettingToggle({
 function HeatmapSelect() {
   const { t } = useTranslation();
   const [metric, setMetric] = useUserSetting<HeatMetric>("nexum.map.heatmap", "none");
+  const [intensity, setIntensity] = useUserSetting<number>("nexum.map.heatIntensity", 1);
   return (
-    <div className="map-sidebar__row">
-      <label className="map-sidebar__label" htmlFor="heatmap-metric">{t("mapSidebar.heatmap")}</label>
-      <select
-        id="heatmap-metric"
-        className="map-sidebar__select"
-        value={metric}
-        onChange={(e) => setMetric(e.target.value as HeatMetric)}
-      >
-        {HEAT_METRICS.map((m) => (
-          <option key={m} value={m}>{t(`mapSidebar.heatmapOptions.${m}`)}</option>
-        ))}
-      </select>
-    </div>
+    <>
+      <div className="map-sidebar__row">
+        <label className="map-sidebar__label" htmlFor="heatmap-metric">{t("mapSidebar.heatmap")}</label>
+        <select
+          id="heatmap-metric"
+          className="map-sidebar__select"
+          value={metric}
+          onChange={(e) => setMetric(e.target.value as HeatMetric)}
+        >
+          {HEAT_METRICS.map((m) => (
+            <option key={m} value={m}>{t(`mapSidebar.heatmapOptions.${m}`)}</option>
+          ))}
+        </select>
+      </div>
+      {metric !== "none" && (
+        <div className="map-sidebar__row">
+          <label className="map-sidebar__label" htmlFor="heatmap-intensity">{t("mapSidebar.heatIntensity")}</label>
+          <div className="map-sidebar__zoom">
+            <input
+              id="heatmap-intensity"
+              type="range"
+              min={0.25}
+              max={3}
+              step={0.25}
+              value={intensity}
+              onChange={(e) => setIntensity(parseFloat(e.target.value))}
+              className="map-sidebar__zoom-slider"
+            />
+            <button
+              type="button"
+              className="map-sidebar__zoom-value"
+              onClick={() => setIntensity(1)}
+              title={t("mapSidebar.resetIntensity")}
+            >
+              {Math.round(intensity * 100)}%
+            </button>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 

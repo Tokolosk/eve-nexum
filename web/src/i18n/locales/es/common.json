@@ -373,6 +373,8 @@
     "fleetHint": "Muestra a los compañeros de flota como puntos morados en el sistema en el que están. Pasa el ratón por un punto para ver los nombres.",
     "showFleetMembers": "Mostrar miembros de la flota",
     "heatmap": "Mapa de calor",
+    "heatIntensity": "Intensidad",
+    "resetIntensity": "Restablecer intensidad",
     "heatmapOptions": {
       "none": "Ninguno",
       "fleet": "Flota",

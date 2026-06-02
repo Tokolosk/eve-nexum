@@ -6,14 +6,23 @@ export type HeatMetric = 'none' | 'fleet' | 'shipKills' | 'podKills' | 'npcKills
 
 export const HEAT_METRICS: HeatMetric[] = ['none', 'fleet', 'shipKills', 'podKills', 'npcKills', 'jumps'];
 
-// Glow colour per metric (fed to the node ::before via --heat-color).
-export const HEAT_COLORS: Record<Exclude<HeatMetric, 'none'>, string> = {
-  fleet:     '#c084fc', // purple
-  shipKills: '#ef4444', // red
-  podKills:  '#f97316', // orange
-  npcKills:  '#eab308', // yellow
-  jumps:     '#4d9de0', // blue
-};
+// Standard heat ramp: low = yellow, mid = orange, high = red. The colour
+// encodes intensity (not the metric), so every heatmap reads the same way.
+// `level` is the normalised 0..1 value for the system.
+const lerp = (a: number, b: number, t: number) => Math.round(a + (b - a) * t);
+const HEAT_STOPS: [number, number, number][] = [
+  [250, 204, 21],  // #facc15 yellow
+  [249, 115, 22],  // #f97316 orange
+  [220, 38,  38],  // #dc2626 red
+];
+export function heatColor(level: number): string {
+  const l = Math.min(1, Math.max(0, level));
+  const seg = l <= 0.5 ? 0 : 1;
+  const t   = l <= 0.5 ? l / 0.5 : (l - 0.5) / 0.5;
+  const [r1, g1, b1] = HEAT_STOPS[seg];
+  const [r2, g2, b2] = HEAT_STOPS[seg + 1];
+  return `rgb(${lerp(r1, r2, t)}, ${lerp(g1, g2, t)}, ${lerp(b1, b2, t)})`;
+}
 
 /**
  * Raw value of a metric for one system (0 when unknown / off). Fleet counts

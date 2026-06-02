@@ -142,7 +142,8 @@ export function MapCanvas() {
 
   // Active heatmap. The per-map max is computed once here and shared via
   // HeatmapContext so each node only divides its own value by it.
-  const [heatMetric] = useUserSetting<HeatMetric>('nexum.map.heatmap', 'none');
+  const [heatMetric]    = useUserSetting<HeatMetric>('nexum.map.heatmap', 'none');
+  const [heatIntensity] = useUserSetting<number>('nexum.map.heatIntensity', 1);
   const heatKills    = useCurrentHourKills();
   const heatFleet    = useFleet();
   const selfCharId   = useAuth().user?.characterId ?? null;
@@ -155,7 +156,10 @@ export function MapCanvas() {
     }
     return max;
   }, [heatMetric, systems, heatKills, heatFleet, selfCharId]);
-  const heatmapState = useMemo(() => ({ metric: heatMetric, max: heatMax }), [heatMetric, heatMax]);
+  const heatmapState = useMemo(
+    () => ({ metric: heatMetric, max: heatMax, intensity: heatIntensity }),
+    [heatMetric, heatMax, heatIntensity],
+  );
 
   const [pendingPosition, setPendingPosition] = useState<{ x: number; y: number } | null>(null);
   const [contextMenu, setContextMenu]         = useState<CtxMenu | null>(null);

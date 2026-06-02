@@ -28,7 +28,7 @@ import { useStaleThreshold } from '../../hooks/useStaleThreshold';
 import { useCustomIntel } from '../../hooks/useCustomIntel';
 import { resolveIntelColor, resolveIntelLabel } from '../../utils/intelColors';
 import { useHeatmap } from '../../context/HeatmapContext';
-import { heatValue, HEAT_COLORS } from '../../utils/heatmap';
+import { heatValue, heatColor } from '../../utils/heatmap';
 import { WHTypeInfo } from '../ui/WHTypeInfo';
 import { truesecColor } from '../../utils/truesec';
 
@@ -132,9 +132,12 @@ export const SystemNode = memo(({ data, selected }: NodeProps) => {
     if (metric === 'none' || heatmap.max <= 0) return null;
     const v = heatValue(metric, sys.eveSystemId, allKills, fleet, user?.characterId);
     if (v <= 0) return null;
-    // Floor so the lowest nonzero system still reads as a clear halo.
-    return { level: Math.min(1, Math.max(0.3, v / heatmap.max)), color: HEAT_COLORS[metric] };
-  }, [heatmap.metric, heatmap.max, sys.eveSystemId, allKills, fleet, user?.characterId]);
+    // Raw 0..1 share drives the colour (yellow→orange→red); the glow strength
+    // is that share times the user intensity, so the busiest system on the map
+    // is the reference point and the slider just brightens/dims the rest.
+    const raw = Math.min(1, v / heatmap.max);
+    return { glow: Math.min(1, raw * heatmap.intensity), color: heatColor(raw) };
+  }, [heatmap.metric, heatmap.max, heatmap.intensity, sys.eveSystemId, allKills, fleet, user?.characterId]);
   const now             = useNow30s();
   const [staleHours]    = useStaleThreshold();
   const isStale         = !!sys.lastActivityAt &&
@@ -193,7 +196,7 @@ export const SystemNode = memo(({ data, selected }: NodeProps) => {
       style={{
         '--class-color': color,
         ...(intelColor ? { '--intel-color': intelColor } : null),
-        ...(heat ? { '--heat': heat.level, '--heat-color': heat.color } : null),
+        ...(heat ? { '--heat': heat.glow, '--heat-color': heat.color } : null),
         ...(uniformSize && uniformWidth  > 0 ? { minWidth:  uniformWidth  } : null),
         ...(uniformSize && uniformHeight > 0 ? { minHeight: uniformHeight } : null),
       } as React.CSSProperties}

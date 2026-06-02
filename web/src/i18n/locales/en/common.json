@@ -373,6 +373,8 @@
     "fleetHint": "Render fleet-mates as purple dots on the system they're in. Hover a dot to see the names.",
     "showFleetMembers": "Show fleet members",
     "heatmap": "Heatmap",
+    "heatIntensity": "Intensity",
+    "resetIntensity": "Reset intensity",
     "heatmapOptions": {
       "none": "None",
       "fleet": "Fleet",

@@ -373,6 +373,8 @@
     "fleetHint": "Afficher les membres de la flotte sous forme de points violets sur leur système. Survolez un point pour voir les noms.",
     "showFleetMembers": "Afficher les membres de la flotte",
     "heatmap": "Carte de chaleur",
+    "heatIntensity": "Intensité",
+    "resetIntensity": "Réinitialiser l'intensité",
     "heatmapOptions": {
       "none": "Aucune",
       "fleet": "Flotte",

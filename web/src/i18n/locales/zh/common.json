@@ -373,6 +373,8 @@
     "fleetHint": "将舰队成员显示为其所在星系上的紫色圆点。悬停圆点可查看名称。",
     "showFleetMembers": "显示舰队成员",
     "heatmap": "热力图",
+    "heatIntensity": "强度",
+    "resetIntensity": "重置强度",
     "heatmapOptions": {
       "none": "无",
       "fleet": "舰队",

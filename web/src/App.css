@@ -1970,13 +1970,15 @@
   border-radius: inherit;
   z-index: -1;
   pointer-events: none;
+  /* Opacity + size scale almost entirely with --heat so cold systems barely
+     glow and hot ones pop — that's what gives the map contrast. */
   box-shadow:
-    0 0 calc(8px  + var(--heat, 0) * 22px)
-        calc(2px  + var(--heat, 0) * 6px)
-        color-mix(in srgb, var(--heat-color, #c084fc) calc(55% + var(--heat, 0) * 40%), transparent),
-    0 0 calc(20px + var(--heat, 0) * 50px)
-        calc(6px  + var(--heat, 0) * 16px)
-        color-mix(in srgb, var(--heat-color, #c084fc) calc(30% + var(--heat, 0) * 40%), transparent);
+    0 0 calc(6px  + var(--heat, 0) * 20px)
+        calc(1px  + var(--heat, 0) * 7px)
+        color-mix(in srgb, var(--heat-color, #f97316) calc(12% + var(--heat, 0) * 78%), transparent),
+    0 0 calc(16px + var(--heat, 0) * 46px)
+        calc(4px  + var(--heat, 0) * 15px)
+        color-mix(in srgb, var(--heat-color, #f97316) calc(var(--heat, 0) * 55%), transparent);
 }
 
 .system-node {
