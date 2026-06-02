@@ -457,6 +457,120 @@
   text-align: center;
 }
 
+/* Fleet roster panel. The list scrolls (fleets run up to 255 pilots) so the
+   sidebar never balloons; the toolbar stays pinned above it. */
+.fleet-pane { display: flex; flex-direction: column; }
+.fleet-pane__toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 6px 8px;
+  border-bottom: 1px solid #141c2e;
+}
+.fleet-pane__sortby { display: inline-flex; gap: 4px; }
+.fleet-pane__sort-btn {
+  background: transparent;
+  border: 1px solid #1e2740;
+  border-radius: 4px;
+  color: #8a9ab5;
+  font-family: inherit;
+  font-size: calc(12px * var(--font-scale, 1));
+  padding: 2px 8px;
+  cursor: pointer;
+}
+.fleet-pane__sort-btn:hover { border-color: #4d9de0; color: #c8d0e0; }
+.fleet-pane__sort-btn--on { background: #1c2940; border-color: #4d9de0; color: #e8f0ff; }
+.fleet-pane__dir {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 22px;
+  flex-shrink: 0;
+  background: transparent;
+  border: 1px solid #1e2740;
+  border-radius: 4px;
+  color: #8a9ab5;
+  cursor: pointer;
+}
+.fleet-pane__dir:hover { border-color: #4d9de0; color: #c8d0e0; }
+.fleet-pane__search {
+  margin: 6px 8px 0;
+  background: #0a0e1a;
+  border: 1px solid #1e2740;
+  border-radius: 4px;
+  color: #c8d0e0;
+  font-family: inherit;
+  font-size: calc(12px * var(--font-scale, 1));
+  padding: 4px 8px;
+}
+.fleet-pane__search::placeholder { color: #5a6a85; }
+.fleet-pane__search:focus-visible {
+  outline: none;
+  border-color: #4d9de0;
+  box-shadow: 0 0 0 2px rgba(77, 157, 224, 0.25);
+}
+.fleet-pane__list {
+  list-style: none;
+  margin: 0;
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  max-height: 340px;
+  overflow-y: auto;
+  /* Firefox: thin themed bar (matches the app's #2e4a6a accent). */
+  scrollbar-width: thin;
+  scrollbar-color: #2e4a6a transparent;
+}
+/* WebKit (Chrome/Safari/Edge): styling the bar makes macOS show a classic,
+   always-present scrollbar when the list overflows instead of the auto-hiding
+   overlay — and keeps it in keeping with the panel theme. No bar shows when the
+   content fits, since overflow stays auto. */
+.fleet-pane__list::-webkit-scrollbar { width: 10px; }
+.fleet-pane__list::-webkit-scrollbar-track { background: transparent; }
+.fleet-pane__list::-webkit-scrollbar-thumb {
+  background: #2e4a6a;
+  border-radius: 5px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+.fleet-pane__list::-webkit-scrollbar-thumb:hover { background: #3d5f86; }
+.fleet-pane__row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 4px;
+  border-radius: 4px;
+}
+.fleet-pane__row:hover { background: #162032; }
+.fleet-pane__avatar { width: 22px; height: 22px; border-radius: 50%; flex-shrink: 0; }
+.fleet-pane__name {
+  flex: 1;
+  min-width: 0;
+  color: #c8d0e0;
+  font-size: calc(13px * var(--font-scale, 1));
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.fleet-pane__loc {
+  max-width: 42%;
+  color: #8aa0bd;
+  font-size: calc(12px * var(--font-scale, 1));
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.fleet-pane__jumps {
+  flex-shrink: 0;
+  color: #9fb3cd;
+  font-size: calc(12px * var(--font-scale, 1));
+  text-align: right;
+  min-width: 48px;
+}
+
 .scout-pane__note {
   padding: 6px 8px;
   font-size: calc(13px * var(--font-scale, 1));
@@ -1958,12 +2072,26 @@
   margin-right: 4px;
 }
 
-.system-node__fleet-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: #c084fc;
-  box-shadow: 0 0 5px #c084fc;
+/* Count badge: how many fleet members are in this system, inside a purple
+   ring. Circular for a single digit, expands to a pill for larger counts
+   (fleets run big). */
+.system-node__fleet-count {
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  border: 1.5px solid #c084fc;
+  background: rgba(192, 132, 252, 0.15);
+  box-shadow: 0 0 5px rgba(192, 132, 252, 0.5);
+  color: #e7d6ff;
+  font-size: calc(11px * var(--font-scale, 1));
+  font-weight: 600;
+  line-height: 18px;
+  font-variant-numeric: tabular-nums;
   flex-shrink: 0;
   cursor: help;
 }
@@ -2007,12 +2135,24 @@
   align-items: center;
   margin-right: 4px;
 }
-.system-node__alt-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: #f5b96a;
-  box-shadow: 0 0 5px #f5b96a;
+/* Count badge: how many of your alts are in this system, inside a gold ring. */
+.system-node__alt-count {
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  border: 1.5px solid #f5b96a;
+  background: rgba(245, 185, 106, 0.15);
+  box-shadow: 0 0 5px rgba(245, 185, 106, 0.5);
+  color: #f5e3c8;
+  font-size: calc(11px * var(--font-scale, 1));
+  font-weight: 600;
+  line-height: 18px;
+  font-variant-numeric: tabular-nums;
   flex-shrink: 0;
   cursor: help;
 }
