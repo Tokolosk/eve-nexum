@@ -11,13 +11,22 @@ function boxesOverlap(ax: number, ay: number, bx: number, by: number, w: number,
   return ax < bx + w + gap && ax + w + gap > bx && ay < by + h + gap && ay + h + gap > by;
 }
 
-// Pick a position for a newly auto-added system: the intended spot if it's
-// clear, otherwise stack straight down beneath it into the first free slot
-// (so repeated jumps out of one system form a tidy column). Only if that whole
-// column is blocked do we spread outward. Stops a second jump out of the same
-// system from landing on top of the first one.
+// Slots around the source, clockwise from the right (+y is down): the four
+// cardinals first (right, below, left, above), then the diagonals. Scaled by
+// `ring` for distance, so once the immediate eight are taken we keep rotating
+// clockwise on a wider ring.
+const PLACEMENT_OFFSETS: [number, number][] = [
+  [1, 0], [0, 1], [-1, 0], [0, -1],   // E, S, W, N
+  [1, 1], [-1, 1], [-1, -1], [1, -1], // SE, SW, NW, NE
+];
+
+// Pick a position for a newly auto-added system by rotating clockwise around
+// the system it was jumped from: right of the source if free, otherwise
+// directly below it, then left, above, the diagonals, and outward on wider
+// rings. Each candidate is collision-checked against every node, so it also
+// dodges unrelated systems that happen to sit in a slot.
 function findFreePosition(
-  start: { x: number; y: number },
+  source: { x: number; y: number },
   systems: Box[],
   w: number,
   h: number,
@@ -28,25 +37,14 @@ function findFreePosition(
 
   const stepX = w + gap;
   const stepY = h + gap;
-
-  // Prefer the intended spot, then directly below it, then further down.
-  for (let i = 0; i < 20; i++) {
-    const y = start.y + i * stepY;
-    if (!collides(start.x, y)) return { x: start.x, y };
-  }
-
-  // Column full — spread outward in rings (Chebyshev) as a fallback.
-  for (let ring = 1; ring <= 12; ring++) {
-    for (let dy = -ring; dy <= ring; dy++) {
-      for (let dx = -ring; dx <= ring; dx++) {
-        if (Math.max(Math.abs(dx), Math.abs(dy)) !== ring) continue; // perimeter only
-        const x = start.x + dx * stepX;
-        const y = start.y + dy * stepY;
-        if (!collides(x, y)) return { x, y };
-      }
+  for (let ring = 1; ring <= 6; ring++) {
+    for (const [dx, dy] of PLACEMENT_OFFSETS) {
+      const x = source.x + dx * ring * stepX;
+      const y = source.y + dy * ring * stepY;
+      if (!collides(x, y)) return { x, y };
     }
   }
-  return start; // map is unusually dense — fall back rather than loop forever
+  return { x: source.x + stepX, y: source.y }; // dense map — fall back to "right of source"
 }
 
 /**
@@ -120,24 +118,19 @@ export function useLocationTracking(enabled: boolean) {
       const w = uniformWidth || 220;
       const h = uniformHeight || 120;
       const gap = 30;
-      const stepX = w + 60;
-      // Intended spot: just to the right of the system we jumped from (or the
-      // map centroid for the very first auto-add).
-      let intended: { x: number; y: number };
+      // Anchor placement on the system we jumped from (or the map centroid for
+      // the very first auto-add), then rotate clockwise around it into the
+      // first free slot — right, below, left, above, diagonals, wider rings.
+      let source: { x: number; y: number };
       if (prevMapSystemId) {
-        const prevSys = map.systems.find((s) => s.id === prevMapSystemId)!;
-        intended = { x: prevSys.position.x + stepX, y: prevSys.position.y };
+        source = map.systems.find((s) => s.id === prevMapSystemId)!.position;
       } else {
-        const cx = map.systems.length
-          ? map.systems.reduce((sum, s) => sum + s.position.x, 0) / map.systems.length
-          : 0;
-        const cy = map.systems.length
-          ? map.systems.reduce((sum, s) => sum + s.position.y, 0) / map.systems.length
-          : 0;
-        intended = { x: cx + stepX, y: cy };
+        source = {
+          x: map.systems.length ? map.systems.reduce((sum, s) => sum + s.position.x, 0) / map.systems.length : 0,
+          y: map.systems.length ? map.systems.reduce((sum, s) => sum + s.position.y, 0) / map.systems.length : 0,
+        };
       }
-      // ...but never on top of an existing node — find the nearest free slot.
-      const position = findFreePosition(intended, map.systems, w, h, gap);
+      const position = findFreePosition(source, map.systems, w, h, gap);
 
       mapSystemId = addSystem(
         system.name,
