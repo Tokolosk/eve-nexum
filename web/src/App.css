@@ -1805,6 +1805,14 @@
   }
 }
 
+/* Caveat under a shortcut (e.g. browsers that intercept Ctrl+Shift+V). */
+.map-sidebar__shortcut-note {
+  margin: 2px 0 0;
+  font-size: calc(11px * var(--font-scale, 1));
+  line-height: 1.4;
+  color: #8a98b0;
+}
+
 .map-sidebar__status {
   font-size: calc(13px * var(--font-scale, 1));
   padding: 3px 8px;
@@ -1844,6 +1852,34 @@
 
 .map-sidebar__toggle-row {
   cursor: pointer;
+}
+
+/* Help text + token legend under the wormhole-bookmark format field. */
+.map-sidebar__help {
+  margin: 8px 0 6px;
+  font-size: calc(12px * var(--font-scale, 1));
+  line-height: 1.45;
+  color: #8a98b0;
+}
+
+.map-sidebar__tokens {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: calc(12px * var(--font-scale, 1));
+  color: #8a98b0;
+}
+
+.map-sidebar__tokens code {
+  color: #9ec1ff;
+  background: #11192b;
+  border: 1px solid #1e2740;
+  border-radius: 3px;
+  padding: 0 4px;
+  font-size: calc(11px * var(--font-scale, 1));
 }
 
 .map-sidebar__toggle-input {

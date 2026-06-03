@@ -314,6 +314,7 @@
     "closeOptions": "Close map options",
     "sections": {
       "mapOptions": "Map Options",
+      "wormholeBookmarks": "Wormhole bookmarks",
       "mapControls": "Map Controls",
       "systemOptions": "System Options",
       "connections": "Connections",
@@ -341,6 +342,8 @@
     },
     "fontSize": "Font Size",
     "placement": "New system placement",
+    "sigBookmark": "Signature bookmark",
+    "bookmarkHelp": "On a wormhole signature row, click the copy icon to copy a paste-ready bookmark name, then paste it into the in-game bookmark. Build the name with these tokens:",
     "placementOptions": {
       "horizontal": "Horizontal (right)",
       "vertical": "Vertical (below)"
@@ -426,7 +429,8 @@
       "undo": "Undo",
       "multiSelect": "Multi-select systems",
       "rubberBand": "Rubber-band select systems",
-      "overwriteSigs": "Paste signatures in overwrite mode (remove despawned)"
+      "overwriteSigs": "Paste signatures in overwrite mode (remove despawned)",
+      "vivaldiNote": "Vivaldi (and some other browsers) bind Ctrl+Shift+V to their own command, so it never reaches Nexum. Turn on 'Overwrite on paste' and use plain Ctrl+V instead, or rebind the shortcut in your browser's keyboard settings."
     },
     "canvasNotFound": "Could not find the map canvas",
     "exportFailed": "Export failed: {{error}}",
@@ -782,6 +786,9 @@
     "emptyShared": "No signatures scanned",
     "empty": "No signatures scanned — paste from probe scanner to import",
     "colId": "ID",
+    "copyBookmark": "Copy bookmark name",
+    "bookmarkCopied": "Copied: {{name}}",
+    "bookmarkCopyFailed": "Couldn't copy to clipboard",
     "colType": "Type",
     "colWh": "WH",
     "colLeadsTo": "Leads To",

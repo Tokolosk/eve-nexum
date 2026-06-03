@@ -314,6 +314,7 @@
     "closeOptions": "Kartenoptionen schließen",
     "sections": {
       "mapOptions": "Kartenoptionen",
+      "wormholeBookmarks": "Wurmloch-Lesezeichen",
       "mapControls": "Kartensteuerung",
       "systemOptions": "Systemoptionen",
       "connections": "Verbindungen",
@@ -341,6 +342,8 @@
     },
     "fontSize": "Schriftgröße",
     "placement": "Platzierung neuer Systeme",
+    "sigBookmark": "Signatur-Lesezeichen",
+    "bookmarkHelp": "Klicke in der Zeile einer Wurmloch-Signatur auf das Kopiersymbol, um einen fertigen Lesezeichennamen zu kopieren, und füge ihn in das Ingame-Lesezeichen ein. Erstelle den Namen mit diesen Tokens:",
     "placementOptions": {
       "horizontal": "Horizontal (rechts)",
       "vertical": "Vertikal (unten)"
@@ -426,7 +429,8 @@
       "undo": "Rückgängig",
       "multiSelect": "Mehrfachauswahl von Systemen",
       "rubberBand": "Systeme per Auswahlrahmen markieren",
-      "overwriteSigs": "Signaturen im Überschreibmodus einfügen (verschwundene entfernen)"
+      "overwriteSigs": "Signaturen im Überschreibmodus einfügen (verschwundene entfernen)",
+      "vivaldiNote": "Vivaldi (und einige andere Browser) belegen Strg+Umschalt+V mit einem eigenen Befehl, sodass es Nexum nie erreicht. Aktiviere 'Beim Einfügen überschreiben' und nutze einfach Strg+V, oder ändere das Kürzel in den Tastatureinstellungen deines Browsers."
     },
     "canvasNotFound": "Karten-Canvas konnte nicht gefunden werden",
     "exportFailed": "Export fehlgeschlagen: {{error}}",
@@ -782,6 +786,9 @@
     "emptyShared": "Keine Signaturen gescannt",
     "empty": "Keine Signaturen gescannt — aus dem Sondenscanner einfügen, um zu importieren",
     "colId": "ID",
+    "copyBookmark": "Lesezeichenname kopieren",
+    "bookmarkCopied": "Kopiert: {{name}}",
+    "bookmarkCopyFailed": "Kopieren in die Zwischenablage fehlgeschlagen",
     "colType": "Typ",
     "colWh": "WH",
     "colLeadsTo": "Führt zu",

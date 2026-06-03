@@ -314,6 +314,7 @@
     "closeOptions": "关闭地图选项",
     "sections": {
       "mapOptions": "地图选项",
+      "wormholeBookmarks": "虫洞书签",
       "mapControls": "地图控制",
       "systemOptions": "星系选项",
       "connections": "连接",
@@ -341,6 +342,8 @@
     },
     "fontSize": "字体大小",
     "placement": "新星系放置",
+    "sigBookmark": "信号书签格式",
+    "bookmarkHelp": "在虫洞信号行点击复制图标，即可复制可直接粘贴的书签名称，然后粘贴到游戏内书签中。使用以下变量构建名称：",
     "placementOptions": {
       "horizontal": "水平（右侧）",
       "vertical": "垂直（下方）"
@@ -426,7 +429,8 @@
       "undo": "撤销",
       "multiSelect": "多选星系",
       "rubberBand": "框选星系",
-      "overwriteSigs": "以覆盖模式粘贴信号（移除已消失的）"
+      "overwriteSigs": "以覆盖模式粘贴信号（移除已消失的）",
+      "vivaldiNote": "Vivaldi（以及某些其他浏览器）将 Ctrl+Shift+V 绑定到自己的命令，因此它永远不会传到 Nexum。请开启“粘贴时覆盖”并直接使用 Ctrl+V，或在浏览器的键盘设置中重新绑定该快捷键。"
     },
     "canvasNotFound": "找不到地图画布",
     "exportFailed": "导出失败：{{error}}",
@@ -782,6 +786,9 @@
     "emptyShared": "未扫描到信号",
     "empty": "未扫描到信号 — 从探针扫描器粘贴以导入",
     "colId": "ID",
+    "copyBookmark": "复制书签名称",
+    "bookmarkCopied": "已复制：{{name}}",
+    "bookmarkCopyFailed": "复制到剪贴板失败",
     "colType": "类型",
     "colWh": "WH",
     "colLeadsTo": "通往",

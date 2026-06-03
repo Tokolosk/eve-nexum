@@ -314,6 +314,7 @@
     "closeOptions": "マップオプションを閉じる",
     "sections": {
       "mapOptions": "マップオプション",
+      "wormholeBookmarks": "ワームホールのブックマーク",
       "mapControls": "マップ操作",
       "systemOptions": "星系オプション",
       "connections": "接続",
@@ -341,6 +342,8 @@
     },
     "fontSize": "フォントサイズ",
     "placement": "新規システムの配置",
+    "sigBookmark": "シグネチャのブックマーク",
+    "bookmarkHelp": "ワームホールのシグネチャ行でコピーアイコンをクリックすると、貼り付け可能なブックマーク名がコピーされます。ゲーム内のブックマークに貼り付けてください。次のトークンで名前を作成します：",
     "placementOptions": {
       "horizontal": "水平（右）",
       "vertical": "垂直（下）"
@@ -426,7 +429,8 @@
       "undo": "元に戻す",
       "multiSelect": "星系を複数選択",
       "rubberBand": "ドラッグで星系を選択",
-      "overwriteSigs": "上書きモードでシグネチャを貼り付け（消滅したものを削除）"
+      "overwriteSigs": "上書きモードでシグネチャを貼り付け（消滅したものを削除）",
+      "vivaldiNote": "Vivaldi（および一部のブラウザ）は Ctrl+Shift+V を独自のコマンドに割り当てるため、Nexum には届きません。「貼り付け時に上書き」をオンにして Ctrl+V を使うか、ブラウザのキーボード設定でショートカットを再設定してください。"
     },
     "canvasNotFound": "マップキャンバスが見つかりませんでした",
     "exportFailed": "エクスポートに失敗しました: {{error}}",
@@ -782,6 +786,9 @@
     "emptyShared": "スキャンされたシグネチャはありません",
     "empty": "スキャンされたシグネチャはありません — プローブスキャナーから貼り付けてインポート",
     "colId": "ID",
+    "copyBookmark": "ブックマーク名をコピー",
+    "bookmarkCopied": "コピーしました: {{name}}",
+    "bookmarkCopyFailed": "クリップボードにコピーできませんでした",
     "colType": "タイプ",
     "colWh": "WH",
     "colLeadsTo": "接続先",

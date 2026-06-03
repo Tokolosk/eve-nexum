@@ -17,6 +17,7 @@ import {
   type MinimapPosition,
 } from "../../hooks/useMinimapPosition";
 import { useUserSetting } from "../../hooks/useUserSetting";
+import { DEFAULT_BOOKMARK_FORMAT, BOOKMARK_TOKENS } from "../../utils/signatureBookmark";
 import { toPng } from "html-to-image";
 import { CaretLeftIcon, CaretRightIcon } from "@phosphor-icons/react";
 import { ChainExitsSection } from "./ChainExitsSection";
@@ -95,6 +96,7 @@ function CollapsibleSection({
 // shared "which section is open" setting; null means everything collapsed.
 type SectionId =
   | "mapOptions"
+  | "wormholeBookmarks"
   | "mapControls"
   | "systemOptions"
   | "connections"
@@ -577,6 +579,7 @@ export function MapSidebar() {
   const setShowMinimap = useMapStore((s) => s.setShowMinimap);
   const [minimapPosition, setMinimapPosition] = useMinimapPosition();
   const [placement, setPlacement] = useUserSetting<string>("nexum.map.placement", "horizontal");
+  const [sigBookmarkFmt, setSigBookmarkFmt] = useUserSetting<string>("nexum.sig.bookmarkFormat", DEFAULT_BOOKMARK_FORMAT);
   const uniformSize = useMapStore((s) => s.uniformSize);
   const setUniformSize = useMapStore((s) => s.setUniformSize);
   const showStatics = useMapStore((s) => s.showStatics);
@@ -740,6 +743,28 @@ export function MapSidebar() {
               <option value="vertical">{t("mapSidebar.placementOptions.vertical")}</option>
             </select>
           </div>
+
+        </CollapsibleSection>
+
+        <CollapsibleSection title={t("mapSidebar.sections.wormholeBookmarks")} {...sectionProps("wormholeBookmarks")}>
+          <div className="map-sidebar__row">
+            <label className="map-sidebar__label" htmlFor="sig-bookmark-fmt">{t("mapSidebar.sigBookmark")}</label>
+            <input
+              id="sig-bookmark-fmt"
+              className="map-sidebar__select"
+              type="text"
+              spellCheck={false}
+              value={sigBookmarkFmt}
+              onChange={(e) => setSigBookmarkFmt(e.target.value)}
+              placeholder={DEFAULT_BOOKMARK_FORMAT}
+            />
+          </div>
+          <p className="map-sidebar__help">{t("mapSidebar.bookmarkHelp")}</p>
+          <ul className="map-sidebar__tokens">
+            {BOOKMARK_TOKENS.map((b) => (
+              <li key={b.token}><code>{b.token}</code> - {b.desc}</li>
+            ))}
+          </ul>
         </CollapsibleSection>
 
         <CollapsibleSection title={t("mapSidebar.sections.mapControls")} {...sectionProps("mapControls")}>
@@ -1102,6 +1127,7 @@ export function MapSidebar() {
             <kbd>Shift + ⌘/Ctrl + V</kbd>
             <span>{t("mapSidebar.shortcut.overwriteSigs")}</span>
           </div>
+          <p className="map-sidebar__shortcut-note">{t("mapSidebar.shortcut.vivaldiNote")}</p>
         </CollapsibleSection>
       </div>
 

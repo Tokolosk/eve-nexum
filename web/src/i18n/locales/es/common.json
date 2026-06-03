@@ -314,6 +314,7 @@
     "closeOptions": "Cerrar opciones de mapa",
     "sections": {
       "mapOptions": "Opciones de mapa",
+      "wormholeBookmarks": "Marcadores de agujeros de gusano",
       "mapControls": "Controles del mapa",
       "systemOptions": "Opciones de sistema",
       "connections": "Conexiones",
@@ -341,6 +342,8 @@
     },
     "fontSize": "Tamaño de fuente",
     "placement": "Colocación de sistemas nuevos",
+    "sigBookmark": "Marcador de firma",
+    "bookmarkHelp": "En la fila de una firma de agujero de gusano, haz clic en el icono de copiar para copiar un nombre de marcador listo, y pégalo en el marcador del juego. Crea el nombre con estos tokens:",
     "placementOptions": {
       "horizontal": "Horizontal (derecha)",
       "vertical": "Vertical (abajo)"
@@ -426,7 +429,8 @@
       "undo": "Deshacer",
       "multiSelect": "Selección múltiple de sistemas",
       "rubberBand": "Selección por recuadro",
-      "overwriteSigs": "Pegar firmas en modo sobrescritura (eliminar las desaparecidas)"
+      "overwriteSigs": "Pegar firmas en modo sobrescritura (eliminar las desaparecidas)",
+      "vivaldiNote": "Vivaldi (y algunos otros navegadores) asignan Ctrl+Mayús+V a su propio comando, por lo que nunca llega a Nexum. Activa 'Sobrescribir al pegar' y usa simplemente Ctrl+V, o reasigna el atajo en los ajustes de teclado de tu navegador."
     },
     "canvasNotFound": "No se pudo encontrar el lienzo del mapa",
     "exportFailed": "Error al exportar: {{error}}",
@@ -782,6 +786,9 @@
     "emptyShared": "No hay firmas escaneadas",
     "empty": "No hay firmas escaneadas — pega desde el escáner de sondas para importar",
     "colId": "ID",
+    "copyBookmark": "Copiar nombre de marcador",
+    "bookmarkCopied": "Copiado: {{name}}",
+    "bookmarkCopyFailed": "No se pudo copiar al portapapeles",
     "colType": "Tipo",
     "colWh": "WH",
     "colLeadsTo": "Lleva a",
