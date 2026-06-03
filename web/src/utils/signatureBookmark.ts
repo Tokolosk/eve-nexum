@@ -15,7 +15,10 @@ export const BOOKMARK_TOKENS: { token: string; desc: string }[] = [
   { token: '{notes}',       desc: 'Signature notes' },
 ];
 
-export const DEFAULT_BOOKMARK_FORMAT = '{sig} {dest_type} {size} {age}';
+// No {age} by default: you bookmark a hole the moment it's scanned, so a
+// created-at age is always ~0h at copy time. It stays an available token for
+// anyone who wants it, just not in the default.
+export const DEFAULT_BOOKMARK_FORMAT = '{sig} {dest_type} {size}';
 
 // Per-jump mass -> short size letter. Buckets are approximate and easy to
 // tweak; 0 (unknown, e.g. an un-typed K162) yields no letter.
