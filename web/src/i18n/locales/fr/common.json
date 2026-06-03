@@ -326,11 +326,12 @@
       "staleFade": "Atténuation des systèmes obsolètes",
       "importExport": "Import / Export",
       "mergeMaps": "Fusionner les cartes",
-      "liveSharing": "Partage de carte en direct",
+      "liveSharing": "Diffusion de carte en direct",
       "shareMap": "Partager la carte",
       "shortcuts": "Raccourcis"
     },
     "snapToGrid": "Aligner sur la grille",
+    "settings": "Paramètres",
     "invertZoom": "Inverser le zoom (souris/pavé tactile)",
     "minimap": "Mini-carte",
     "position": "Position",

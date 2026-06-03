@@ -326,11 +326,12 @@
       "staleFade": "Stale System Fade",
       "importExport": "Import / Export",
       "mergeMaps": "Merge Maps",
-      "liveSharing": "Live Map Sharing",
+      "liveSharing": "Live Map Broadcast",
       "shareMap": "Share Map",
       "shortcuts": "Shortcuts"
     },
     "snapToGrid": "Snap to Grid",
+    "settings": "Settings",
     "invertZoom": "Invert zoom (mouse/trackpad)",
     "minimap": "Minimap",
     "position": "Position",

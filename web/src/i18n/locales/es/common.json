@@ -326,11 +326,12 @@
       "staleFade": "Atenuar sistemas obsoletos",
       "importExport": "Importar / Exportar",
       "mergeMaps": "Fusionar mapas",
-      "liveSharing": "Compartir mapa en vivo",
+      "liveSharing": "Transmisión de mapa en vivo",
       "shareMap": "Compartir mapa",
       "shortcuts": "Atajos"
     },
     "snapToGrid": "Ajustar a la cuadrícula",
+    "settings": "Ajustes",
     "invertZoom": "Invertir zoom (ratón/trackpad)",
     "minimap": "Minimapa",
     "position": "Posición",

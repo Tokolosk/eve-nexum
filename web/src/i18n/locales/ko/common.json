@@ -326,11 +326,12 @@
       "staleFade": "오래된 성계 흐리기",
       "importExport": "가져오기 / 내보내기",
       "mergeMaps": "지도 병합",
-      "liveSharing": "실시간 지도 공유",
+      "liveSharing": "실시간 지도 송출",
       "shareMap": "지도 공유",
       "shortcuts": "단축키"
     },
     "snapToGrid": "격자에 맞추기",
+    "settings": "설정",
     "invertZoom": "확대/축소 반전 (마우스/트랙패드)",
     "minimap": "미니맵",
     "position": "위치",

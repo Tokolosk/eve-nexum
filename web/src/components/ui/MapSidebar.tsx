@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { Trans, useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import {
@@ -19,7 +20,7 @@ import {
 import { useUserSetting } from "../../hooks/useUserSetting";
 import { DEFAULT_BOOKMARK_FORMAT, BOOKMARK_TOKENS } from "../../utils/signatureBookmark";
 import { toPng } from "html-to-image";
-import { CaretLeftIcon, CaretRightIcon } from "@phosphor-icons/react";
+import { CaretLeftIcon, CaretRightIcon, GearIcon } from "@phosphor-icons/react";
 import { ChainExitsSection } from "./ChainExitsSection";
 import { MapSharesSection } from "./MapSharesSection";
 import { MergeMapModal } from "./MergeMapModal";
@@ -506,12 +507,16 @@ export function MapSidebar() {
   // Map Options so first-load users see something useful immediately.
   const [openSection, setOpenSection] = useUserSetting<SectionId>(
     "nexum.mapSidebar.openSection",
-    "mapOptions",
+    "mapControls",
   );
   const sectionProps = (id: SectionId) => ({
     isOpen: openSection === id,
     onToggle: () => setOpenSection((cur) => (cur === id ? null : id)),
   });
+  // Preferences live in a Settings dialog (gear button) rather than crowding
+  // the sidebar; the sidebar keeps only the live mapping tools.
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsTab, setSettingsTab] = useState<"display" | "signatures" | "shortcuts">("display");
   const notifPermission = useNotificationPermission();
   const { user } = useAuth();
   const isCorpMap = useMapStore((s) => !!s.map.isCorpMap);
@@ -661,111 +666,14 @@ export function MapSidebar() {
       </button>
 
       <div className="map-sidebar__content">
-        <CollapsibleSection title={t("mapSidebar.sections.mapOptions")} {...sectionProps("mapOptions")}>
-          <div className="map-sidebar__row">
-            <label className="map-sidebar__label">{t("mapSidebar.snapToGrid")}</label>
-            <button
-              className={`toolbar__toggle${snapToGrid ? " toolbar__toggle--on" : ""}`}
-              onClick={() => setSnapToGrid(!snapToGrid)}
-              aria-pressed={snapToGrid}
-            >
-              {snapToGrid ? t("actions.on") : t("actions.off")}
-            </button>
-          </div>
-
-          <div className="map-sidebar__row">
-            <label className="map-sidebar__label">{t("mapSidebar.minimap")}</label>
-            <button
-              className={`toolbar__toggle${showMinimap ? " toolbar__toggle--on" : ""}`}
-              onClick={() => setShowMinimap(!showMinimap)}
-              aria-pressed={showMinimap}
-            >
-              {showMinimap ? t("actions.on") : t("actions.off")}
-            </button>
-          </div>
-
-          {showMinimap && (
-            <div className="map-sidebar__row">
-              <label className="map-sidebar__label" htmlFor="minimap-position">
-                {t("mapSidebar.position")}
-              </label>
-              <select
-                id="minimap-position"
-                className="map-sidebar__select"
-                value={minimapPosition}
-                onChange={(e) =>
-                  setMinimapPosition(e.target.value as MinimapPosition)
-                }
-              >
-                <option value="bottom-right">{t("mapSidebar.minimapPos.bottomRight")}</option>
-                <option value="bottom-left">{t("mapSidebar.minimapPos.bottomLeft")}</option>
-                <option value="top-right">{t("mapSidebar.minimapPos.topRight")}</option>
-                <option value="top-left">{t("mapSidebar.minimapPos.topLeft")}</option>
-              </select>
-            </div>
-          )}
-
-          <div className="map-sidebar__row">
-            <label className="map-sidebar__label" htmlFor="ui-zoom">
-              {t("mapSidebar.fontSize")}
-            </label>
-            <div className="map-sidebar__zoom">
-              <input
-                id="ui-zoom"
-                type="range"
-                min={0.8}
-                max={1.5}
-                step={0.05}
-                value={uiZoom}
-                onChange={(e) => setUiZoom(parseFloat(e.target.value))}
-                className="map-sidebar__zoom-slider"
-              />
-              <button
-                type="button"
-                className="map-sidebar__zoom-value"
-                onClick={() => setUiZoom(1)}
-                title={t("mapSidebar.resetZoom")}
-              >
-                {Math.round(uiZoom * 100)}%
-              </button>
-            </div>
-          </div>
-
-          <div className="map-sidebar__row">
-            <label className="map-sidebar__label" htmlFor="placement-dir">{t("mapSidebar.placement")}</label>
-            <select
-              id="placement-dir"
-              className="map-sidebar__select"
-              value={placement}
-              onChange={(e) => setPlacement(e.target.value)}
-            >
-              <option value="horizontal">{t("mapSidebar.placementOptions.horizontal")}</option>
-              <option value="vertical">{t("mapSidebar.placementOptions.vertical")}</option>
-            </select>
-          </div>
-
-        </CollapsibleSection>
-
-        <CollapsibleSection title={t("mapSidebar.sections.wormholeBookmarks")} {...sectionProps("wormholeBookmarks")}>
-          <div className="map-sidebar__row">
-            <label className="map-sidebar__label" htmlFor="sig-bookmark-fmt">{t("mapSidebar.sigBookmark")}</label>
-            <input
-              id="sig-bookmark-fmt"
-              className="map-sidebar__select"
-              type="text"
-              spellCheck={false}
-              value={sigBookmarkFmt}
-              onChange={(e) => setSigBookmarkFmt(e.target.value)}
-              placeholder={DEFAULT_BOOKMARK_FORMAT}
-            />
-          </div>
-          <p className="map-sidebar__help">{t("mapSidebar.bookmarkHelp")}</p>
-          <ul className="map-sidebar__tokens">
-            {BOOKMARK_TOKENS.map((b) => (
-              <li key={b.token}><code>{b.token}</code> - {b.desc}</li>
-            ))}
-          </ul>
-        </CollapsibleSection>
+        <button
+          type="button"
+          className="map-sidebar__settings-btn"
+          onClick={() => setSettingsOpen(true)}
+        >
+          <GearIcon size={14} weight="bold" />
+          {t("mapSidebar.settings")}
+        </button>
 
         <CollapsibleSection title={t("mapSidebar.sections.mapControls")} {...sectionProps("mapControls")}>
           <SettingToggle
@@ -1098,37 +1006,6 @@ export function MapSidebar() {
           </CollapsibleSection>
         )}
 
-        <CollapsibleSection title={t("mapSidebar.sections.shortcuts")} {...sectionProps("shortcuts")}>
-          <div className="map-sidebar__shortcut">
-            <kbd>⌘/Ctrl + K</kbd>
-            <span>{t("mapSidebar.shortcut.searchSystems")}</span>
-          </div>
-          <div className="map-sidebar__shortcut">
-            <kbd>H</kbd>
-            <span>{t("mapSidebar.shortcut.centreHome")}</span>
-          </div>
-          <div className="map-sidebar__shortcut">
-            <kbd>Del</kbd>
-            <span>{t("mapSidebar.shortcut.removeSelected")}</span>
-          </div>
-          <div className="map-sidebar__shortcut">
-            <kbd>⌘/Ctrl + Z</kbd>
-            <span>{t("mapSidebar.shortcut.undo")}</span>
-          </div>
-          <div className="map-sidebar__shortcut">
-            <kbd>Shift + click</kbd>
-            <span>{t("mapSidebar.shortcut.multiSelect")}</span>
-          </div>
-          <div className="map-sidebar__shortcut">
-            <kbd>Shift + drag</kbd>
-            <span>{t("mapSidebar.shortcut.rubberBand")}</span>
-          </div>
-          <div className="map-sidebar__shortcut">
-            <kbd>Shift + ⌘/Ctrl + V</kbd>
-            <span>{t("mapSidebar.shortcut.overwriteSigs")}</span>
-          </div>
-          <p className="map-sidebar__shortcut-note">{t("mapSidebar.shortcut.vivaldiNote")}</p>
-        </CollapsibleSection>
       </div>
 
       <input
@@ -1142,6 +1019,104 @@ export function MapSidebar() {
           e.target.value = "";
         }}
       />
+
+      {settingsOpen && createPortal(
+        <div className="settings-modal__overlay" onClick={() => setSettingsOpen(false)}>
+          <div className="settings-modal" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
+            <div className="settings-modal__head">
+              <h2 className="settings-modal__title">{t("mapSidebar.settings")}</h2>
+              <button type="button" className="icon-btn" onClick={() => setSettingsOpen(false)} title={t("actions.close")}>✕</button>
+            </div>
+
+            <div className="settings-modal__tabs">
+              <button type="button" className={`settings-modal__tab${settingsTab === "display" ? " settings-modal__tab--active" : ""}`} onClick={() => setSettingsTab("display")}>
+                {t("mapSidebar.sections.mapOptions")}
+              </button>
+              <button type="button" className={`settings-modal__tab${settingsTab === "signatures" ? " settings-modal__tab--active" : ""}`} onClick={() => setSettingsTab("signatures")}>
+                {t("mapSidebar.sections.wormholeBookmarks")}
+              </button>
+              <button type="button" className={`settings-modal__tab${settingsTab === "shortcuts" ? " settings-modal__tab--active" : ""}`} onClick={() => setSettingsTab("shortcuts")}>
+                {t("mapSidebar.sections.shortcuts")}
+              </button>
+            </div>
+
+            <div className="settings-modal__body">
+              {settingsTab === "display" && (
+                <>
+                  <div className="map-sidebar__row">
+                    <label className="map-sidebar__label">{t("mapSidebar.snapToGrid")}</label>
+                    <button className={`toolbar__toggle${snapToGrid ? " toolbar__toggle--on" : ""}`} onClick={() => setSnapToGrid(!snapToGrid)} aria-pressed={snapToGrid}>
+                      {snapToGrid ? t("actions.on") : t("actions.off")}
+                    </button>
+                  </div>
+                  <div className="map-sidebar__row">
+                    <label className="map-sidebar__label">{t("mapSidebar.minimap")}</label>
+                    <button className={`toolbar__toggle${showMinimap ? " toolbar__toggle--on" : ""}`} onClick={() => setShowMinimap(!showMinimap)} aria-pressed={showMinimap}>
+                      {showMinimap ? t("actions.on") : t("actions.off")}
+                    </button>
+                  </div>
+                  {showMinimap && (
+                    <div className="map-sidebar__row">
+                      <label className="map-sidebar__label" htmlFor="minimap-position">{t("mapSidebar.position")}</label>
+                      <select id="minimap-position" className="map-sidebar__select" value={minimapPosition} onChange={(e) => setMinimapPosition(e.target.value as MinimapPosition)}>
+                        <option value="bottom-right">{t("mapSidebar.minimapPos.bottomRight")}</option>
+                        <option value="bottom-left">{t("mapSidebar.minimapPos.bottomLeft")}</option>
+                        <option value="top-right">{t("mapSidebar.minimapPos.topRight")}</option>
+                        <option value="top-left">{t("mapSidebar.minimapPos.topLeft")}</option>
+                      </select>
+                    </div>
+                  )}
+                  <div className="map-sidebar__row">
+                    <label className="map-sidebar__label" htmlFor="ui-zoom">{t("mapSidebar.fontSize")}</label>
+                    <div className="map-sidebar__zoom">
+                      <input id="ui-zoom" type="range" min={0.8} max={1.5} step={0.05} value={uiZoom} onChange={(e) => setUiZoom(parseFloat(e.target.value))} className="map-sidebar__zoom-slider" />
+                      <button type="button" className="map-sidebar__zoom-value" onClick={() => setUiZoom(1)} title={t("mapSidebar.resetZoom")}>
+                        {Math.round(uiZoom * 100)}%
+                      </button>
+                    </div>
+                  </div>
+                  <div className="map-sidebar__row">
+                    <label className="map-sidebar__label" htmlFor="placement-dir">{t("mapSidebar.placement")}</label>
+                    <select id="placement-dir" className="map-sidebar__select" value={placement} onChange={(e) => setPlacement(e.target.value)}>
+                      <option value="horizontal">{t("mapSidebar.placementOptions.horizontal")}</option>
+                      <option value="vertical">{t("mapSidebar.placementOptions.vertical")}</option>
+                    </select>
+                  </div>
+                </>
+              )}
+
+              {settingsTab === "signatures" && (
+                <>
+                  <div className="map-sidebar__field">
+                    <label className="map-sidebar__label" htmlFor="sig-bookmark-fmt">{t("mapSidebar.sigBookmark")}</label>
+                    <input id="sig-bookmark-fmt" className="map-sidebar__select map-sidebar__select--full" type="text" spellCheck={false} value={sigBookmarkFmt} onChange={(e) => setSigBookmarkFmt(e.target.value)} placeholder={DEFAULT_BOOKMARK_FORMAT} />
+                  </div>
+                  <p className="map-sidebar__help">{t("mapSidebar.bookmarkHelp")}</p>
+                  <ul className="map-sidebar__tokens">
+                    {BOOKMARK_TOKENS.map((b) => (
+                      <li key={b.token}><code>{b.token}</code> - {b.desc}</li>
+                    ))}
+                  </ul>
+                </>
+              )}
+
+              {settingsTab === "shortcuts" && (
+                <>
+                  <div className="map-sidebar__shortcut"><kbd>⌘/Ctrl + K</kbd><span>{t("mapSidebar.shortcut.searchSystems")}</span></div>
+                  <div className="map-sidebar__shortcut"><kbd>H</kbd><span>{t("mapSidebar.shortcut.centreHome")}</span></div>
+                  <div className="map-sidebar__shortcut"><kbd>Del</kbd><span>{t("mapSidebar.shortcut.removeSelected")}</span></div>
+                  <div className="map-sidebar__shortcut"><kbd>⌘/Ctrl + Z</kbd><span>{t("mapSidebar.shortcut.undo")}</span></div>
+                  <div className="map-sidebar__shortcut"><kbd>Shift + click</kbd><span>{t("mapSidebar.shortcut.multiSelect")}</span></div>
+                  <div className="map-sidebar__shortcut"><kbd>Shift + drag</kbd><span>{t("mapSidebar.shortcut.rubberBand")}</span></div>
+                  <div className="map-sidebar__shortcut"><kbd>Shift + ⌘/Ctrl + V</kbd><span>{t("mapSidebar.shortcut.overwriteSigs")}</span></div>
+                  <p className="map-sidebar__shortcut-note">{t("mapSidebar.shortcut.vivaldiNote")}</p>
+                </>
+              )}
+            </div>
+          </div>
+        </div>,
+        document.body,
+      )}
     </div>
   );
 }

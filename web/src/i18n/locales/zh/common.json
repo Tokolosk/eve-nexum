@@ -326,11 +326,12 @@
       "staleFade": "陈旧星系淡化",
       "importExport": "导入 / 导出",
       "mergeMaps": "合并地图",
-      "liveSharing": "实时地图共享",
+      "liveSharing": "实时地图广播",
       "shareMap": "共享地图",
       "shortcuts": "快捷键"
     },
     "snapToGrid": "对齐网格",
+    "settings": "设置",
     "invertZoom": "反转缩放（鼠标/触控板）",
     "minimap": "小地图",
     "position": "位置",
