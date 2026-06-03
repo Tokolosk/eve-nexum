@@ -1850,6 +1850,18 @@
   color: #c0ccde;
 }
 
+/* Stacked field: label on its own line above a full-width control. */
+.map-sidebar__field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.map-sidebar__select--full {
+  width: 100%;
+  box-sizing: border-box;
+}
+
 .map-sidebar__toggle-row {
   cursor: pointer;
 }
