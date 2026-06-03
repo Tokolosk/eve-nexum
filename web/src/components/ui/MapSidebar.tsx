@@ -1087,9 +1087,9 @@ export function MapSidebar() {
 
               {settingsTab === "signatures" && (
                 <>
-                  <div className="map-sidebar__row">
+                  <div className="map-sidebar__field">
                     <label className="map-sidebar__label" htmlFor="sig-bookmark-fmt">{t("mapSidebar.sigBookmark")}</label>
-                    <input id="sig-bookmark-fmt" className="map-sidebar__select" type="text" spellCheck={false} value={sigBookmarkFmt} onChange={(e) => setSigBookmarkFmt(e.target.value)} placeholder={DEFAULT_BOOKMARK_FORMAT} />
+                    <input id="sig-bookmark-fmt" className="map-sidebar__select map-sidebar__select--full" type="text" spellCheck={false} value={sigBookmarkFmt} onChange={(e) => setSigBookmarkFmt(e.target.value)} placeholder={DEFAULT_BOOKMARK_FORMAT} />
                   </div>
                   <p className="map-sidebar__help">{t("mapSidebar.bookmarkHelp")}</p>
                   <ul className="map-sidebar__tokens">
