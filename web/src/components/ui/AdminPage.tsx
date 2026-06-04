@@ -247,7 +247,7 @@ function UsersTab() {
               <SortableTh col="blocked"        label={t('admin.users.colStatus')}    sort={sort} onToggle={toggleSort} />
               <SortableTh col="lastLogin"      label={t('admin.users.colLastLogin')} sort={sort} onToggle={toggleSort} />
               <SortableTh col="lastKnownSystemName" label={t('admin.users.colLastKnown')} sort={sort} onToggle={toggleSort} />
-              {canEdit && <th />}
+              {canEdit && <th aria-label={t('actions.column')} />}
             </tr>
           </thead>
           <tbody>
@@ -424,7 +424,7 @@ function MapsTab() {
               <th>{t('admin.maps.colConnections')}</th>
               <th>{t('admin.maps.colLock')}</th>
               <th>{t('admin.maps.colLastActive')}</th>
-              <th />
+              <th aria-label={t('actions.column')} />
             </tr>
           </thead>
           <tbody>
