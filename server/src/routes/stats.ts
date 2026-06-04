@@ -26,7 +26,17 @@ const PERIODS: PeriodKey[] = ['forever', 'year', 'month', 'week', 'day'];
 const DAILY_DAYS = 30;
 
 router.get('/', async (req, res) => {
-  const userId = req.session.userId!;
+  const userId = req.session.userId;
+  // optionalAuth means a share-token viewer can reach here with no session —
+  // they have nothing to attribute, so return empty stats rather than running
+  // the queries with a NULL user id.
+  if (!userId) {
+    const empty: Record<PeriodKey, PeriodStats> = {
+      forever: emptyPeriod(), year: emptyPeriod(), month: emptyPeriod(),
+      week: emptyPeriod(), day: emptyPeriod(),
+    };
+    return res.json({ ...empty, daily: Array(DAILY_DAYS).fill(0) });
+  }
 
   const now   = new Date();
   const day   = new Date(now.getTime() - 24 * 60 * 60 * 1000);
