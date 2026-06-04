@@ -783,8 +783,7 @@
   "anomType": {
     "unknown": "Desconocido",
     "combat": "Combate",
-    "ore": "Mineral",
-    "gas": "Gas"
+    "ore": "Mineral"
   },
   "signatures": {
     "pasteHint": "Puedes copiar y pegar firmas directamente desde el escáner de sondas en EVE. Para ello, abre tu escáner de sondas. Pulsa Ctrl+A para seleccionarlas todas, luego Ctrl+C para copiar. Usa Ctrl+V para pegarlas aquí.",
