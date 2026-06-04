@@ -23,14 +23,13 @@ const ANOM_TYPE_LABELS: Record<AnomType, string> = {
   unknown: 'Unknown',
   combat:  'Combat',
   ore:     'Ore',
-  gas:     'Gas',
 };
 
-// Scanner "type" column ("Combat Site", "Ore Site", "Gas Site") → our enum.
+// Scanner "type" column → our enum. Anomalies are only ever "Combat Site" or
+// "Ore Site" (ice belts also report as Ore Sites — only the name differs).
 const EVE_ANOM_TYPE: Record<string, AnomType> = {
   'combat site': 'combat',
   'ore site':    'ore',
-  'gas site':    'gas',
 };
 
 interface ParsedAnom { anomId: string; anomType: AnomType; name: string; }
@@ -76,9 +75,9 @@ function formatDelay(sec: number): string {
 }
 
 // Filter chips + type-select options. Reuses the sig-* type colour classes,
-// which already cover combat / ore / gas / unknown.
-const ANOM_TYPE_FILTER_ORDER: AnomType[] = ['combat', 'ore', 'gas', 'unknown'];
-const ANOM_TYPE_OPTIONS: AnomType[] = ['combat', 'gas', 'ore', 'unknown'];
+// which already cover combat / ore / unknown.
+const ANOM_TYPE_FILTER_ORDER: AnomType[] = ['combat', 'ore', 'unknown'];
+const ANOM_TYPE_OPTIONS: AnomType[] = ['combat', 'ore', 'unknown'];
 
 // Single module-level 1 s tick shared across every ElapsedCell instance, so the
 // age/updated cells refresh without each pane driving its own per-second state
