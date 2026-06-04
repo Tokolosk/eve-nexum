@@ -67,7 +67,10 @@ export interface Signature {
   updatedAt: string;
 }
 
-export type AnomType = 'unknown' | 'combat' | 'ore' | 'gas';
+// Cosmic anomalies are only ever "Combat Site" or "Ore Site" on the probe
+// scanner (gas/ladar sites are Cosmic *Signatures*, not anomalies; ice belts
+// report as Ore Sites). Ergo no 'gas' here.
+export type AnomType = 'unknown' | 'combat' | 'ore';
 
 export interface Anomaly {
   id: string;
