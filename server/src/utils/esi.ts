@@ -17,6 +17,7 @@ const ESI_AGENT = 'Eve-Nexum/1.0 (https://github.com/GQuantrill/eve-nexum; gq@ar
 // to pause.
 const SAFE_REMAIN = 10;       // start easing off once the budget dips this low
 let blockedUntil = 0;         // epoch ms; hold new requests until this passes
+const DEFAULT_TIMEOUT_MS = 15_000; // abort an ESI call that hasn't responded in time
 
 function sleep(ms: number, signal?: AbortSignal | null): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -35,15 +36,18 @@ function sleep(ms: number, signal?: AbortSignal | null): Promise<void> {
  * caller with a timeout won't hang past it.
  */
 export async function esiFetch(url: string, init: RequestInit = {}): Promise<Response> {
+  // Default request timeout so a slow/hung ESI can't pin a request (and its DB
+  // pool slot) indefinitely — callers that pass their own signal keep it.
+  const signal = init.signal ?? AbortSignal.timeout(DEFAULT_TIMEOUT_MS);
   const wait = blockedUntil - Date.now();
-  if (wait > 0) await sleep(wait, init.signal);
+  if (wait > 0) await sleep(wait, signal);
 
   const headers = {
     'User-Agent': ESI_AGENT,
     Accept: 'application/json',
     ...(init.headers as Record<string, string> | undefined),
   };
-  const res = await fetch(url, { ...init, headers });
+  const res = await fetch(url, { ...init, headers, signal });
 
   // Update backoff state from the error-limit headers (present on every ESI
   // response). Reset is seconds until the window clears; pad by 1s.

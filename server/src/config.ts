@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 
 // CORP_ID accepts a comma-separated list of corporation IDs. Any member of
 // any listed corp is allowed to log in.
@@ -99,7 +99,16 @@ if (!TOKEN_ENC_RAW) {
   process.exit(1);
 }
 const HEX_64 = /^[0-9a-fA-F]{64}$/;
-const tokenEncryptionKey = HEX_64.test(TOKEN_ENC_RAW)
+const isHex64Key = HEX_64.test(TOKEN_ENC_RAW);
+// A short passphrase SHA-256s into a low-entropy, brute-forceable key that
+// protects every stored EVE refresh token. The strong form is 64 hex chars
+// (`openssl rand -hex 32`). We only WARN about weaker keys — never refuse to
+// boot — so self-hosted deployments that already run with a short passphrase
+// keep starting. Operators are nudged to upgrade but not locked out.
+if (!isHex64Key && TOKEN_ENC_RAW.length < 32) {
+  console.warn('WARNING: TOKEN_ENCRYPTION_KEY is weak — for stronger token encryption use 64 hex chars (openssl rand -hex 32) or at least a 32-character passphrase');
+}
+const tokenEncryptionKey = isHex64Key
   ? TOKEN_ENC_RAW.toLowerCase()
   : createHash('sha256').update(TOKEN_ENC_RAW).digest('hex');
 
@@ -128,7 +137,11 @@ export const config = {
   sdeAutoUpdate:       SDE_AUTO_UPDATE,
   sdeCheckUtc:         SDE_CHECK_UTC,
   telemetry:           { enabled: TELEMETRY_ENABLED, url: TELEMETRY_URL },
-  sessionSecret:       process.env.SESSION_SECRET ?? 'dev-secret-change-me',
+  // Required in non-dev (guarded above). The dev fallback is randomised per
+  // boot rather than a known literal, so a dev instance accidentally exposed
+  // can't have its sessions forged with a guessable secret (sessions just
+  // don't survive a restart in dev, which is fine).
+  sessionSecret:       process.env.SESSION_SECRET ?? randomBytes(32).toString('hex'),
   tokenEncryptionKey,
   isProd,
 } as const;
