@@ -1,4 +1,9 @@
 import 'dotenv/config';
+// Patches Express 4 so a rejected promise from an async route handler is
+// forwarded to the error-handling middleware instead of becoming an unhandled
+// rejection that crashes the process (a DoS vector). Must be imported before
+// any routes are registered.
+import 'express-async-errors';
 import './config.js'; // validates env vars at startup
 import express from 'express';
 import cors from 'cors';
