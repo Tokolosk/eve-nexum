@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { charPortrait } from '../../utils/eveImages';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import { api } from '../../api/client';
@@ -259,7 +260,7 @@ function UsersTab() {
                   <td className="admin-modal__name-cell">
                     <img
                       className="admin-modal__avatar"
-                      src={`https://images.evetech.net/characters/${u.characterId}/portrait?size=32`}
+                      src={charPortrait(u.characterId, 32)}
                       alt=""
                     />
                     <span>{u.characterName}</span>
@@ -436,7 +437,7 @@ function MapsTab() {
                   <td className="admin-modal__name-cell">
                     <img
                       className="admin-modal__avatar"
-                      src={`https://images.evetech.net/characters/${m.ownerCharacterId}/portrait?size=32`}
+                      src={charPortrait(m.ownerCharacterId, 32)}
                       alt=""
                     />
                     <span>{m.ownerCharacterName}</span>
@@ -838,7 +839,7 @@ function UsersReport() {
               <td className="admin-modal__name-cell">
                 <img
                   className="admin-modal__avatar"
-                  src={`https://images.evetech.net/characters/${u.characterId}/portrait?size=32`}
+                  src={charPortrait(u.characterId, 32)}
                   alt=""
                 />
                 <span>{u.characterName}</span>
