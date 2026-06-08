@@ -1875,7 +1875,8 @@
 .watchlist__list {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 12px;
+  margin-top: 2px;
 }
 
 /* Each entry is a small card: a top line (marker | what | delete) and a
@@ -1884,11 +1885,11 @@
 .watchlist__row {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  padding: 6px;
-  border: 1px solid #18203400;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid #18223a;
   border-radius: 6px;
-  background: rgba(255,255,255,0.015);
+  background: rgba(255,255,255,0.02);
 }
 
 .watchlist__row-top,
