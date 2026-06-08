@@ -672,6 +672,12 @@ export function MapSidebar() {
             label={t("mapSidebar.invertZoom")}
             defaultOn={false}
           />
+          <SettingToggle
+            settingKey="nexum.crossMapSync"
+            label={t("mapSidebar.crossMapSync")}
+            defaultOn={false}
+          />
+          <p className="map-sidebar__help">{t("mapSidebar.crossMapSyncHelp")}</p>
         </CollapsibleSection>
 
         <CollapsibleSection
@@ -1088,9 +1094,6 @@ export function MapSidebar() {
                       <li key={b.token}><code>{b.token}</code> - {b.desc}</li>
                     ))}
                   </ul>
-                  <hr className="map-sidebar__divider" />
-                  <SettingToggle settingKey="nexum.crossMapSync" label={t("mapSidebar.crossMapSync")} defaultOn={false} />
-                  <p className="map-sidebar__help">{t("mapSidebar.crossMapSyncHelp")}</p>
                 </>
               )}
 
