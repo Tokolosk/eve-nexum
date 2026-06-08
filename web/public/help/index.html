@@ -1,0 +1,324 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+    <title>Nexum Help — How to use the EVE Online wormhole mapper</title>
+    <meta name="description" content="How to use Nexum, the EVE Online wormhole mapper: mapping, signatures & anomalies, wormhole rolling, the watchlist, cross-map sync, live ops, corp tools and more." />
+    <meta name="author" content="Area 404" />
+    <meta name="theme-color" content="#06080f" />
+
+    <link rel="canonical" href="https://eve-nexum.com/help/" />
+    <link rel="icon" href="/favicon.ico" sizes="any" />
+    <link rel="icon" type="image/png" href="/favicon.png" />
+    <meta name="robots" content="index, follow" />
+
+    <meta property="og:type"        content="article" />
+    <meta property="og:url"         content="https://eve-nexum.com/help/" />
+    <meta property="og:title"       content="Nexum Help — How to use the EVE Online wormhole mapper" />
+    <meta property="og:description" content="How to use every Nexum feature: mapping, signatures, wormhole rolling, the watchlist, cross-map sync, live ops and corp tools." />
+    <meta property="og:site_name"   content="Nexum" />
+    <meta property="og:locale"      content="en_GB" />
+
+    <style>
+      :root {
+        --bg:#06080f; --panel:#111827; --panel2:#141c2e; --border:#1e2740;
+        --text:#c8d2e6; --head:#eaf0fb; --muted:#8a98b8; --muted2:#6a7898;
+        --accent:#5b9bff; --green:#3ddc84; --amber:#f0a030; --red:#e05a5a;
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; background: var(--bg); }
+      body {
+        font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+        color: var(--text); line-height: 1.6;
+      }
+      .wrap { max-width: 920px; margin: 0 auto; padding: 32px 20px 64px; }
+      a { color: var(--accent); }
+      .topnav { font-size: 14px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+      .topnav a { color: var(--muted); text-decoration: none; }
+      .lang-select {
+        background: var(--panel2); color: var(--text); border: 1px solid var(--border);
+        border-radius: 4px; padding: 4px 8px; font-size: 13px; font-family: inherit; cursor: pointer;
+        transition: border-color 0.15s ease;
+      }
+      .lang-select:hover { border-color: var(--accent); }
+      .lang-select:focus-visible { outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px rgba(91,155,255,0.25); }
+      .lang-select option { background: var(--panel); color: var(--text); }
+      header.hero { text-align: center; margin: 28px 0 8px; }
+      .logo { font-size: 34px; color: var(--accent); line-height: 1; }
+      h1 { color: var(--head); font-size: 30px; line-height: 1.25; margin: 12px 0 6px; }
+      .sub { color: var(--muted); margin: 0; }
+      .lede { font-size: 17px; color: var(--text); margin: 22px 0 8px; }
+      .toc { background: var(--panel2); border: 1px solid var(--border); border-radius: 10px; padding: 14px 20px; margin: 18px 0 8px; }
+      .toc ul { list-style: none; padding: 0; margin: 0; display: flex; flex-wrap: wrap; gap: 6px 18px; }
+      .toc li { margin: 0; }
+      .toc a { text-decoration: none; }
+      h2 { color: var(--head); font-size: 23px; margin: 40px 0 4px; border-bottom: 1px solid var(--border); padding-bottom: 6px; scroll-margin-top: 12px; }
+      h3 { color: var(--head); font-size: 17px; margin: 20px 0 2px; }
+      p { margin: 8px 0; }
+      .feat { margin: 14px 0; }
+      .tip { color: var(--muted); font-size: 14px; }
+      kbd { background: var(--panel2); border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 4px; padding: 1px 6px; font-size: 13px; font-family: inherit; color: var(--head); }
+      .cta { background: var(--panel2); border: 1px solid var(--border); border-radius: 10px; padding: 18px 20px; margin: 40px 0 0; text-align: center; }
+      .cta a.btn { display: inline-block; margin-top: 8px; padding: 9px 18px; background: var(--accent); color: #04060c; border-radius: 8px; text-decoration: none; font-weight: 700; }
+      footer { margin-top: 40px; padding-top: 16px; border-top: 1px solid var(--border); color: var(--muted2); font-size: 13px; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <nav class="topnav">
+        <a href="/" data-i18n="nav">&larr; Nexum home</a>
+        <select id="lang-select" class="lang-select" aria-label="Language / Sprache / Langue">
+          <option value="en">English</option>
+          <option value="de">Deutsch</option>
+          <option value="fr">Français</option>
+          <option value="es">Español</option>
+          <option value="pt">Português</option>
+          <option value="zh">简体中文</option>
+          <option value="ko">한국어</option>
+          <option value="ja">日本語</option>
+          <option value="ru">Русский</option>
+        </select>
+      </nav>
+
+      <header class="hero">
+        <div class="logo" aria-hidden="true">◈</div>
+        <h1 data-i18n="h1">Nexum help &amp; how-to</h1>
+        <p class="sub" data-i18n="sub">A guide to every feature, grouped by what you're doing.</p>
+      </header>
+
+      <p class="lede" data-i18n="lede">New to Nexum? Log in with EVE Online SSO, create a map, and start scouting — your character's location is tracked automatically. Below is how each feature works. Most things are also reachable from the map's right-click menus and the sidebars.</p>
+
+      <nav class="toc">
+        <ul>
+          <li><a href="#start" data-i18n="tocStart">Getting started</a></li>
+          <li><a href="#mapping" data-i18n="tocMapping">Building your map</a></li>
+          <li><a href="#sigs" data-i18n="tocSigs">Signatures, anomalies &amp; wormholes</a></li>
+          <li><a href="#intel" data-i18n="tocIntel">System intelligence</a></li>
+          <li><a href="#live" data-i18n="tocLive">Live operations</a></li>
+          <li><a href="#watchlist" data-i18n="tocWatchlist">Watchlist &amp; alerts</a></li>
+          <li><a href="#maps" data-i18n="tocMaps">Working across maps</a></li>
+          <li><a href="#corp" data-i18n="tocCorp">Corp tools</a></li>
+          <li><a href="#personal" data-i18n="tocPersonal">Personalisation</a></li>
+        </ul>
+      </nav>
+
+      <!-- ── Getting started ─────────────────────────────────── -->
+      <h2 id="start" data-i18n="h2Start">Getting started</h2>
+
+      <div class="feat">
+        <h3 data-i18n="f_loginH">Log in with EVE Online</h3>
+        <p data-i18n="f_loginB">Click <strong>Log in with EVE Online</strong> and authorise with EVE SSO. Nexum never sees your password — it uses CCP's official login. Link extra characters (alts) later from the character switcher; you can swap active character without logging in again.</p>
+      </div>
+      <div class="feat">
+        <h3 data-i18n="f_mapsH">Create a map</h3>
+        <p data-i18n="f_mapsB">Open the map switcher (top-left) and create a new map. Personal maps are always private to you. When creating a map you can optionally <strong>seed it from an EVE region</strong> — it pre-loads every system with stargate connections drawn in a Dotlan-style layout. Leave the region blank for an empty canvas.</p>
+      </div>
+      <div class="feat">
+        <h3 data-i18n="f_trackH">Automatic location tracking</h3>
+        <p data-i18n="f_trackB">As you fly, your current system is highlighted and (on an unlocked map) new systems are added to your chain automatically. The map syncs live, so everyone viewing it sees your edits within moments.</p>
+      </div>
+
+      <!-- ── Building your map ───────────────────────────────── -->
+      <h2 id="mapping" data-i18n="h2Mapping">Building your map</h2>
+
+      <div class="feat">
+        <h3 data-i18n="f_nodesH">Systems &amp; connections</h3>
+        <p data-i18n="f_nodesB">Drag systems to arrange them; draw a connection by dragging from one node to another (turn on <strong>Easy Connect</strong> in System Options to drag from anywhere on a node). Click a connection to set its wormhole type, mass status (stable / destabilised / critical) and end-of-life flag. Snap-to-grid and an optional minimap are in Settings.</p>
+      </div>
+      <div class="feat">
+        <h3 data-i18n="f_whTypeH">Wormhole type picker</h3>
+        <p data-i18n="f_whTypeB">On a connection, open the type picker to assign the exact wormhole code; hovering a static shows its destination class, mass limit and lifetime. Setting a signature's wormhole type fills the connection automatically.</p>
+      </div>
+      <div class="feat">
+        <h3 data-i18n="f_rollingH">Rolling calculator</h3>
+        <p data-i18n="f_rollingB">Open a connection's rolling calculator to plan collapsing a hole. It models the ±10% mass variance, so each pass is judged against the worst case — buttons forecast safe / may-collapse / will-collapse. Set your roller ship (cold + prop-on mass, or pull your current ship from ESI), then click each pass; it tracks which side the roller is on and warns before a pass would strand it or close the hole.</p>
+      </div>
+      <div class="feat">
+        <h3 data-i18n="f_bulkH">Multi-select &amp; export</h3>
+        <p data-i18n="f_bulkB"><kbd>Shift</kbd>+click or <kbd>Shift</kbd>+drag to select several systems, then bulk-delete or move them. Export the whole map to a PNG (or copy it to the clipboard) for pings, and import/export the map as JSON from the sidebar.</p>
+      </div>
+
+      <!-- ── Signatures, anomalies & wormholes ───────────────── -->
+      <h2 id="sigs" data-i18n="h2Sigs">Signatures, anomalies &amp; wormholes</h2>
+
+      <div class="feat">
+        <h3 data-i18n="f_sigPasteH">Paste signatures</h3>
+        <p data-i18n="f_sigPasteB">In-game, open the probe scanner, press <kbd>Ctrl</kbd>+<kbd>A</kbd> then <kbd>Ctrl</kbd>+<kbd>C</kbd>, alt-tab to Nexum and press <kbd>Ctrl</kbd>+<kbd>V</kbd> with a system selected. Signatures and anomalies pasted together are sorted into the right panels automatically. Turn on <strong>Overwrite on paste</strong> to drop signatures that are no longer in the scan (or hold <kbd>Shift</kbd> while pasting to overwrite once).</p>
+      </div>
+      <div class="feat">
+        <h3 data-i18n="f_sigEditH">Identify &amp; age signatures</h3>
+        <p data-i18n="f_sigEditB">Set each signature's type; for wormholes, pick the WH type and where it leads to connect it on the map. Wormhole rows tint as they age toward the type's known lifetime (yellow, then orange, then red past expected close). An inbound K162 fires a toast, browser notification and audio ping.</p>
+      </div>
+      <div class="feat">
+        <h3 data-i18n="f_anomH">Anomalies</h3>
+        <p data-i18n="f_anomB">Cosmic anomalies (Combat, Ore and Homefront sites) paste into their own Anomalies panel alongside signatures, with the same overwrite-on-paste, filtering and aging.</p>
+      </div>
+      <div class="feat">
+        <h3 data-i18n="f_bookmarkH">Bookmark names</h3>
+        <p data-i18n="f_bookmarkB">On a wormhole signature row, click the copy icon to get a paste-ready in-game bookmark name. Customise the format with tokens (signature ID, destination, size) in Settings &rarr; Signatures.</p>
+      </div>
+
+      <!-- ── System intelligence ─────────────────────────────── -->
+      <h2 id="intel" data-i18n="h2Intel">System intelligence</h2>
+
+      <div class="feat">
+        <h3 data-i18n="f_sysPanelH">System panel</h3>
+        <p data-i18n="f_sysPanelB">Click a system to open its panel: class, security, effects, statics, celestials, sovereignty, signatures, structures, killboard and notes — each section resizable and collapsible, and reorderable to taste.</p>
+      </div>
+      <div class="feat">
+        <h3 data-i18n="f_structH">Structures</h3>
+        <p data-i18n="f_structB">Record player structures per system; the owning corp is resolved from ESI and tinted by your standings.</p>
+      </div>
+      <div class="feat">
+        <h3 data-i18n="f_intelTagH">Intel tags</h3>
+        <p data-i18n="f_intelTagB">Right-click a system &rarr; <strong>Set Intel</strong> to flag it (friendly / hostile / occupied / empty, or your own custom tags with colours). The tag shows as a corner marker on the node.</p>
+      </div>
+      <div class="feat">
+        <h3 data-i18n="f_standingsH">Standings &amp; sovereignty</h3>
+        <p data-i18n="f_standingsB">Sov-holding systems are tinted from your own EVE contacts — red for hostiles, blue for friendlies — across the whole chain, with killboard activity and sov holder shown in the panel.</p>
+      </div>
+
+      <!-- ── Live operations ─────────────────────────────────── -->
+      <h2 id="live" data-i18n="h2Live">Live operations</h2>
+
+      <div class="feat">
+        <h3 data-i18n="f_presenceH">Presence &amp; fleet</h3>
+        <p data-i18n="f_presenceB">See a dot for everyone viewing the map and for your fleet members, with live positions. Your own location is the green you-are-here marker.</p>
+      </div>
+      <div class="feat">
+        <h3 data-i18n="f_routeH">Route planner</h3>
+        <p data-i18n="f_routeB">Ask for a route and Nexum runs it over stargates <em>and</em> your live wormhole chain, so a shortcut through a hole is a single click. Set destination or add waypoint straight to your in-game autopilot from the system panel.</p>
+      </div>
+      <div class="feat">
+        <h3 data-i18n="f_envH">Environmental intel</h3>
+        <p data-i18n="f_envB">Nodes flag null-sec storms, A0 suns, ice belts, wormhole effects, incursions and pirate insurgencies. Thera / Turnur (eve-scout) connections are surfaced too.</p>
+      </div>
+      <div class="feat">
+        <h3 data-i18n="f_proxH">Proximity alerts</h3>
+        <p data-i18n="f_proxB">A toolbar chip shows the nearest incursion, insurgency or hostile-sov system in jumps. Set a threshold to get a browser notification and audio ping when you cross into the zone.</p>
+      </div>
+      <div class="feat">
+        <h3 data-i18n="f_discordH">Discord notifications</h3>
+        <p data-i18n="f_discordB">Corp maps can push inbound-K162 and new-connection alerts to a Discord channel (configured per corp by an admin), so intel lands even when nobody's watching the tab.</p>
+      </div>
+
+      <!-- ── Watchlist & alerts ──────────────────────────────── -->
+      <h2 id="watchlist" data-i18n="h2Watchlist">Watchlist &amp; alerts</h2>
+
+      <div class="feat">
+        <h3 data-i18n="f_watchH">Watchlist</h3>
+        <p data-i18n="f_watchB">Open the watchlist from the binoculars tab on the left edge of the map. Add the holes you're hunting — a specific <strong>system</strong> (name / J-code), a <strong>wormhole type</strong> (matched against statics, connections and scanned signatures anywhere in the chain), or a <strong>characteristic</strong> (shattered, an effect, frigate holes) via the quick-add chips. Each entry has its own marker icon, colour and optional note.</p>
+      </div>
+      <div class="feat">
+        <h3 data-i18n="f_watchAlertH">Highlights, chime &amp; locate</h3>
+        <p data-i18n="f_watchAlertB">When a watched thing is on the map, its node (or connection) is highlighted with your marker; the first time it appears it toasts and chimes once. Click the <strong>show on map</strong> button on an entry to jump straight to a match — if there's more than one, it expands to a list you can pick from. The watchlist follows you across devices.</p>
+      </div>
+
+      <!-- ── Working across maps ─────────────────────────────── -->
+      <h2 id="maps" data-i18n="h2Maps">Working across maps</h2>
+
+      <div class="feat">
+        <h3 data-i18n="f_multiMapH">Multiple maps</h3>
+        <p data-i18n="f_multiMapB">Keep several independent maps and switch between them from the map switcher. Each character or corp has its own set, up to the configured limits.</p>
+      </div>
+      <div class="feat">
+        <h3 data-i18n="f_crossSyncH">Cross-map sync</h3>
+        <p data-i18n="f_crossSyncB">Turn on <em>Sync system data across my maps</em> in Map Controls. When the same system appears on several of your maps, scanning it on one copies its signatures and anomalies to the same system on your others — personal maps with your personal maps, corp maps with the corp's. It's non-destructive: it only adds missing entries and fills blanks, never overwriting what you've entered or deleting anything.</p>
+      </div>
+      <div class="feat">
+        <h3 data-i18n="f_mergeH">Merge maps</h3>
+        <p data-i18n="f_mergeB">Fold one map into another: only missing systems and connections are added, with signatures, structures and notes merged in and new systems slotted into the existing layout.</p>
+      </div>
+      <div class="feat">
+        <h3 data-i18n="f_shareH">Share a map</h3>
+        <p data-i18n="f_shareB">Grant edit access to a specific character or an entire corp from the sidebar, or generate a read-only share link with a chosen expiry and which intel it includes.</p>
+      </div>
+
+      <!-- ── Corp tools ──────────────────────────────────────── -->
+      <h2 id="corp" data-i18n="h2Corp">Corp tools</h2>
+
+      <div class="feat">
+        <h3 data-i18n="f_corpMapsH">Corp maps &amp; roles</h3>
+        <p data-i18n="f_corpMapsB">In corp mode, your corp shares corp maps alongside everyone's private maps. Roles control who can administer; admins reach the dashboard, reports and audit log from the <kbd>/admin</kbd> area.</p>
+      </div>
+      <div class="feat">
+        <h3 data-i18n="f_lockH">Map locking</h3>
+        <p data-i18n="f_lockB">An admin can freeze a corp map's topology — systems, connections and the name lock for non-admins, but signatures, structures and notes stay editable so ops continue while the layout is pinned.</p>
+      </div>
+      <div class="feat">
+        <h3 data-i18n="f_reportsH">Reports &amp; audit</h3>
+        <p data-i18n="f_reportsB">Admins get users and systems reports, per-character attribution of scanning activity, and an audit log of sensitive actions, all time-windowed.</p>
+      </div>
+
+      <!-- ── Personalisation ─────────────────────────────────── -->
+      <h2 id="personal" data-i18n="h2Personal">Personalisation</h2>
+
+      <div class="feat">
+        <h3 data-i18n="f_paletteH">Command palette &amp; shortcuts</h3>
+        <p data-i18n="f_paletteB"><kbd>⌘/Ctrl</kbd>+<kbd>K</kbd> searches systems to add; <kbd>H</kbd> centres home; <kbd>Del</kbd> removes the selection; <kbd>⌘/Ctrl</kbd>+<kbd>Z</kbd> undoes. The full list is in Settings &rarr; Shortcuts.</p>
+      </div>
+      <div class="feat">
+        <h3 data-i18n="f_settingsH">Settings &amp; language</h3>
+        <p data-i18n="f_settingsB">The gear button opens display options (minimap, font size, placement direction), signature bookmarks and the shortcut list. Most preferences follow you across devices. Nexum is available in nine languages — pick yours from the language menu.</p>
+      </div>
+
+      <div class="cta">
+        <p data-i18n="ctaP">Still stuck, or have an idea? We're happy to help.</p>
+        <a class="btn" href="https://discord.gg/KG8SMXrhZ4" data-i18n="ctaBtn">Ask on Discord</a>
+        &nbsp; <a href="https://github.com/GQuantrill/eve-nexum/issues" data-i18n="ctaGh">Open an issue on GitHub</a>
+      </div>
+
+      <footer>
+        <p data-i18n="footP">EVE Online and the EVE logo are the registered trademarks of CCP hf. All rights reserved worldwide. Nexum is a third-party tool and is not affiliated with or endorsed by CCP hf. See the full <a href="/license/">license &amp; EVE IP notice</a>.</p>
+      </footer>
+    </div>
+
+    <!--
+      Runtime language swap. This page is static HTML (not part of the React SPA),
+      so it can't use react-i18next. We read the same `nexum.lang` localStorage key
+      the app's language detector uses (falling back to the browser language) and
+      replace the text of every [data-i18n] element with its translated equivalent.
+      SEO crawlers index the English source only (see the canonical / og:locale).
+    -->
+    <script>
+      (function () {
+        try {
+          var lang = localStorage.getItem('nexum.lang');
+          if (!lang) lang = (navigator.language || '').slice(0, 2);
+
+          // Languages with a translation dictionary below. English is the
+          // untranslated source, so it has no entry.
+          var SUPPORTED = {};
+
+          var sel = document.getElementById('lang-select');
+          if (sel) {
+            sel.value = SUPPORTED[lang] ? lang : 'en';
+            sel.addEventListener('change', function () {
+              try { localStorage.setItem('nexum.lang', sel.value); } catch (e) { /* ignore */ }
+              location.reload();
+            });
+          }
+
+          if (!SUPPORTED[lang]) return;
+
+          // SECURITY: innerHTML is used because these strings intentionally
+          // contain markup (<a>, <strong>, <kbd>). This is ONLY safe because every
+          // value in DICTS is a hard-coded, trusted literal in this file. Do NOT
+          // ever populate DICTS from user input, an API, or URL params.
+          var DICTS = {};
+
+          var DICT = DICTS[lang];
+          if (!DICT) return;
+          document.documentElement.lang = lang;
+          if (DICT.__title) document.title = DICT.__title;
+          document.querySelectorAll('[data-i18n]').forEach(function (el) {
+            var key = el.getAttribute('data-i18n');
+            if (DICT[key] != null) el.innerHTML = DICT[key];
+          });
+        } catch (e) { /* leave the English page intact on any failure */ }
+      })();
+    </script>
+  </body>
+</html>
