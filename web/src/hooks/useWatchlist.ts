@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import { useUserSetting } from './useUserSetting';
 import type { WatchEntry, WatchMatch, WatchMarkerKind } from '../types';
 
@@ -40,8 +41,12 @@ function coerce(v: unknown): WatchEntry | null {
 export function useWatchlist(): [WatchEntry[], (next: WatchEntry[] | ((prev: WatchEntry[]) => WatchEntry[])) => void] {
   const [value, setValue] = useUserSetting<WatchEntry[]>(SETTING_KEY, []);
   // Defensive read: ui_settings JSONB could hold a malformed or legacy shape.
-  const safe = Array.isArray(value)
-    ? value.map(coerce).filter((e): e is WatchEntry => e !== null)
-    : [];
+  // Memoised on `value` (which is referentially stable until the stored list
+  // actually changes) so consumers — notably the alert hook, which compares
+  // entry identity to decide when to reseed — get a stable array.
+  const safe = useMemo(
+    () => (Array.isArray(value) ? value.map(coerce).filter((e): e is WatchEntry => e !== null) : []),
+    [value],
+  );
   return [safe, setValue];
 }

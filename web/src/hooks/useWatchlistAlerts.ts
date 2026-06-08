@@ -12,6 +12,9 @@ function playWatchChime() {
   try {
     if (!audioCtx) audioCtx = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
     const ctx = audioCtx;
+    // The context can start "suspended" if it was created outside a user
+    // gesture; resume so the chime is actually audible.
+    if (ctx.state === 'suspended') void ctx.resume();
     const o = ctx.createOscillator();
     const g = ctx.createGain();
     // 988Hz triangle — distinct from the K162 (1320 sawtooth) and proximity
@@ -78,12 +81,21 @@ export function useWatchlistAlerts() {
     }
 
     const st = stateRef.current;
-    // Map switch or watchlist edit → start a fresh settling window.
-    if (st.mapId !== activeMapId || st.entries !== entries) {
+    // Map switch → reseed and open a settling window (the sig index bulk-loads
+    // just after, async; absorb those silently).
+    if (st.mapId !== activeMapId) {
       stateRef.current = { mapId: activeMapId, entries, alerted: new Set(present.keys()), armAt: Date.now() + ARM_DELAY_MS };
       return;
     }
-    // Still settling (e.g. the sig index is loading) → absorb silently.
+    // Watchlist edited → reseed silently so ticking a characteristic doesn't
+    // chime for everything already on the map, but stay armed (nothing async to
+    // wait for) so the very next genuine appearance chimes.
+    if (st.entries !== entries) {
+      st.entries = entries;
+      st.alerted = new Set(present.keys());
+      return;
+    }
+    // Still settling after a map switch (e.g. sig index loading) → absorb.
     if (Date.now() < st.armAt) {
       st.alerted = new Set(present.keys());
       return;
