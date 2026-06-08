@@ -2369,14 +2369,14 @@
    match the active filter fade right back; matches stay lit with a soft accent
    ring so they pop against the dimmed map. Hovering a faded node restores it. */
 .system-node--filtered-out {
-  opacity: 0.14;
-  filter: grayscale(0.7);
+  opacity: 0.45;
+  filter: saturate(0.5);
   transition: opacity 0.18s ease, filter 0.18s ease;
 }
 
 .system-node--filtered-out:hover {
-  opacity: 0.6;
-  filter: grayscale(0.2);
+  opacity: 0.85;
+  filter: none;
 }
 
 .system-node--content-match {
