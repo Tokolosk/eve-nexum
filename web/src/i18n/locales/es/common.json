@@ -1119,6 +1119,10 @@
         "title": "Alertas de proximidad",
         "desc": "Notificación del navegador más un aviso sonoro cuando estés a un número configurable de saltos de una incursión activa, una insurgencia pirata, o un sistema con sov cuya corp / alianza hayas marcado en rojo. Una píldora persistente en la barra de herramientas muestra la amenaza más cercana de un vistazo."
       },
+      "watchlist": {
+        "title": "Lista de seguimiento",
+        "desc": "Una lista personal, editada a mano, de agujeros que estás buscando — un sistema concreto, un tipo de agujero de gusano, o una característica (shattered, un efecto, frig-holes). Las coincidencias se resaltan en el mapa con el marcador que elijas y suenan al aparecer; un clic salta la vista a cualquier coincidencia."
+      },
       "discordNotif": {
         "title": "Notificaciones de Discord",
         "desc": "Envía la inteligencia de cadena de la corp a un canal de Discord para que las alertas lleguen aunque nadie esté mirando la pestaña. Se dispara en el servidor ante un K162 entrante o una nueva conexión de agujero de gusano, limitado a mapas de corp. Los admins filtran qué regiones y mapas notifican desde el panel de administración. Best-effort y consciente de los límites de tasa; las operaciones en lote como el sembrado de regiones nunca saturan el canal."

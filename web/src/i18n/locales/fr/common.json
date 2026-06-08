@@ -1119,6 +1119,10 @@
         "title": "Alertes de proximité",
         "desc": "Notification du navigateur plus un signal sonore lorsque vous êtes à un nombre de sauts configurable d'une incursion active, d'une insurrection pirate, ou d'un système détenteur de sov dont vous avez mis la corp / l'alliance en rouge. Une pastille persistante dans la barre d'outils montre la menace la plus proche en un coup d'œil."
       },
+      "watchlist": {
+        "title": "Liste de surveillance",
+        "desc": "Une liste personnelle, éditée à la main, de trous que vous recherchez — un système précis, un type de trou de ver, ou une caractéristique (shattered, un effet, frig-holes). Les correspondances sont mises en évidence sur la carte avec le marqueur que vous avez choisi et émettent un signal sonore lorsqu'elles apparaissent ; un clic amène la vue sur n'importe quelle correspondance."
+      },
       "discordNotif": {
         "title": "Notifications Discord",
         "desc": "Poussez le renseignement de chaîne de la corp vers un canal Discord pour que les alertes arrivent même quand personne ne regarde l'onglet. Se déclenche côté serveur à l'arrivée d'un K162 ou d'une nouvelle connexion de trou de ver, limité aux cartes de corp. Les admins filtrent quelles régions et cartes notifient depuis le panneau d'administration. Au mieux et respectueux des limites de débit ; les opérations groupées comme le seeding de région ne spamment jamais le canal."

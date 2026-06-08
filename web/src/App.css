@@ -1379,17 +1379,17 @@
 /* Tab handle on the panel's right edge — the only bit visible when closed. */
 .watchlist-panel__tab {
   position: absolute;
-  right: -28px;
+  right: -38px;
   top: 50%;
   transform: translateY(-50%);
-  width: 28px;
-  min-height: 56px;
-  padding: 6px 0;
+  width: 38px;
+  min-height: 64px;
+  padding: 8px 0;
   background: #0d1117;
   border: 1px solid #1e2740;
   border-left: none;
   border-radius: 0 6px 6px 0;
-  color: #c0ccde;
+  color: #6ea0ff;
   cursor: pointer;
   display: flex;
   flex-direction: column;

@@ -28,7 +28,7 @@ export function WatchlistPanel() {
           <CaretLeftIcon size={14} weight="bold" />
         ) : (
           <>
-            <BinocularsIcon size={16} weight="bold" />
+            <BinocularsIcon size={24} weight="bold" />
             {items.length > 0 && <span className="watchlist-panel__count">{items.length}</span>}
           </>
         )}

@@ -1119,6 +1119,10 @@
         "title": "Alertas de proximidade",
         "desc": "Notificação do navegador mais um aviso sonoro quando estiveres a um número configurável de saltos de uma incursão ativa, uma insurgência pirata, ou um sistema com sov cuja corp / aliança tenhas marcado a vermelho. Uma pílula persistente na barra de ferramentas mostra a ameaça mais próxima de relance."
       },
+      "watchlist": {
+        "title": "Lista de observação",
+        "desc": "Uma lista pessoal, editada à mão, de buracos que estás a caçar — um sistema específico, um tipo de buraco de minhoca, ou uma característica (shattered, um efeito, frig-holes). As correspondências são destacadas no mapa com o marcador que escolheres e tocam quando aparecem; um clique salta a vista para qualquer correspondência."
+      },
       "discordNotif": {
         "title": "Notificações do Discord",
         "desc": "Envia a inteligência de cadeia da corp para um canal do Discord para que os alertas cheguem mesmo quando ninguém está a ver o separador. Dispara no servidor perante um K162 de entrada ou uma nova conexão de buraco de minhoca, limitado a mapas de corp. Os admins filtram que regiões e mapas notificam a partir do painel de administração. Best-effort e consciente dos limites de taxa; as operações em lote como a sementeira de regiões nunca saturam o canal."

@@ -1119,6 +1119,10 @@
         "title": "Näherungswarnungen",
         "desc": "Browser-Benachrichtigung plus ein Audio-Ping, wenn du innerhalb einer konfigurierbaren Anzahl von Sprüngen einer aktiven Inkursion, eines Piratenaufstands oder eines Sov-haltenden Systems bist, dessen Corp / Allianz du auf rot gesetzt hast. Ein dauerhafter Toolbar-Chip zeigt die nächste Bedrohung auf einen Blick."
       },
+      "watchlist": {
+        "title": "Beobachtungsliste",
+        "desc": "Eine persönliche, von Hand gepflegte Liste von Löchern, nach denen du jagst — ein bestimmtes System, ein Wurmlochtyp oder ein Merkmal (shattered, ein Effekt, Frig-Holes). Treffer werden auf der Karte mit deiner gewählten Markierung hervorgehoben und geben einen Ton aus, sobald sie erscheinen; ein Klick springt mit der Ansicht zu jedem Treffer."
+      },
       "discordNotif": {
         "title": "Discord-Benachrichtigungen",
         "desc": "Schiebe Corp-Ketten-Intel in einen Discord-Kanal, damit Alarme auch ankommen, wenn niemand den Tab beobachtet. Wird serverseitig bei einem eingehenden K162 oder einer neuen Wurmlochverbindung ausgelöst, beschränkt auf Corp-Karten. Admins filtern im Admin-Panel, welche Regionen und Karten benachrichtigen. Best-effort und ratenbegrenzungsbewusst; Massenaktionen wie Regions-Seeding spammen den Kanal nie zu."
