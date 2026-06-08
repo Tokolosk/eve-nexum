@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next';
-import { CaretLeftIcon, CaretRightIcon, BinocularsIcon } from '@phosphor-icons/react';
+import { CaretLeftIcon, BinocularsIcon } from '@phosphor-icons/react';
 import { useUserSetting } from '../../hooks/useUserSetting';
 import { useWatchlist } from '../../hooks/useWatchlist';
 import { WatchlistBlock } from './WatchlistBlock';
@@ -44,7 +44,7 @@ export function WatchlistPanel() {
             title={t('actions.close')}
             aria-label={t('actions.close')}
           >
-            <CaretRightIcon size={14} weight="bold" />
+            <CaretLeftIcon size={14} weight="bold" />
           </button>
         </div>
         <WatchlistBlock />
