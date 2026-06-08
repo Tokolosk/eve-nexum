@@ -78,7 +78,7 @@ export function WatchlistBlock() {
     setAutoFocusId(next.id);
   }
 
-  function toggleCharacteristic(key: string, match: WatchMatch, marker: WatchMarkerKind) {
+  function toggleCharacteristic(match: WatchMatch, marker: WatchMarkerKind) {
     const mk = matchKey(match);
     if (activeKeys.has(mk)) {
       setItems(items.filter((it) => matchKey(it.match) !== mk));
@@ -126,7 +126,7 @@ export function WatchlistBlock() {
                 type="button"
                 className={`watchlist__chip${active ? ' watchlist__chip--active' : ''}`}
                 aria-pressed={active}
-                onClick={() => toggleCharacteristic(c.key, c.match, c.defaultMarker)}
+                onClick={() => toggleCharacteristic(c.match, c.defaultMarker)}
               >
                 {c.label}
               </button>
