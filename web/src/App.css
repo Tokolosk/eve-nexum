@@ -3421,7 +3421,10 @@ div.system-node__easy-handle {
   flex-direction: row;
   align-items: stretch;
   gap: 12px;
-  padding: 0 16px 12px;
+  /* Extra left padding clears the watchlist panel's left-edge tab (a persistent
+     ~38px handle, vertically centred) so it never overlaps the system name /
+     panel content when the panel is tall. */
+  padding: 0 16px 12px 48px;
   overflow: hidden;
   flex-shrink: 0;
   position: relative;
