@@ -3520,6 +3520,17 @@ div.system-node__easy-handle {
   /* When the panel is narrowed, the action buttons wrap to a second line
      rather than crushing the system name — the title keeps its own line. */
   flex-wrap: wrap;
+  /* Anchor + reserved gutter for the collapse caret, which is pinned to the
+     top-right corner (out of the flex flow) rather than riding with the
+     Set Destination / Waypoint buttons. */
+  position: relative;
+  padding-right: 24px;
+}
+
+.system-panel__collapse {
+  position: absolute;
+  top: 0;
+  right: 0;
 }
 
 .system-panel__title {
