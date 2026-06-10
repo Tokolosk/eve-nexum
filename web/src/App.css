@@ -2631,6 +2631,16 @@
   transition: border-color 0.15s, box-shadow 0.15s, opacity 0.2s, filter 0.2s;
   position: relative;
 
+  /* Compact mode hides the region / statics / incursion / insurgency rows but
+     the 4-square min-height floor (added for map-generation spacing) kept the
+     node a fixed 80px tall, leaving empty space below the content. Opt compact
+     nodes out of the floor so they hug their reduced content again — the
+     behaviour before the floor existed. Uniform sizing still wins via its
+     inline min-height when both are on. */
+  &.system-node--compact {
+    min-height: 0;
+  }
+
   &:hover {
     border-color: var(--class-color);
     box-shadow: 0 0 12px color-mix(in srgb, var(--class-color) 30%, transparent);
