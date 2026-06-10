@@ -37,6 +37,18 @@ export function originGuard(allowedOrigin: string) {
       return;
     }
 
+    // Bearer-authenticated API requests are exempt. CSRF relies on *ambient*
+    // credentials (the session cookie a browser attaches automatically); an
+    // API key must be set explicitly by the caller via the Authorization
+    // header, which a malicious cross-site page can neither read nor attach
+    // (and a cross-origin request can't set it without a CORS preflight we
+    // control). So these requests can't be CSRF and legitimately have no
+    // browser Origin. apiKeyAuth still validates the key downstream.
+    if ((req.headers.authorization ?? '').toLowerCase().startsWith('bearer ')) {
+      next();
+      return;
+    }
+
     const origin  = (req.headers.origin  ?? '').replace(/\/+$/, '');
     const referer = req.headers.referer ?? '';
 

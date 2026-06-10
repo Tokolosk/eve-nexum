@@ -118,7 +118,7 @@ Open <http://localhost> and click **Log in with EVE Online**. That's it.
 - **Cross-map sync** — opt-in (Map Controls → *Sync system data across my maps*). When the same EVE system appears on several of your maps, adding or editing its signatures and anomalies on one map copies them to the same system on your others — personal maps sync with your other personal maps, corp maps with the corp's other maps. Non-destructive: missing entries are inserted and blank fields filled, but data you've already entered is never overwritten and nothing is ever deleted (deletes and overwrite-paste removals stay local). Matches by EVE system id, so custom systems are skipped.
 - **Map locking** — admins can freeze a corp map's topology. Systems, connections, and the map name lock for non-admins, but signatures, structures, and per-system notes stay editable so ops can continue while the layout is pinned. The toolbar shows an amber 🔒 chip while the lock is active, and passive location tracking won't auto-add new systems on a locked map.
 - **Role-based access** — `admin` / `full` / `edit` / `readonly`. Roles only restrict corp-map actions; every user owns their personal maps regardless of role. See [Roles](#roles) for the full matrix.
-- **External API** — generate a long-lived API key (🔑 in the toolbar) to read your maps programmatically from your own tools and scripts. Read-only, account-scoped, acts as a chosen character, revocable. See [External API](#external-api).
+- **External API** — generate a long-lived API key (🔑 in the toolbar) to read and drive your maps from your own tools and scripts: read maps, subscribe to a live event stream, and (with a write key) push signatures/anomalies/structures. Account-scoped, acts as a chosen character, role-gated, topology stays human-only, revocable. See [External API](#external-api).
 
 ### System intelligence
 
@@ -207,9 +207,19 @@ Generate a consistent, paste-ready name for a wormhole and drop it straight into
 
 ## External API
 
-Read your maps programmatically — pull the live chain into a fleet bot, an intel aggregator, a "is home open to highsec?" checker, or your own scripts. Authenticated with a long-lived **API key** you generate, instead of a browser session.
+Read **and drive** your maps programmatically — pull the live chain into a fleet bot, auto-import scan results from an intel tool, run a "is home open to highsec?" checker, or your own scripts. Authenticated with a long-lived **API key** you generate, instead of a browser session.
 
-**Generate a key.** Click the 🔑 icon in the toolbar (next to the language switcher). Give it a name, pick which of your characters it **acts as** (the key sees exactly what that character sees — same maps, same role), choose its **access** (*Read only*, or *Read + live events* to also allow the event stream below), and optionally set an expiry. The key is shown **once** at creation — copy it then; it's stored only as a hash and can't be retrieved again. Revoke any key from the same panel and any tool using it loses access immediately.
+**Generate a key.** Click the 🔑 icon in the toolbar (next to the language switcher). Give it a name, pick which of your characters it **acts as** (the key can do exactly what that character can — same maps, same role), choose its **access** (see scopes below), and optionally set an expiry. The key is shown **once** at creation — copy it then; it's stored only as a hash and can't be retrieved again. Revoke any key from the same panel and any tool using it loses access immediately.
+
+**Scopes** (each includes the ones above it):
+
+| Scope | Can |
+|---|---|
+| **Read only** | Read maps, systems, signatures, anomalies, structures |
+| **Read + live events** | …plus subscribe to the live event stream |
+| **Read + write content** | …plus add / edit / delete signatures, anomalies, and structures |
+
+Writes are limited to **per-system content**. Map **topology** (adding/moving systems, drawing connections, rename, lock) is deliberately human-only — no key can change it.
 
 **Authenticate.** Send the key as a Bearer token:
 
@@ -217,7 +227,7 @@ Read your maps programmatically — pull the live chain into a fleet bot, an int
 curl -H "Authorization: Bearer nxm_…" https://yourdomain.com/api/v1/maps
 ```
 
-**Endpoints** (reads; v1 has **no write endpoints**):
+**Read endpoints** (any scope):
 
 | Endpoint | Returns |
 |---|---|
@@ -226,7 +236,17 @@ curl -H "Authorization: Bearer nxm_…" https://yourdomain.com/api/v1/maps
 | `GET /api/v1/maps/:mapId/systems/:systemId/signatures` | Scanned signatures in a system |
 | `GET /api/v1/maps/:mapId/systems/:systemId/anomalies` | Cosmic anomalies in a system |
 | `GET /api/v1/maps/:mapId/systems/:systemId/structures` | Player structures in a system |
-| `GET /api/v1/maps/:mapId/events` | **Live event stream** (SSE) — requires a *Read + live events* key |
+| `GET /api/v1/maps/:mapId/events` | **Live event stream** (SSE) — needs *Read + live events* |
+
+**Write endpoints** (need *Read + write content*; gated by the bound character's role just like the app):
+
+| Endpoint | Does |
+|---|---|
+| `POST/PATCH/DELETE /api/v1/maps/:mapId/systems/:systemId/signatures[/:sigId]` | Add / edit / remove a signature |
+| `POST/PATCH/DELETE /api/v1/maps/:mapId/systems/:systemId/anomalies[/:anomId]` | Add / edit / remove an anomaly |
+| `POST/PATCH/DELETE /api/v1/maps/:mapId/systems/:systemId/structures[/:structureId]` | Add / edit / remove a structure |
+
+Writes go through the exact same path as the app — so they fan out over the [event stream](#live-event-stream), trigger the inbound-K162 Discord notice, and cross-map sync just like a human edit.
 
 ### Live event stream
 
@@ -249,7 +269,7 @@ Each `data:` line is a JSON object with a `type` and a type-specific payload. Th
 
 > Single-process delivery: the stream is served in-memory by one instance, the same as the in-app live sync. A multi-replica deployment would need the documented Postgres `LISTEN/NOTIFY` swap — see the realtime-sync notes.
 
-**Scope and safety.** Keys are **account-scoped** — a key reads everything its account can see, so treat it as a secret. There are no write endpoints; the strongest scope (*events*) still only reads and subscribes. Keys can be given an expiry, record a *last used* time so you can spot a stale or leaked key, and are one-click revocable. Share-link tokens are never returned through the API.
+**Scope and safety.** Keys are **account-scoped** — a key can do everything its account can within its scope, so treat it as a secret. Writes are capped at per-system content (never topology) and are still gated by the bound character's role, so a key acting as a `readonly` corp member can't write a corp map. Keys can be given an expiry, record a *last used* time so you can spot a stale or leaked key, and are one-click revocable. Share-link tokens are never returned through the API.
 
 ---
 

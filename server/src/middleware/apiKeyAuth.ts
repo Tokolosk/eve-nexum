@@ -1,7 +1,7 @@
 import type { Request, Response, NextFunction } from 'express';
 import { db } from '../db.js';
 import { hashApiKey } from '../utils/apiKeys.js';
-import type { Role } from './authContext.js';
+import type { Role, ApiScope } from './authContext.js';
 import { createLogger } from '../utils/logger.js';
 
 const log = createLogger('apiKeyAuth');
@@ -26,7 +26,7 @@ export async function apiKeyAuth(req: Request, res: Response, next: NextFunction
     const { rows } = await db.query<{
       id: string; ownerId: number; contextUserId: number | null;
       scope: string; expiresAt: Date | null;
-      role: Role | null; corpId: number | null; characterId: number | null;
+      role: Role | null; corpId: number | null; characterId: number | null; characterName: string | null;
     }>(
       `SELECT t.id,
               t.owner_id          AS "ownerId",
@@ -35,7 +35,8 @@ export async function apiKeyAuth(req: Request, res: Response, next: NextFunction
               t.expires_at        AS "expiresAt",
               u.role,
               u.corp_id           AS "corpId",
-              u.character_id      AS "characterId"
+              u.character_id      AS "characterId",
+              u.character_name    AS "characterName"
          FROM api_tokens t
          LEFT JOIN users u ON u.id = t.context_user_id
         WHERE t.token_hash = $1`,
@@ -53,14 +54,15 @@ export async function apiKeyAuth(req: Request, res: Response, next: NextFunction
       res.status(401).json({ error: 'API key is inactive (bound character removed)' }); return;
     }
 
-    const scope: 'read' | 'events' = row.scope === 'events' ? 'events' : 'read';
+    const scope: ApiScope = row.scope === 'write' ? 'write' : row.scope === 'events' ? 'events' : 'read';
     req.apiAuth = {
-      userId:      row.contextUserId,
-      characterId: row.characterId,
-      ownerId:     row.ownerId,
-      role:        row.role,
-      corpId:      row.corpId,
-      apiScope:    scope,
+      userId:        row.contextUserId,
+      characterId:   row.characterId,
+      characterName: row.characterName,
+      ownerId:       row.ownerId,
+      role:          row.role,
+      corpId:        row.corpId,
+      apiScope:      scope,
     };
 
     // Best-effort, throttled last_used_at bump — never blocks the request.
