@@ -7,14 +7,17 @@ import { authUser } from '../middleware/authContext.js';
 import { config } from '../config.js';
 import { decryptToken } from '../utils/tokenCrypto.js';
 import { createLogger } from '../utils/logger.js';
-import { recordGhostSiteIfMatch } from '../services/ghostSites.js';
 import { resolveOwnerId } from '../utils/owner.js';
 import { resolveEntityNames } from '../services/entityNames.js';
 import { audit } from '../services/audit.js';
 import { publishToMap } from '../services/mapEvents.js';
 import { streamMapEvents } from '../services/mapStream.js';
 import { listVisibleMaps, loadFullMap, loadSystemSignatures, loadSystemAnomalies, loadSystemStructures } from '../services/mapRead.js';
-import { syncSignature, syncAnomaly } from '../services/crossMapSync.js';
+import {
+  createSignature, updateSignature, deleteSignature,
+  createAnomaly, updateAnomaly, deleteAnomaly,
+  createStructure, updateStructure, deleteStructure,
+} from '../services/mapWrite.js';
 import { reportPresence } from '../services/presence.js';
 import { notifyDiscord, webhookFor, k162Embed, connectionEmbed } from '../services/discord.js';
 
@@ -45,7 +48,7 @@ async function resolveEveSystemId(
 // structure itself (member of the owning corp or its alliance, or it
 // being a public structure). 403/404 just means "we can't resolve it",
 // not an error.
-async function resolveStructureOwnerCorp(
+export async function resolveStructureOwnerCorp(
   userId: number,
   eveStructureId: number,
 ): Promise<number | null> {
@@ -189,15 +192,17 @@ async function requireMapOwner(res: Response, mapId: string, req: Request): Prom
 //     systems, moving systems, connections, map rename.
 //
 // Both helpers send the appropriate 403/404 and return null on failure.
-async function requireMapContentWrite(res: Response, mapId: string, req: Request): Promise<MapMeta | null> {
+export async function requireMapContentWrite(res: Response, mapId: string, req: Request): Promise<MapMeta | null> {
   const access = await getMapAccess(mapId, req);
   if (!access) { res.status(404).json({ error: 'Map not found' }); return null; }
 
   const acting = authUser(req);
-  // API keys are read-only in v1 — no key scope grants writes yet, so any
-  // key-authenticated mutation is refused here regardless of the character's
-  // role. (Write scopes will gate on acting.apiScope when added.)
-  if (acting.apiScope) { res.status(403).json({ error: 'This API key is read-only' }); return null; }
+  // API-key writes need the 'write' scope; a 'read'/'events' key is refused
+  // here regardless of the bound character's role. A 'write' key then still
+  // passes through the same role check below (it acts as its bound character).
+  if (acting.apiScope && acting.apiScope !== 'write') {
+    res.status(403).json({ error: "This API key cannot write (needs the 'write' scope)" }); return null;
+  }
 
   const role = acting.role;
 
@@ -215,6 +220,11 @@ async function requireMapWrite(res: Response, mapId: string, req: Request): Prom
   const access = await requireMapContentWrite(res, mapId, req);
   if (!access) return null;
 
+  // Topology (systems/connections/rename) is human-only — even a 'write' key,
+  // which clears requireMapContentWrite above, can't reshape the map.
+  if (authUser(req).apiScope) {
+    res.status(403).json({ error: 'API keys cannot modify map topology' }); return null;
+  }
   if (access.locked && authUser(req).role !== 'admin') {
     res.status(403).json({ error: 'Map is locked' }); return null;
   }
@@ -247,7 +257,7 @@ const K162_DEFER_MS = 10_000;
 interface PendingK162 { timer: ReturnType<typeof setTimeout>; corpId: number | null; actor: string | null; }
 const pendingK162 = new Map<string, PendingK162>();
 
-function dispatchK162(meta: MapMeta, sigId: string, systemId: string, actor: string | null): void {
+export function dispatchK162(meta: MapMeta, sigId: string, systemId: string, actor: string | null): void {
   if (!webhookFor(meta.corpId)) {
     discordLog.info(`K162 detected (system ${systemId}) but not sending — no webhook for corpId=${meta.corpId ?? 'null (personal map; webhooks are corp-maps only)'}`);
     return;
@@ -267,7 +277,7 @@ function dispatchK162(meta: MapMeta, sigId: string, systemId: string, actor: str
 // Send a pending K162 immediately — e.g. once its leads-to has been filled in —
 // instead of waiting out the rest of the defer window. No-op if nothing is
 // pending for this signature. Fires with the original detection's context.
-function flushK162(sigId: string): void {
+export function flushK162(sigId: string): void {
   const p = pendingK162.get(sigId);
   if (!p) return;
   clearTimeout(p.timer);
@@ -1655,23 +1665,13 @@ mapsRouter.post('/:mapId/systems/:systemId/signatures', async (req, res) => {
   if (!access) return;
   if (!(await verifySystemInMap(res, systemId, mapId))) return;
   const { sigId = '', sigType = 'unknown', name = '', notes = '', whType = '', whLeadsTo = '' } = req.body as Record<string, string>;
-  const { rows } = await db.query(
-    `INSERT INTO map_signatures (system_id, sig_id, sig_type, name, notes, wh_type, wh_leads_to, created_by_user_id)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-     RETURNING id, sig_id AS "sigId", sig_type AS "sigType", name, notes, wh_type AS "whType", wh_leads_to AS "whLeadsTo", created_at AS "createdAt"`,
-    [systemId, sigId, sigType, name, notes, whType, whLeadsTo, req.session.userId],
+  const me = authUser(req);
+  const row = await createSignature(
+    mapId, systemId, { sigId, sigType, name, notes, whType, whLeadsTo },
+    { userId: me.userId, clientId: req.get('x-client-id') ?? null },
   );
-  db.query(
-    `INSERT INTO user_events (user_id, event_type, sig_type) VALUES ($1, 'signature', $2)`,
-    [req.session.userId, sigType],
-  ).catch(console.error);
-  db.query(`UPDATE map_systems SET last_activity_at = NOW() WHERE id = $1`, [systemId]).catch(console.error);
-  recordGhostSiteIfMatch(systemId, name);
-  publishToMap(mapId, { type: 'sig.changed', actor: req.get('x-client-id') ?? null, systemId });
-  if (whType) discordLog.info(`sig POST on system ${systemId}: whType="${whType}"`);
-  if ((whType ?? '').toUpperCase() === 'K162') dispatchK162(access, rows[0].id, systemId, req.session.characterName ?? null);
-  syncSignature(mapId, systemId, rows[0].id, req.session.userId);
-  res.status(201).json(rows[0]);
+  if ((whType ?? '').toUpperCase() === 'K162') dispatchK162(access, row.id, systemId, me.characterName);
+  res.status(201).json(row);
 });
 
 mapsRouter.patch('/:mapId/systems/:systemId/signatures/:sigId', async (req, res) => {
@@ -1680,44 +1680,15 @@ mapsRouter.patch('/:mapId/systems/:systemId/signatures/:sigId', async (req, res)
   if (!access) return;
   if (!(await verifySystemInMap(res, systemId, mapId))) return;
 
-  const colMap: Record<string, string> = { sigId: 'sig_id', sigType: 'sig_type', name: 'name', notes: 'notes', whType: 'wh_type', whLeadsTo: 'wh_leads_to' };
   const updates = req.body as Record<string, unknown>;
-
-  // Detect a transition *into* K162 (not a re-save of one already K162) so the
-  // Discord notice fires once, matching the client's inbound-K162 alert.
-  const settingK162 = typeof updates.whType === 'string' && updates.whType.toUpperCase() === 'K162';
-  let prevWasK162 = false;
-  if (settingK162) {
-    const { rows: prev } = await db.query<{ wh_type: string | null }>(
-      `SELECT wh_type FROM map_signatures WHERE id = $1 AND system_id = $2`, [sigId, systemId]);
-    prevWasK162 = (prev[0]?.wh_type ?? '').toUpperCase() === 'K162';
-  }
-  if (typeof updates.whType === 'string') {
-    discordLog.info(`sig PATCH on system ${systemId}: whType="${updates.whType}" (settingK162=${settingK162}, prevWasK162=${prevWasK162})`);
-  }
-
-  const sets: string[] = ['updated_at = NOW()'];
-  const vals: unknown[] = [];
-
-  for (const [key, col] of Object.entries(colMap)) {
-    if (key in updates) { sets.push(`${col} = $${vals.length + 1}`); vals.push(updates[key]); }
-  }
-
-  await db.query(
-    // map_id scoping is defence-in-depth: verifySystemInMap above already
-    // guarantees systemId is in this map, but enforcing it in SQL too means a
-    // future refactor can't open a cross-map write.
-    `UPDATE map_signatures SET ${sets.join(', ')} WHERE id = $${vals.length + 1} AND system_id = $${vals.length + 2} AND system_id IN (SELECT id FROM map_systems WHERE map_id = $${vals.length + 3})`,
-    [...vals, sigId, systemId, mapId],
+  const me = authUser(req);
+  const { dispatchK162: shouldDispatch, flushK162: shouldFlush } = await updateSignature(
+    mapId, systemId, sigId, updates, { userId: me.userId, clientId: req.get('x-client-id') ?? null },
   );
-  db.query(`UPDATE map_systems SET last_activity_at = NOW() WHERE id = $1`, [systemId]).catch(console.error);
-  if (typeof updates.name === 'string') recordGhostSiteIfMatch(systemId, updates.name);
-  publishToMap(mapId, { type: 'sig.changed', actor: req.get('x-client-id') ?? null, systemId });
-  if (settingK162 && !prevWasK162) dispatchK162(access, sigId, systemId, req.session.characterName ?? null);
-  // If the leads-to was just filled in, send any pending K162 now rather than
-  // waiting out the rest of the window — the intel we were waiting for is here.
-  if (typeof updates.whLeadsTo === 'string' && updates.whLeadsTo.trim()) flushK162(sigId);
-  syncSignature(mapId, systemId, sigId, req.session.userId);
+  // Discord notice fires once on a transition into K162; flush any pending
+  // notice the moment the leads-to is known. (Both decided inside updateSignature.)
+  if (shouldDispatch) dispatchK162(access, sigId, systemId, me.characterName);
+  if (shouldFlush) flushK162(sigId);
   res.json({ ok: true });
 });
 
@@ -1726,9 +1697,7 @@ mapsRouter.delete('/:mapId/systems/:systemId/signatures/:sigId', async (req, res
   const access = await requireMapContentWrite(res, mapId, req);
   if (!access) return;
   if (!(await verifySystemInMap(res, systemId, mapId))) return;
-  await db.query(`DELETE FROM map_signatures WHERE id = $1 AND system_id = $2 AND system_id IN (SELECT id FROM map_systems WHERE map_id = $3)`, [sigId, systemId, mapId]);
-  db.query(`UPDATE map_systems SET last_activity_at = NOW() WHERE id = $1`, [systemId]).catch(console.error);
-  publishToMap(mapId, { type: 'sig.changed', actor: req.get('x-client-id') ?? null, systemId });
+  await deleteSignature(mapId, systemId, sigId, { userId: authUser(req).userId, clientId: req.get('x-client-id') ?? null });
   res.json({ ok: true });
 });
 
@@ -1785,16 +1754,9 @@ mapsRouter.post('/:mapId/systems/:systemId/anomalies', async (req, res) => {
   if (!access) return;
   if (!(await verifySystemInMap(res, systemId, mapId))) return;
   const { anomId = '', anomType = 'unknown', name = '', notes = '' } = req.body as Record<string, string>;
-  const { rows } = await db.query(
-    `INSERT INTO map_anomalies (system_id, anom_id, anom_type, name, notes, created_by_user_id)
-     VALUES ($1, $2, $3, $4, $5, $6)
-     RETURNING id, anom_id AS "anomId", anom_type AS "anomType", name, notes, created_at AS "createdAt", updated_at AS "updatedAt"`,
-    [systemId, anomId, anomType, name, notes, req.session.userId],
-  );
-  db.query(`UPDATE map_systems SET last_activity_at = NOW() WHERE id = $1`, [systemId]).catch(console.error);
-  publishToMap(mapId, { type: 'anom.changed', actor: req.get('x-client-id') ?? null, systemId });
-  syncAnomaly(mapId, systemId, rows[0].id, req.session.userId);
-  res.status(201).json(rows[0]);
+  const row = await createAnomaly(mapId, systemId, { anomId, anomType, name, notes },
+    { userId: authUser(req).userId, clientId: req.get('x-client-id') ?? null });
+  res.status(201).json(row);
 });
 
 mapsRouter.patch('/:mapId/systems/:systemId/anomalies/:anomId', async (req, res) => {
@@ -1803,25 +1765,9 @@ mapsRouter.patch('/:mapId/systems/:systemId/anomalies/:anomId', async (req, res)
   if (!access) return;
   if (!(await verifySystemInMap(res, systemId, mapId))) return;
 
-  const colMap: Record<string, string> = { anomId: 'anom_id', anomType: 'anom_type', name: 'name', notes: 'notes' };
   const updates = req.body as Record<string, unknown>;
-
-  const sets: string[] = ['updated_at = NOW()'];
-  const vals: unknown[] = [];
-  for (const [key, col] of Object.entries(colMap)) {
-    if (key in updates) { sets.push(`${col} = $${vals.length + 1}`); vals.push(updates[key]); }
-  }
-
-  await db.query(
-    // map_id scoping is defence-in-depth: verifySystemInMap above already
-    // guarantees systemId is in this map, but enforcing it in SQL too means a
-    // future refactor can't open a cross-map write.
-    `UPDATE map_anomalies SET ${sets.join(', ')} WHERE id = $${vals.length + 1} AND system_id = $${vals.length + 2} AND system_id IN (SELECT id FROM map_systems WHERE map_id = $${vals.length + 3})`,
-    [...vals, anomId, systemId, mapId],
-  );
-  db.query(`UPDATE map_systems SET last_activity_at = NOW() WHERE id = $1`, [systemId]).catch(console.error);
-  publishToMap(mapId, { type: 'anom.changed', actor: req.get('x-client-id') ?? null, systemId });
-  syncAnomaly(mapId, systemId, anomId, req.session.userId);
+  await updateAnomaly(mapId, systemId, anomId, updates,
+    { userId: authUser(req).userId, clientId: req.get('x-client-id') ?? null });
   res.json({ ok: true });
 });
 
@@ -1830,9 +1776,7 @@ mapsRouter.delete('/:mapId/systems/:systemId/anomalies/:anomId', async (req, res
   const access = await requireMapContentWrite(res, mapId, req);
   if (!access) return;
   if (!(await verifySystemInMap(res, systemId, mapId))) return;
-  await db.query(`DELETE FROM map_anomalies WHERE id = $1 AND system_id = $2 AND system_id IN (SELECT id FROM map_systems WHERE map_id = $3)`, [anomId, systemId, mapId]);
-  db.query(`UPDATE map_systems SET last_activity_at = NOW() WHERE id = $1`, [systemId]).catch(console.error);
-  publishToMap(mapId, { type: 'anom.changed', actor: req.get('x-client-id') ?? null, systemId });
+  await deleteAnomaly(mapId, systemId, anomId, { userId: authUser(req).userId, clientId: req.get('x-client-id') ?? null });
   res.json({ ok: true });
 });
 
@@ -1853,22 +1797,17 @@ mapsRouter.post('/:mapId/systems/:systemId/structures', async (req, res) => {
   if (!(await verifySystemInMap(res, systemId, mapId))) return;
   const { name = '', structureType = 'unknown', ownerCorp = '', notes = '', eveId = null } = req.body as Record<string, string>;
   const eveIdNum = eveId ? Number(eveId) : null;
+  const me = authUser(req);
 
   // Block briefly on ESI to resolve the owner corp when an eve_id is
   // supplied. If the call fails (private structure / missing scope /
   // bad ID) we just leave owner_corp_id NULL — the row still goes in.
-  const ownerCorpId = eveIdNum && req.session.userId
-    ? await resolveStructureOwnerCorp(req.session.userId, eveIdNum)
-    : null;
+  const ownerCorpId = eveIdNum ? await resolveStructureOwnerCorp(me.userId, eveIdNum) : null;
 
-  const { rows } = await db.query(
-    `INSERT INTO map_structures (system_id, name, structure_type, owner_corp, eve_id, notes, created_by_user_id, owner_corp_id)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-     RETURNING id, name, structure_type AS "structureType", owner_corp AS "ownerCorp", eve_id AS "eveId", notes, created_at AS "createdAt", owner_corp_id AS "ownerCorpId"`,
-    [systemId, name, structureType, ownerCorp, eveIdNum, notes, req.session.userId, ownerCorpId],
-  );
-  publishToMap(mapId, { type: 'structure.changed', actor: req.get('x-client-id') ?? null, systemId });
-  res.status(201).json(rows[0]);
+  const row = await createStructure(mapId, systemId,
+    { name, structureType, ownerCorp, notes, eveId: eveIdNum, ownerCorpId },
+    { userId: me.userId, clientId: req.get('x-client-id') ?? null });
+  res.status(201).json(row);
 });
 
 mapsRouter.patch('/:mapId/systems/:systemId/structures/:structureId', async (req, res) => {
@@ -1877,21 +1816,9 @@ mapsRouter.patch('/:mapId/systems/:systemId/structures/:structureId', async (req
   if (!access) return;
   if (!(await verifySystemInMap(res, systemId, mapId))) return;
 
-  const colMap: Record<string, string> = { name: 'name', structureType: 'structure_type', ownerCorp: 'owner_corp', eveId: 'eve_id', notes: 'notes' };
   const updates = req.body as Record<string, unknown>;
-  const sets: string[] = ['updated_at = NOW()'];
-  const vals: unknown[] = [];
-
-  for (const [key, col] of Object.entries(colMap)) {
-    if (key in updates) { sets.push(`${col} = $${vals.length + 1}`); vals.push(updates[key]); }
-  }
-
-  await db.query(
-    // map_id scoping is defence-in-depth (see the signature PATCH above).
-    `UPDATE map_structures SET ${sets.join(', ')} WHERE id = $${vals.length + 1} AND system_id = $${vals.length + 2} AND system_id IN (SELECT id FROM map_systems WHERE map_id = $${vals.length + 3})`,
-    [...vals, structureId, systemId, mapId],
-  );
-  publishToMap(mapId, { type: 'structure.changed', actor: req.get('x-client-id') ?? null, systemId });
+  await updateStructure(mapId, systemId, structureId, updates,
+    { userId: authUser(req).userId, clientId: req.get('x-client-id') ?? null });
   res.json({ ok: true });
 });
 
@@ -1900,8 +1827,7 @@ mapsRouter.delete('/:mapId/systems/:systemId/structures/:structureId', async (re
   const access = await requireMapContentWrite(res, mapId, req);
   if (!access) return;
   if (!(await verifySystemInMap(res, systemId, mapId))) return;
-  await db.query(`DELETE FROM map_structures WHERE id = $1 AND system_id = $2 AND system_id IN (SELECT id FROM map_systems WHERE map_id = $3)`, [structureId, systemId, mapId]);
-  publishToMap(mapId, { type: 'structure.changed', actor: req.get('x-client-id') ?? null, systemId });
+  await deleteStructure(mapId, systemId, structureId, { userId: authUser(req).userId, clientId: req.get('x-client-id') ?? null });
   res.json({ ok: true });
 });
 

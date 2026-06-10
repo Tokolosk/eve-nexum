@@ -1,15 +1,17 @@
 {
   "apiKeys": {
     "title": "API keys",
-    "hint": "Generate a key to let external tools read your maps via the API. A key acts as the selected character and can only read — never write. \"Read + live events\" keys can also subscribe to the live event stream.",
+    "hint": "Generate a key to let external tools use your maps via the API. A key acts as the selected character — it can do only what that character can. \"Read + live events\" keys can also subscribe to the live event stream; \"Read + write content\" keys can also add and edit signatures, anomalies, and structures (never map topology).",
     "name": "Name",
     "namePlaceholder": "e.g. fleet bot",
     "character": "Acts as",
     "scope": "Access",
     "scopeRead": "Read only",
     "scopeEvents": "Read + live events",
+    "scopeWrite": "Read + write content",
     "scopeReadBadge": "read",
     "scopeEventsBadge": "events",
+    "scopeWriteBadge": "write",
     "expiry": "Expires",
     "expiryNever": "Never",
     "expiryDays": "{{count}} days",

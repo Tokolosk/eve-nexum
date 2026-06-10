@@ -15,7 +15,7 @@ interface ApiKey {
   id:                   string;
   name:                 string;
   tokenPrefix:          string;
-  scope:                'read' | 'events';
+  scope:                'read' | 'events' | 'write';
   contextUserId:        number | null;
   contextCharacterName: string | null;
   lastUsedAt:           string | null;
@@ -42,7 +42,7 @@ export function ApiKeysModal({ onClose }: { onClose: () => void }) {
   const [charId, setCharId]       = useState<number | null>(
     () => (characters.find((c) => c.active) ?? characters[0])?.characterId ?? null,
   );
-  const [scope, setScope]         = useState<'read' | 'events'>('read');
+  const [scope, setScope]         = useState<'read' | 'events' | 'write'>('read');
   const [expiryDays, setExpiry]   = useState<number>(0);
   const [creating, setCreating]   = useState(false);
   // The raw secret, surfaced exactly once right after creation.
@@ -159,9 +159,10 @@ export function ApiKeysModal({ onClose }: { onClose: () => void }) {
             </label>
             <label className="field">
               <span>{t('apiKeys.scope')}</span>
-              <select value={scope} onChange={(e) => setScope(e.target.value as 'read' | 'events')}>
+              <select value={scope} onChange={(e) => setScope(e.target.value as 'read' | 'events' | 'write')}>
                 <option value="read">{t('apiKeys.scopeRead')}</option>
                 <option value="events">{t('apiKeys.scopeEvents')}</option>
+                <option value="write">{t('apiKeys.scopeWrite')}</option>
               </select>
             </label>
             <label className="field">
@@ -196,7 +197,9 @@ export function ApiKeysModal({ onClose }: { onClose: () => void }) {
                           <span className="api-keys__name">{k.name}</span>
                           <code className="api-keys__prefix">{k.tokenPrefix}…</code>
                           <span className={`api-keys__scope api-keys__scope--${k.scope}`}>
-                            {k.scope === 'events' ? t('apiKeys.scopeEventsBadge') : t('apiKeys.scopeReadBadge')}
+                            {k.scope === 'write' ? t('apiKeys.scopeWriteBadge')
+                              : k.scope === 'events' ? t('apiKeys.scopeEventsBadge')
+                              : t('apiKeys.scopeReadBadge')}
                           </span>
                           {(expired || inert) && (
                             <span className="api-keys__flag">

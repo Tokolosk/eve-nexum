@@ -1868,6 +1868,12 @@
   border: 1px solid rgba(120,200,140,0.3);
 }
 
+.api-keys__scope--write {
+  background: rgba(240,160,80,0.12);
+  color: #e0a050;
+  border: 1px solid rgba(240,160,80,0.3);
+}
+
 .api-keys__meta {
   display: flex;
   flex-direction: column;
