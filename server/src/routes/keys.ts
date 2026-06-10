@@ -16,7 +16,7 @@ export const keysRouter = Router();
 keysRouter.use(requireAuth);
 
 const MAX_KEYS_PER_OWNER = 25;
-const VALID_SCOPES = new Set(['read', 'events']);
+const VALID_SCOPES = new Set(['read', 'events', 'write']);
 // api_tokens.id is a uuid; Postgres throws 22P02 on malformed input, so guard
 // the path param up front and treat a bad shape as a clean 404.
 const UUID_RE = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;

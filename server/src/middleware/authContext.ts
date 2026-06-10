@@ -8,14 +8,19 @@ import type { Request } from 'express';
 export type Role = 'admin' | 'full' | 'edit' | 'readonly';
 
 export interface AuthUser {
-  userId:      number;          // users.id of the acting (bound) character
-  characterId: number;          // that character's EVE character_id
-  ownerId:     number | null;   // account/owner the maps are scoped to
-  role:        Role;
-  corpId:      number | null;
-  /** Present only for API-key requests; the key's scope ('read' | 'events'). */
-  apiScope?:   'read' | 'events';
+  userId:        number;          // users.id of the acting (bound) character
+  characterId:   number;          // that character's EVE character_id
+  characterName: string | null;   // for actor attribution (e.g. K162 Discord notice)
+  ownerId:       number | null;   // account/owner the maps are scoped to
+  role:          Role;
+  corpId:        number | null;
+  /** Present only for API-key requests; the key's scope. */
+  apiScope?:     ApiScope;
 }
+
+// Linear capability hierarchy: read ⊂ events ⊂ write. A higher scope implies
+// every lower one (a 'write' key can also read and stream).
+export type ApiScope = 'read' | 'events' | 'write';
 
 declare module 'express-serve-static-core' {
   interface Request {
@@ -31,10 +36,11 @@ declare module 'express-serve-static-core' {
 export function authUser(req: Request): AuthUser {
   if (req.apiAuth) return req.apiAuth;
   return {
-    userId:      req.session.userId!,
-    characterId: req.session.characterId!,
-    ownerId:     req.session.ownerId ?? null,
-    role:        req.session.role ?? 'readonly',
-    corpId:      req.session.userCorpId ?? null,
+    userId:        req.session.userId!,
+    characterId:   req.session.characterId!,
+    characterName: req.session.characterName ?? null,
+    ownerId:       req.session.ownerId ?? null,
+    role:          req.session.role ?? 'readonly',
+    corpId:        req.session.userCorpId ?? null,
   };
 }
