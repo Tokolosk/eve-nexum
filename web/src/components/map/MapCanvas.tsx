@@ -130,6 +130,8 @@ export function MapCanvas() {
   const undo                 = useMapStore((s) => s.undo);
   const autoLayoutPending    = useMapStore((s) => s.autoLayoutPending);
   const clearAutoLayoutPending = useMapStore((s) => s.clearAutoLayoutPending);
+  const requestAutoLayout    = useMapStore((s) => s.requestAutoLayout);
+  const compactMode          = useMapStore((s) => s.compactMode);
   const fitViewPending       = useMapStore((s) => s.fitViewPending);
   const clearFitView         = useMapStore((s) => s.clearFitView);
   const centerRequestEveId   = useMapStore((s) => s.centerRequestEveId);
@@ -411,6 +413,21 @@ export function MapCanvas() {
       return () => cancelAnimationFrame(raf);
     }
   }, [selectedSystemId, centerOnSystem]);
+
+  // Turning compact mode OFF grows every node, which can leave them overlapping.
+  // Auto-run the same spread the sidebar button triggers — but only after a
+  // beat, so React Flow has re-measured the now-larger nodes (otherwise overlap
+  // detection runs on the stale, smaller compact sizes). Edit-only, since spread
+  // moves and persists node positions. Fires only on the on→off transition.
+  const prevCompact = useRef(compactMode);
+  useEffect(() => {
+    const was = prevCompact.current;
+    prevCompact.current = compactMode;
+    if (was && !compactMode && canEdit) {
+      const t = setTimeout(() => requestAutoLayout(), 200);
+      return () => clearTimeout(t);
+    }
+  }, [compactMode, canEdit, requestAutoLayout]);
 
   useEffect(() => {
     if (!autoLayoutPending) return;
