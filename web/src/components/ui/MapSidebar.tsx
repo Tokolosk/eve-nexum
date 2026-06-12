@@ -19,6 +19,7 @@ import {
 } from "../../hooks/useMinimapPosition";
 import { useUserSetting } from "../../hooks/useUserSetting";
 import { NOTIFY } from "../../utils/notificationPrefs";
+import { WhTypeChartModal } from "./WhTypeChartModal";
 import { useResettableState } from "../../hooks/useResettableState";
 import { DEFAULT_BOOKMARK_FORMAT, BOOKMARK_TOKENS } from "../../utils/signatureBookmark";
 import { toPng } from "html-to-image";
@@ -545,6 +546,7 @@ export function MapSidebar() {
   // Preferences live in a Settings dialog (gear button) rather than crowding
   // the sidebar; the sidebar keeps only the live mapping tools.
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [whChartOpen, setWhChartOpen] = useState(false);
   const [settingsTab, setSettingsTab] = useState<"display" | "signatures" | "shortcuts">("display");
   const notifPermission = useNotificationPermission();
   const { user } = useAuth();
@@ -823,6 +825,14 @@ export function MapSidebar() {
             </select>
           </div>
 
+          <button
+            className="map-sidebar__action"
+            onClick={() => setWhChartOpen(true)}
+            data-tooltip={t("whChart.tooltip")}
+          >
+            {t("whChart.open")}
+          </button>
+
           {!hideTopologyTools && (
             <>
               <button
@@ -1093,6 +1103,8 @@ export function MapSidebar() {
           e.target.value = "";
         }}
       />
+
+      {whChartOpen && <WhTypeChartModal onClose={() => setWhChartOpen(false)} />}
 
       {settingsOpen && createPortal(
         <div className="settings-modal__overlay" onClick={() => setSettingsOpen(false)}>

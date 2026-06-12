@@ -8032,3 +8032,101 @@ select.sig-toolbar-btn option {
   position: relative;
   height: 240px;
 }
+
+/* ── Wormhole type chart (whtype.info-style reference) ─────── */
+.modal.whchart {
+  width: 94vw;
+  max-width: 1180px;
+}
+
+.whchart__body {
+  position: relative;
+  display: flex;
+  gap: 10px;
+  height: 72vh;
+  overflow: hidden;
+}
+
+/* SVG line overlay sits above the columns; never eats pointer events. */
+.whchart__lines {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.whchart__col {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.whchart__col--codes { flex: 0 0 84px; }
+.whchart__col--narrow { flex: 0 0 110px; }
+
+.whchart__col-head {
+  font-size: calc(11px * var(--font-scale, 1));
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #6b7a99;
+  padding-bottom: 4px;
+  border-bottom: 1px solid #1e2740;
+  margin-bottom: 4px;
+}
+
+.whchart__cell {
+  font-size: calc(12px * var(--font-scale, 1));
+  color: #5a6886;
+  padding: 2px 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: color 0.1s;
+}
+
+/* Highlighted target rows for the active code. */
+.whchart__cell--on {
+  color: #c8d4f0;
+  font-weight: 600;
+}
+
+.whchart__codes {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.whchart__code {
+  font-family: monospace;
+  font-size: calc(12px * var(--font-scale, 1));
+  color: #8a96b4;
+  padding: 1px 4px;
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.whchart__code:hover { background: #141c2e; color: #c8d4f0; }
+
+.whchart__code--active {
+  background: rgba(91,155,255,0.16);
+  color: #fff;
+  font-weight: 700;
+}
+
+.whchart__search {
+  display: block;
+  width: 100%;
+  margin-top: 4px;
+  padding: 2px 5px;
+  background: #0a0e1a;
+  border: 1px solid #1e2740;
+  border-radius: 4px;
+  color: #c8d4f0;
+  font-size: calc(11px * var(--font-scale, 1));
+}
