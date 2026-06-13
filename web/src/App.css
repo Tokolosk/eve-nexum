@@ -621,8 +621,9 @@
   cursor: grab;
   padding: 2px 6px;
   border-radius: 6px;
-  transition: background 0.12s;
-  /* Lifted while dragging via inline z-index; smooth reflow comes from dnd-kit. */
+  /* margin-left carries the saved "gap before"; animate it so a drop settles
+     smoothly. Not transitioning transform — that must track the cursor 1:1. */
+  transition: background 0.12s, margin-left 0.14s ease;
   touch-action: none;
 }
 /* Hover chip + brighter grip = "this block is draggable". */

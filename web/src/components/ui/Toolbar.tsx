@@ -21,13 +21,9 @@ import { useProximityAlerts } from '../../hooks/useProximityAlerts';
 import { useClickOutside } from '../../hooks/useClickOutside';
 import { useUserSetting } from '../../hooks/useUserSetting';
 import {
-  DndContext, PointerSensor, useSensor, useSensors, closestCenter,
+  DndContext, PointerSensor, useSensor, useSensors, useDraggable,
   type DragEndEvent,
 } from '@dnd-kit/core';
-import {
-  SortableContext, useSortable, arrayMove, rectSortingStrategy,
-} from '@dnd-kit/sortable';
-import { CSS } from '@dnd-kit/utilities';
 import {
   WarningIcon, SkullIcon, XCircleIcon, QuestionIcon,
   ShieldStarIcon, ChartBarIcon, SlidersHorizontalIcon, FootprintsIcon,
@@ -205,18 +201,28 @@ function reconcileToolbarOrder(saved: string[]): string[] {
   return [...kept, ...missing];
 }
 
-// One reorderable toolbar group. Always draggable, no separate handle: the 6px
-// pointer activation distance (see the DndContext sensor) means a tap still
-// clicks the controls inside — only a press-and-move starts a drag.
-function ToolbarSection({ id, children }: { id: string; children: ReactNode }) {
-  const { setNodeRef, listeners, transform, transition, isDragging } = useSortable({ id });
+// One freely-placeable toolbar group. Always draggable, no separate handle: the
+// 6px pointer activation distance (see the DndContext sensor) means a tap still
+// clicks the controls inside — only a press-and-move starts a drag. The dragged
+// section follows the cursor (transform); nothing else shifts. `gap` is a saved
+// margin-left so the group keeps the empty space you dropped it with, and the
+// left-to-right flow makes overlap impossible.
+function ToolbarSection({
+  id, gap, registerRef, children,
+}: {
+  id: string;
+  gap: number;
+  registerRef: (id: string, el: HTMLElement | null) => void;
+  children: ReactNode;
+}) {
+  const { setNodeRef, listeners, transform, isDragging } = useDraggable({ id });
   return (
     <div
-      ref={setNodeRef}
+      ref={(el) => { setNodeRef(el); registerRef(id, el); }}
       className={`toolbar__section${isDragging ? ' toolbar__section--dragging' : ''}`}
       style={{
-        transform: CSS.Translate.toString(transform),
-        transition,
+        marginLeft: gap || undefined,
+        transform: transform ? `translate3d(${transform.x}px, ${transform.y}px, 0)` : undefined,
         zIndex: isDragging ? 50 : undefined,
       }}
       {...listeners}
@@ -285,21 +291,74 @@ export function Toolbar() {
   const mapSwitcherRef = useRef<HTMLDivElement>(null);
   useClickOutside(showMaps, mapSwitcherRef, () => setShowMaps(false));
 
-  // Per-user, cross-device section order. Drag a section to reorder; the reset
-  // button restores the default. Reconciled each render so a stale/partial
-  // saved order can't hide a control.
+  // Per-user, cross-device layout. `order` is the left-to-right sequence; `gaps`
+  // is a margin-left (px) before each section so a dragged group keeps the empty
+  // space you dropped it with. Left-to-right flow makes overlap impossible.
   const [savedSectionOrder, setSavedSectionOrder] =
     useUserSetting<string[]>('nexum.toolbar.sections', DEFAULT_TOOLBAR_ORDER);
+  const [sectionGaps, setSectionGaps] =
+    useUserSetting<Record<string, number>>('nexum.toolbar.gaps', {});
   const sectionOrder = reconcileToolbarOrder(savedSectionOrder);
-  const atDefaultOrder = sectionOrder.length === DEFAULT_TOOLBAR_ORDER.length
-    && sectionOrder.every((id, i) => id === DEFAULT_TOOLBAR_ORDER[i]);
+  const atDefaultLayout =
+    sectionOrder.length === DEFAULT_TOOLBAR_ORDER.length
+    && sectionOrder.every((id, i) => id === DEFAULT_TOOLBAR_ORDER[i])
+    && Object.values(sectionGaps).every((g) => !g);
+  const resetLayout = () => { setSavedSectionOrder(DEFAULT_TOOLBAR_ORDER); setSectionGaps({}); };
+
   const dragSensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
+  const toolbarRef = useRef<HTMLElement>(null);
+  const brandRef = useRef<HTMLDivElement>(null);
+  const sectionEls = useRef<Map<string, HTMLElement>>(new Map());
+  const registerSectionRef = (id: string, el: HTMLElement | null) => {
+    if (el) sectionEls.current.set(id, el); else sectionEls.current.delete(id);
+  };
+  // Section rects snapshotted at drag start (before the dragged element gets a
+  // transform), so the drop maths isn't polluted by its live position.
+  const dragSnapshot = useRef<{ rects: Map<string, DOMRect>; brandRight: number; maxGap: number } | null>(null);
+
+  const onSectionDragStart = () => {
+    const rects = new Map<string, DOMRect>();
+    sectionEls.current.forEach((el, id) => rects.set(id, el.getBoundingClientRect()));
+    const brandRight = brandRef.current?.getBoundingClientRect().right ?? 0;
+    const maxGap = toolbarRef.current?.getBoundingClientRect().width ?? 600;
+    dragSnapshot.current = { rects, brandRight, maxGap };
+  };
+
   const onSectionDragEnd = (e: DragEndEvent) => {
-    const { active, over } = e;
-    if (!over || active.id === over.id) return;
-    const from = sectionOrder.indexOf(active.id as string);
-    const to   = sectionOrder.indexOf(over.id as string);
-    if (from !== -1 && to !== -1) setSavedSectionOrder(arrayMove(sectionOrder, from, to));
+    const snap = dragSnapshot.current;
+    dragSnapshot.current = null;
+    const id = e.active.id as string;
+    const dragged = snap?.rects.get(id);
+    if (!snap || !dragged) return;
+
+    // Where the dragged group's left edge / centre ended up.
+    const dropLeft = dragged.left + e.delta.x;
+    const dropCx   = dragged.left + dragged.width / 2 + e.delta.x;
+    const dropCy   = dragged.top + dragged.height / 2 + e.delta.y;
+
+    // Insertion point among the other sections, in reading order: an earlier row
+    // (or the same row but to the left of a section's centre) comes first.
+    const others = sectionOrder.filter((s) => s !== id);
+    let insertAt = others.length;
+    for (let i = 0; i < others.length; i++) {
+      const r = snap.rects.get(others[i]);
+      if (!r) continue;
+      const earlierRow = dropCy < r.top;
+      const sameRow = dropCy >= r.top && dropCy <= r.bottom;
+      if (earlierRow || (sameRow && dropCx < r.left + r.width / 2)) { insertAt = i; break; }
+    }
+    const newOrder = [...others.slice(0, insertAt), id, ...others.slice(insertAt)];
+
+    // Gap before the dropped group = how far right of the previous element it
+    // landed (>= 0 so groups never overlap; capped to the bar width).
+    const prevId = insertAt > 0 ? others[insertAt - 1] : null;
+    const prevRight = prevId ? (snap.rects.get(prevId)?.right ?? snap.brandRight) : snap.brandRight;
+    const gap = Math.max(0, Math.min(Math.round(dropLeft - prevRight), snap.maxGap));
+
+    const orderChanged = newOrder.length !== sectionOrder.length
+      || newOrder.some((s, i) => s !== sectionOrder[i]);
+    if (orderChanged) setSavedSectionOrder(newOrder);
+    if ((sectionGaps[id] ?? 0) !== gap) setSectionGaps({ ...sectionGaps, [id]: gap });
   };
 
   async function handleDeleteMap() {
@@ -599,25 +658,25 @@ export function Toolbar() {
 
   return (
     <>
-    <header className="toolbar">
-      <div className="toolbar__brand">
+    <header className="toolbar" ref={toolbarRef}>
+      <div className="toolbar__brand" ref={brandRef}>
         <span className="toolbar__logo">◈</span>
       </div>
 
-      <DndContext sensors={dragSensors} collisionDetection={closestCenter} onDragEnd={onSectionDragEnd}>
-        <SortableContext items={renderOrder} strategy={rectSortingStrategy}>
-          {renderOrder.map((id) => (
-            <ToolbarSection key={id} id={id}>{sections[id]}</ToolbarSection>
-          ))}
-        </SortableContext>
+      <DndContext sensors={dragSensors} onDragStart={onSectionDragStart} onDragEnd={onSectionDragEnd}>
+        {renderOrder.map((id) => (
+          <ToolbarSection key={id} id={id} gap={sectionGaps[id] || 0} registerRef={registerSectionRef}>
+            {sections[id]}
+          </ToolbarSection>
+        ))}
       </DndContext>
 
       {user && (
         <div className="toolbar__anchor-right">
-          {!atDefaultOrder && (
+          {!atDefaultLayout && (
             <button
               className="toolbar__toggle toolbar__toggle--icon"
-              onClick={() => setSavedSectionOrder(DEFAULT_TOOLBAR_ORDER)}
+              onClick={resetLayout}
               data-tooltip={t('toolbar.resetLayout')}
               aria-label={t('toolbar.resetLayout')}
             >
