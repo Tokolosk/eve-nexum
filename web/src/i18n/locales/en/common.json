@@ -1011,6 +1011,7 @@
     "trackJumpsTooltipOn": "Tracking jumps — new systems are added as you move",
     "trackJumpsTooltipOff": "Not tracking jumps — only existing systems get the you-are-here indicator",
     "signOut": "Sign out",
+    "resetLayout": "Reset toolbar layout",
     "role": "Role: {{role}}",
     "checkedAgo": "checked {{time}}",
     "lastKnownSystem": "Last known system",
