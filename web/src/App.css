@@ -619,14 +619,31 @@
   gap: 8px;
   flex-shrink: 0;
   cursor: grab;
+  padding: 2px 6px;
+  border-radius: 6px;
+  transition: background 0.12s;
   /* Lifted while dragging via inline z-index; smooth reflow comes from dnd-kit. */
   touch-action: none;
 }
-.toolbar__section--dragging { cursor: grabbing; opacity: 0.85; }
+/* Hover chip + brighter grip = "this block is draggable". */
+.toolbar__section:hover { background: rgba(120, 150, 210, 0.08); }
+.toolbar__section--dragging { cursor: grabbing; opacity: 0.85; background: rgba(120, 150, 210, 0.12); }
 .toolbar__section button,
 .toolbar__section a,
 .toolbar__section .toolbar__char-system--clickable { cursor: pointer; }
 .toolbar__section input { cursor: text; }
+
+/* Six-dot drag grip: discoverable but quiet at rest, emphasised on hover/drag. */
+.toolbar__section-grip {
+  display: flex;
+  align-items: center;
+  margin-right: -2px;
+  color: #5a6886;
+  opacity: 0.3;
+  transition: opacity 0.12s, color 0.12s;
+}
+.toolbar__section:hover .toolbar__section-grip { opacity: 0.85; color: #8a9bc4; }
+.toolbar__section--dragging .toolbar__section-grip { opacity: 1; color: #a9b8dc; }
 
 /* Fixed account actions pinned to the far right (not part of the drag set). */
 .toolbar__anchor-right {

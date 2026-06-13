@@ -32,7 +32,7 @@ import {
   WarningIcon, SkullIcon, XCircleIcon, QuestionIcon,
   ShieldStarIcon, ChartBarIcon, SlidersHorizontalIcon, FootprintsIcon,
   SignOutIcon, PlanetIcon, LinkSimpleIcon, ClockCountdownIcon, MapPinIcon,
-  KeyIcon, GraphIcon, ArrowCounterClockwiseIcon,
+  KeyIcon, GraphIcon, ArrowCounterClockwiseIcon, DotsSixVerticalIcon,
 } from '@phosphor-icons/react';
 import type { Icon as PhosphorIcon } from '@phosphor-icons/react';
 import { charPortrait, typeIcon } from '../../utils/eveImages';
@@ -221,6 +221,11 @@ function ToolbarSection({ id, children }: { id: string; children: ReactNode }) {
       }}
       {...listeners}
     >
+      {/* Drag affordance: faint at rest, brightens on hover (the whole section
+          is the drag target, this just signals it). */}
+      <span className="toolbar__section-grip" aria-hidden="true">
+        <DotsSixVerticalIcon size={13} weight="bold" />
+      </span>
       {children}
     </div>
   );
