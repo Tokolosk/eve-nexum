@@ -593,8 +593,13 @@
   display: flex;
   align-items: center;
   gap: 24px;
+  /* Sections are atomic (flex-shrink: 0), so when the row runs out of width
+     whole groups wrap to the next line rather than squishing or clipping —
+     this is what keeps the bar usable on vertical monitors / narrow laptops. */
+  flex-wrap: wrap;
+  row-gap: 4px;
   padding: 0 16px;
-  height: 48px;
+  min-height: 48px;
   background: #0d1117;
   border-bottom: 1px solid #1e2740;
   flex-shrink: 0;
@@ -606,34 +611,40 @@
   position: relative;
 }
 
-/* Responsive: the single 48px row needs ~1570px to fit every control. Below
-   that (vertical monitors, most laptops) wrap into two rows — map-editing
-   controls on row 1, stats/tools/user on row 2 — instead of clipping. The
-   --break spacer takes a full line so the secondary cluster drops cleanly,
-   and column-gap tightens (only while wrapped) so row 2 fits without a third
-   wrap; the desktop 24px gap is untouched. */
+/* A reorderable group of toolbar controls (drag-and-drop via dnd-kit). Always
+   draggable — grab cursor by default; interactive children keep their own. */
+.toolbar__section {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  cursor: grab;
+  /* Lifted while dragging via inline z-index; smooth reflow comes from dnd-kit. */
+  touch-action: none;
+}
+.toolbar__section--dragging { cursor: grabbing; opacity: 0.85; }
+.toolbar__section button,
+.toolbar__section a,
+.toolbar__section .toolbar__char-system--clickable { cursor: pointer; }
+.toolbar__section input { cursor: text; }
+
+/* Fixed account actions pinned to the far right (not part of the drag set). */
+.toolbar__anchor-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+/* Narrow screens (vertical monitors, smaller laptops): tighten the inter-section
+   gap so more fits per row before wrapping, and give the wrapped rows a little
+   vertical breathing room. The desktop 24px gap is untouched above 1600px. */
 @media (max-width: 1600px) {
   .toolbar {
-    flex-wrap: wrap;
-    height: auto;
-    min-height: 48px;
-    row-gap: 4px;
     column-gap: 14px;
     padding-top: 6px;
     padding-bottom: 6px;
-  }
-
-  .toolbar__spacer--break {
-    flex-basis: 100%;
-    height: 0;
-  }
-
-  /* Keep each cluster intact so a tight row 2 wraps whole units, not glyphs. */
-  .toolbar__stats,
-  .toolbar__proximity,
-  .toolbar__server-status,
-  .toolbar__user {
-    flex-shrink: 0;
   }
 }
 
