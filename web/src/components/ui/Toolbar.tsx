@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import { timeAgo, jumps } from '../../i18n/format';
@@ -19,11 +19,20 @@ import { HeatmapMenu } from './HeatmapMenu';
 import { WhTypeChartModal } from './WhTypeChartModal';
 import { useProximityAlerts } from '../../hooks/useProximityAlerts';
 import { useClickOutside } from '../../hooks/useClickOutside';
+import { useUserSetting } from '../../hooks/useUserSetting';
+import {
+  DndContext, PointerSensor, useSensor, useSensors, closestCenter,
+  type DragEndEvent,
+} from '@dnd-kit/core';
+import {
+  SortableContext, useSortable, arrayMove, rectSortingStrategy,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 import {
   WarningIcon, SkullIcon, XCircleIcon, QuestionIcon,
   ShieldStarIcon, ChartBarIcon, SlidersHorizontalIcon, FootprintsIcon,
   SignOutIcon, PlanetIcon, LinkSimpleIcon, ClockCountdownIcon, MapPinIcon,
-  KeyIcon, GraphIcon,
+  KeyIcon, GraphIcon, ArrowCounterClockwiseIcon, DotsSixVerticalIcon,
 } from '@phosphor-icons/react';
 import type { Icon as PhosphorIcon } from '@phosphor-icons/react';
 import { charPortrait, typeIcon } from '../../utils/eveImages';
@@ -181,6 +190,47 @@ function ProximityChip() {
   );
 }
 
+// The reorderable toolbar groups, in their default left-to-right order. The
+// brand (far left) and the account actions — API keys + sign out (far right) —
+// are fixed and deliberately NOT in this list.
+const DEFAULT_TOOLBAR_ORDER = ['map', 'status', 'tools', 'server', 'account'];
+
+// Reconcile a saved order with the sections we actually ship: drop unknown ids
+// and append any newly-added sections, so an order saved by an older build
+// never hides a control or leaves dnd-kit referencing a missing section.
+function reconcileToolbarOrder(saved: string[]): string[] {
+  const known = new Set(DEFAULT_TOOLBAR_ORDER);
+  const kept = saved.filter((id) => known.has(id));
+  const missing = DEFAULT_TOOLBAR_ORDER.filter((id) => !kept.includes(id));
+  return [...kept, ...missing];
+}
+
+// One reorderable toolbar group. Always draggable, no separate handle: the 6px
+// pointer activation distance (see the DndContext sensor) means a tap still
+// clicks the controls inside — only a press-and-move starts a drag.
+function ToolbarSection({ id, children }: { id: string; children: ReactNode }) {
+  const { setNodeRef, listeners, transform, transition, isDragging } = useSortable({ id });
+  return (
+    <div
+      ref={setNodeRef}
+      className={`toolbar__section${isDragging ? ' toolbar__section--dragging' : ''}`}
+      style={{
+        transform: CSS.Translate.toString(transform),
+        transition,
+        zIndex: isDragging ? 50 : undefined,
+      }}
+      {...listeners}
+    >
+      {/* Drag affordance: faint at rest, brightens on hover (the whole section
+          is the drag target, this just signals it). */}
+      <span className="toolbar__section-grip" aria-hidden="true">
+        <DotsSixVerticalIcon size={13} weight="bold" />
+      </span>
+      {children}
+    </div>
+  );
+}
+
 export function Toolbar() {
   const { t } = useTranslation();
   const mapName         = useMapStore((s) => s.map.name);
@@ -235,180 +285,213 @@ export function Toolbar() {
   const mapSwitcherRef = useRef<HTMLDivElement>(null);
   useClickOutside(showMaps, mapSwitcherRef, () => setShowMaps(false));
 
+  // Per-user, cross-device section order. Drag a section to reorder; the reset
+  // button restores the default. Reconciled each render so a stale/partial
+  // saved order can't hide a control.
+  const [savedSectionOrder, setSavedSectionOrder] =
+    useUserSetting<string[]>('nexum.toolbar.sections', DEFAULT_TOOLBAR_ORDER);
+  const sectionOrder = reconcileToolbarOrder(savedSectionOrder);
+  const atDefaultOrder = sectionOrder.length === DEFAULT_TOOLBAR_ORDER.length
+    && sectionOrder.every((id, i) => id === DEFAULT_TOOLBAR_ORDER[i]);
+  const dragSensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
+  const onSectionDragEnd = (e: DragEndEvent) => {
+    const { active, over } = e;
+    if (!over || active.id === over.id) return;
+    const from = sectionOrder.indexOf(active.id as string);
+    const to   = sectionOrder.indexOf(over.id as string);
+    if (from !== -1 && to !== -1) setSavedSectionOrder(arrayMove(sectionOrder, from, to));
+  };
+
   async function handleDeleteMap() {
     if (!activeMapId) return;
     await deleteMap(activeMapId);
   }
 
-  return (
-    <>
-    <header className="toolbar">
-      <div className="toolbar__brand">
-        <span className="toolbar__logo">◈</span>
-      </div>
-
-      {/* Map switcher */}
-      <div className="toolbar__map-switcher" ref={mapSwitcherRef}>
-        <button
-          className="toolbar__map-name-btn"
-          onClick={() => setShowMaps((v) => !v)}
-          title={t('toolbar.switchMap')}
-        >
-          {(() => {
-            const active = maps.find((m) => m.id === activeMapId);
-            if (!active) return null;
-            if (active.sharedWithMe) {
-              return <span className="toolbar__map-type toolbar__map-type--shared">{t('toolbar.mapType.shared')}</span>;
-            }
-            if (!user?.corpMode) return null;
-            return active.isCorpMap
-              ? <span className="toolbar__map-type toolbar__map-type--corp">{t('toolbar.mapType.corp')}</span>
-              : <span className="toolbar__map-type toolbar__map-type--solo">{t('toolbar.mapType.solo')}</span>;
-          })()}
-          {mapName || t('toolbar.noMap')}
-          <span className="toolbar__caret">▾</span>
-        </button>
-
-        {mapLocked && (
-          <span
-            className="toolbar__locked-chip"
-            data-tooltip={t('toolbar.lockedTooltip')}
+  // Each reorderable section's content, keyed by id. Brand and the account
+  // actions (API keys / sign out) live outside this map — they're pinned.
+  const sections: Record<string, ReactNode> = {
+    map: (
+      <>
+        <div className="toolbar__map-switcher" ref={mapSwitcherRef}>
+          <button
+            className="toolbar__map-name-btn"
+            onClick={() => setShowMaps((v) => !v)}
+            title={t('toolbar.switchMap')}
           >
-            <span className="toolbar__locked-icon">🔒</span>
-            {t('toolbar.locked')}
-          </span>
-        )}
+            {(() => {
+              const active = maps.find((m) => m.id === activeMapId);
+              if (!active) return null;
+              if (active.sharedWithMe) {
+                return <span className="toolbar__map-type toolbar__map-type--shared">{t('toolbar.mapType.shared')}</span>;
+              }
+              if (!user?.corpMode) return null;
+              return active.isCorpMap
+                ? <span className="toolbar__map-type toolbar__map-type--corp">{t('toolbar.mapType.corp')}</span>
+                : <span className="toolbar__map-type toolbar__map-type--solo">{t('toolbar.mapType.solo')}</span>;
+            })()}
+            {mapName || t('toolbar.noMap')}
+            <span className="toolbar__caret">▾</span>
+          </button>
 
-        {showMaps && (
-          <div className="map-dropdown" onMouseLeave={() => setShowMaps(false)}>
-            {[...maps].sort((a, b) => {
-              // Three-tier ordering: own personal → corp → shared-with-me.
-              // Inside a tier, alphabetical by name.
-              const aTier = a.sharedWithMe ? 2 : a.isCorpMap ? 1 : 0;
-              const bTier = b.sharedWithMe ? 2 : b.isCorpMap ? 1 : 0;
-              if (aTier !== bTier) return aTier - bTier;
-              return a.name.localeCompare(b.name);
-            }).map((m) => (
-              <button
-                key={m.id}
-                className={`map-dropdown__item${m.id === activeMapId ? ' map-dropdown__item--active' : ''}`}
-                onClick={async () => { setShowMaps(false); await switchMap(m.id); requestFitView(); }}
-              >
-                {m.sharedWithMe
-                  ? <span className="map-dropdown__badge map-dropdown__badge--shared">{t('toolbar.mapType.shared')}</span>
-                  : user?.corpMode && !m.isCorpMap
-                    ? <span className="map-dropdown__badge map-dropdown__badge--solo">{t('toolbar.mapType.solo')}</span>
-                    : null}
-                {!m.sharedWithMe && m.isCorpMap && <span className="map-dropdown__badge map-dropdown__badge--corp">{t('toolbar.mapType.corp')}</span>}
-                {m.locked    && <span className="map-dropdown__badge map-dropdown__badge--lock">🔒</span>}
-                {m.name}
-              </button>
-            ))}
-            <div className="map-dropdown__divider" />
+          {mapLocked && (
             <span
-              className={`map-dropdown__new-wrap${noCreateOption ? ' map-dropdown__new-wrap--disabled' : ''}`}
-              data-disabled-reason={noCreateOption ? t('toolbar.mapLimitReached') : undefined}
+              className="toolbar__locked-chip"
+              data-tooltip={t('toolbar.lockedTooltip')}
             >
-              <button
-                className="map-dropdown__item map-dropdown__item--action"
-                onClick={() => { setShowMaps(false); setShowCreate(true); }}
-                disabled={noCreateOption}
-              >
-                {t('toolbar.newMap')}
-              </button>
+              <span className="toolbar__locked-icon">🔒</span>
+              {t('toolbar.locked')}
             </span>
-            {canManageMaps && maps.length > 1 && !maps.find((m) => m.id === activeMapId)?.sharedWithMe && (
-              <button className="map-dropdown__item map-dropdown__item--danger" onClick={() => { setShowMaps(false); setDeleteConfirm(true); }}>
-                {t('toolbar.deleteThisMap')}
-              </button>
-            )}
-          </div>
+          )}
+
+          {showMaps && (
+            <div className="map-dropdown" onMouseLeave={() => setShowMaps(false)}>
+              {[...maps].sort((a, b) => {
+                // Three-tier ordering: own personal → corp → shared-with-me.
+                // Inside a tier, alphabetical by name.
+                const aTier = a.sharedWithMe ? 2 : a.isCorpMap ? 1 : 0;
+                const bTier = b.sharedWithMe ? 2 : b.isCorpMap ? 1 : 0;
+                if (aTier !== bTier) return aTier - bTier;
+                return a.name.localeCompare(b.name);
+              }).map((m) => (
+                <button
+                  key={m.id}
+                  className={`map-dropdown__item${m.id === activeMapId ? ' map-dropdown__item--active' : ''}`}
+                  onClick={async () => { setShowMaps(false); await switchMap(m.id); requestFitView(); }}
+                >
+                  {m.sharedWithMe
+                    ? <span className="map-dropdown__badge map-dropdown__badge--shared">{t('toolbar.mapType.shared')}</span>
+                    : user?.corpMode && !m.isCorpMap
+                      ? <span className="map-dropdown__badge map-dropdown__badge--solo">{t('toolbar.mapType.solo')}</span>
+                      : null}
+                  {!m.sharedWithMe && m.isCorpMap && <span className="map-dropdown__badge map-dropdown__badge--corp">{t('toolbar.mapType.corp')}</span>}
+                  {m.locked    && <span className="map-dropdown__badge map-dropdown__badge--lock">🔒</span>}
+                  {m.name}
+                </button>
+              ))}
+              <div className="map-dropdown__divider" />
+              <span
+                className={`map-dropdown__new-wrap${noCreateOption ? ' map-dropdown__new-wrap--disabled' : ''}`}
+                data-disabled-reason={noCreateOption ? t('toolbar.mapLimitReached') : undefined}
+              >
+                <button
+                  className="map-dropdown__item map-dropdown__item--action"
+                  onClick={() => { setShowMaps(false); setShowCreate(true); }}
+                  disabled={noCreateOption}
+                >
+                  {t('toolbar.newMap')}
+                </button>
+              </span>
+              {canManageMaps && maps.length > 1 && !maps.find((m) => m.id === activeMapId)?.sharedWithMe && (
+                <button className="map-dropdown__item map-dropdown__item--danger" onClick={() => { setShowMaps(false); setDeleteConfirm(true); }}>
+                  {t('toolbar.deleteThisMap')}
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+
+        <div className="toolbar__option">
+          <label className="toolbar__option-label" htmlFor="map-name">{t('toolbar.name')}</label>
+          <input
+            id="map-name"
+            className="toolbar__map-name"
+            value={mapName}
+            onChange={(e) => setMapName(e.target.value)}
+            // Let the field own its pointer (caret / text selection) without the
+            // surrounding section reading the drag as a reorder.
+            onPointerDown={(e) => e.stopPropagation()}
+            spellCheck={false}
+            readOnly={!canEdit || !isMapOwner}
+          />
+        </div>
+      </>
+    ),
+
+    status: (
+      <>
+        <div className="toolbar__stats">
+          <span className="toolbar__stat" data-tooltip={t('toolbar.totalSystems')}>
+            <PlanetIcon size={16} weight="regular" />
+            <span className="toolbar__stat-count">{systemCount}</span>
+          </span>
+          <span className="toolbar__stat" data-tooltip={t('toolbar.totalConnections')}>
+            <LinkSimpleIcon size={16} weight="regular" />
+            <span className="toolbar__stat-count">{connectionCount}</span>
+          </span>
+        </div>
+        <ProximityChip />
+      </>
+    ),
+
+    tools: (
+      <>
+        {user && (user.canViewReports || (user.role === 'admin' && user.corpMode)) && (
+          <button
+            className="toolbar__toggle toolbar__toggle--icon toolbar__toggle--prominent"
+            onClick={() => { window.location.hash = '#/admin/users'; }}
+            data-tooltip={t('toolbar.admin')}
+            aria-label={t('toolbar.admin')}
+          >
+            <ShieldStarIcon size={18} weight="regular" />
+          </button>
         )}
-      </div>
-
-      {/* Map name edit */}
-      <div className="toolbar__option">
-        <label className="toolbar__option-label" htmlFor="map-name">{t('toolbar.name')}</label>
-        <input
-          id="map-name"
-          className="toolbar__map-name"
-          value={mapName}
-          onChange={(e) => setMapName(e.target.value)}
-          spellCheck={false}
-          readOnly={!canEdit || !isMapOwner}
-        />
-      </div>
-
-      {/* Wrap point on narrow screens: map-editing controls stay on row 1,
-          stats/tools/user drop to row 2 (see the toolbar media query). */}
-      <div className="toolbar__spacer toolbar__spacer--break" />
-
-      <div className="toolbar__stats">
-        <span className="toolbar__stat" data-tooltip={t('toolbar.totalSystems')}>
-          <PlanetIcon size={16} weight="regular" />
-          <span className="toolbar__stat-count">{systemCount}</span>
-        </span>
-        <span className="toolbar__stat" data-tooltip={t('toolbar.totalConnections')}>
-          <LinkSimpleIcon size={16} weight="regular" />
-          <span className="toolbar__stat-count">{connectionCount}</span>
-        </span>
-      </div>
-
-      <ProximityChip />
-
-      <div className="toolbar__spacer" />
-
-      {user && (user.canViewReports || (user.role === 'admin' && user.corpMode)) && (
         <button
           className="toolbar__toggle toolbar__toggle--icon toolbar__toggle--prominent"
-          onClick={() => { window.location.hash = '#/admin/users'; }}
-          data-tooltip={t('toolbar.admin')}
-          aria-label={t('toolbar.admin')}
+          onClick={() => setShowStats(true)}
+          data-tooltip={t('toolbar.userStats')}
+          aria-label={t('toolbar.userStats')}
         >
-          <ShieldStarIcon size={18} weight="regular" />
+          <ChartBarIcon size={18} weight="regular" />
         </button>
-      )}
-      <button
-        className="toolbar__toggle toolbar__toggle--icon toolbar__toggle--prominent"
-        onClick={() => setShowStats(true)}
-        data-tooltip={t('toolbar.userStats')}
-        aria-label={t('toolbar.userStats')}
-      >
-        <ChartBarIcon size={18} weight="regular" />
-      </button>
 
-      <a
-        className="toolbar__toggle toolbar__toggle--icon toolbar__toggle--prominent"
-        href="/help/"
-        target="_blank"
-        rel="noopener noreferrer"
-        data-tooltip={t('toolbar.help')}
-        aria-label={t('toolbar.help')}
-      >
-        <QuestionIcon size={18} weight="regular" />
-      </a>
+        <a
+          className="toolbar__toggle toolbar__toggle--icon toolbar__toggle--prominent"
+          href="/help/"
+          target="_blank"
+          rel="noopener noreferrer"
+          data-tooltip={t('toolbar.help')}
+          aria-label={t('toolbar.help')}
+        >
+          <QuestionIcon size={18} weight="regular" />
+        </a>
 
-      <button
-        className="toolbar__toggle toolbar__toggle--icon toolbar__toggle--prominent"
-        onClick={() => setShowWhChart(true)}
-        data-tooltip={t('whChart.tooltip')}
-        aria-label={t('whChart.title')}
-      >
-        <GraphIcon size={18} weight="regular" />
-      </button>
+        <button
+          className="toolbar__toggle toolbar__toggle--icon toolbar__toggle--prominent"
+          onClick={() => setShowWhChart(true)}
+          data-tooltip={t('whChart.tooltip')}
+          aria-label={t('whChart.title')}
+        >
+          <GraphIcon size={18} weight="regular" />
+        </button>
 
-      <HeatmapMenu />
+        <HeatmapMenu />
 
-      <button
-        className={`toolbar__toggle toolbar__toggle--icon toolbar__toggle--prominent${mapOptionsOpen ? ' toolbar__toggle--on' : ''}`}
-        onClick={() => setMapOptionsOpen(!mapOptionsOpen)}
-        aria-pressed={mapOptionsOpen}
-        data-tooltip={t('toolbar.mapOptions')}
-        aria-label={t('toolbar.mapOptions')}
-      >
-        <SlidersHorizontalIcon size={18} weight="regular" />
-      </button>
+        <button
+          className={`toolbar__toggle toolbar__toggle--icon toolbar__toggle--prominent${mapOptionsOpen ? ' toolbar__toggle--on' : ''}`}
+          onClick={() => setMapOptionsOpen(!mapOptionsOpen)}
+          aria-pressed={mapOptionsOpen}
+          data-tooltip={t('toolbar.mapOptions')}
+          aria-label={t('toolbar.mapOptions')}
+        >
+          <SlidersHorizontalIcon size={18} weight="regular" />
+        </button>
 
+        <button
+          className={`toolbar__toggle toolbar__toggle--icon toolbar__toggle--prominent${trackJumps ? ' toolbar__toggle--on' : ''}`}
+          onClick={() => setTrackJumps(!trackJumps)}
+          aria-pressed={trackJumps}
+          aria-label={trackJumps ? t('toolbar.trackJumpsOn') : t('toolbar.trackJumpsOff')}
+          data-tooltip={trackJumps
+            ? t('toolbar.trackJumpsTooltipOn')
+            : t('toolbar.trackJumpsTooltipOff')}
+        >
+          <FootprintsIcon size={18} weight="regular" />
+          <span className={`toolbar__toggle-led${trackJumps ? ' toolbar__toggle-led--on' : ' toolbar__toggle-led--off'}`} />
+        </button>
+      </>
+    ),
+
+    server: (
       <div className="toolbar__server-status">
         <div className="toolbar__server-row">
           <span
@@ -442,84 +525,105 @@ export function Toolbar() {
           <span className="toolbar__server-label">ESI</span>
         </div>
       </div>
+    ),
 
-      <button
-        className={`toolbar__toggle toolbar__toggle--icon toolbar__toggle--prominent${trackJumps ? ' toolbar__toggle--on' : ''}`}
-        onClick={() => setTrackJumps(!trackJumps)}
-        aria-pressed={trackJumps}
-        aria-label={trackJumps ? t('toolbar.trackJumpsOn') : t('toolbar.trackJumpsOff')}
-        data-tooltip={trackJumps
-          ? t('toolbar.trackJumpsTooltipOn')
-          : t('toolbar.trackJumpsTooltipOff')}
-      >
-        <FootprintsIcon size={18} weight="regular" />
-        <span className={`toolbar__toggle-led${trackJumps ? ' toolbar__toggle-led--on' : ' toolbar__toggle-led--off'}`} />
-      </button>
+    account: user ? (
+      <div className="toolbar__user">
+        <span
+          className={`toolbar__online-dot${online === true ? ' toolbar__online-dot--on' : online === false ? ' toolbar__online-dot--off' : ''}`}
+          title={onlineTooltip(t, online, lastLogin)}
+        />
+        <img
+          className="toolbar__avatar"
+          src={charPortrait(user.characterId, 64)}
+          alt={user.characterName}
+        />
+        {ship && (
+          <span
+            className="toolbar__ship-wrap"
+            data-tooltip={ship.shipName && ship.shipName !== ship.typeName
+              ? `${ship.typeName} — ${ship.shipName}`
+              : ship.typeName}
+          >
+            <img
+              className="toolbar__ship"
+              src={typeIcon(ship.typeId, 64)}
+              alt={ship.typeName}
+            />
+          </span>
+        )}
+        <div className="toolbar__char-info">
+          <span className="toolbar__char-name">
+            {user.characterName}
+            {/* Role only matters in corp mode — in solo deployments every
+                user is implicitly admin of their own maps, so the badge
+                just adds noise. */}
+            {user.corpMode && (
+              <span
+                className={`role-badge role-badge--${user.role}`}
+                title={t('toolbar.role', { role: user.role })}
+              >
+                {user.role}
+              </span>
+            )}
+          </span>
+          <div className="toolbar__char-sub">
+            {shownSystem && (shownSystemOnMap ? (
+              <button
+                type="button"
+                className="toolbar__char-system toolbar__char-system--clickable"
+                data-tooltip={t('toolbar.centerOnSystem', { system: shownSystem })}
+                onClick={() => { if (shownSystemEveId != null) requestCenterOnEveSystem(shownSystemEveId); }}
+              >
+                <MapPinIcon size={11} weight="fill" />
+                {shownSystem}
+              </button>
+            ) : (
+              <span
+                className="toolbar__char-system"
+                data-tooltip={shownSystemIsLast ? t('toolbar.lastKnownSystem') : t('toolbar.currentSystem')}
+              >
+                <MapPinIcon size={11} weight="fill" />
+                {shownSystem}
+              </span>
+            ))}
+            {checkedAt && <CheckedAtIcon checkedAt={checkedAt} />}
+          </div>
+        </div>
+        <CharacterSwitcher />
+      </div>
+    ) : null,
+  };
+
+  const renderOrder = sectionOrder.filter((id) => sections[id] != null);
+
+  return (
+    <>
+    <header className="toolbar">
+      <div className="toolbar__brand">
+        <span className="toolbar__logo">◈</span>
+      </div>
+
+      <DndContext sensors={dragSensors} collisionDetection={closestCenter} onDragEnd={onSectionDragEnd}>
+        <SortableContext items={renderOrder} strategy={rectSortingStrategy}>
+          {renderOrder.map((id) => (
+            <ToolbarSection key={id} id={id}>{sections[id]}</ToolbarSection>
+          ))}
+        </SortableContext>
+      </DndContext>
 
       {user && (
-        <div className="toolbar__user">
-          <span
-            className={`toolbar__online-dot${online === true ? ' toolbar__online-dot--on' : online === false ? ' toolbar__online-dot--off' : ''}`}
-            title={onlineTooltip(t, online, lastLogin)}
-          />
-          <img
-            className="toolbar__avatar"
-            src={charPortrait(user.characterId, 64)}
-            alt={user.characterName}
-          />
-          {ship && (
-            <span
-              className="toolbar__ship-wrap"
-              data-tooltip={ship.shipName && ship.shipName !== ship.typeName
-                ? `${ship.typeName} — ${ship.shipName}`
-                : ship.typeName}
+        <div className="toolbar__anchor-right">
+          {!atDefaultOrder && (
+            <button
+              className="toolbar__toggle toolbar__toggle--icon"
+              onClick={() => setSavedSectionOrder(DEFAULT_TOOLBAR_ORDER)}
+              data-tooltip={t('toolbar.resetLayout')}
+              aria-label={t('toolbar.resetLayout')}
             >
-              <img
-                className="toolbar__ship"
-                src={typeIcon(ship.typeId, 64)}
-                alt={ship.typeName}
-              />
-            </span>
+              <ArrowCounterClockwiseIcon size={16} weight="regular" />
+            </button>
           )}
-          <div className="toolbar__char-info">
-            <span className="toolbar__char-name">
-              {user.characterName}
-              {/* Role only matters in corp mode — in solo deployments every
-                  user is implicitly admin of their own maps, so the badge
-                  just adds noise. */}
-              {user.corpMode && (
-                <span
-                  className={`role-badge role-badge--${user.role}`}
-                  title={t('toolbar.role', { role: user.role })}
-                >
-                  {user.role}
-                </span>
-              )}
-            </span>
-            <div className="toolbar__char-sub">
-              {shownSystem && (shownSystemOnMap ? (
-                <button
-                  type="button"
-                  className="toolbar__char-system toolbar__char-system--clickable"
-                  data-tooltip={t('toolbar.centerOnSystem', { system: shownSystem })}
-                  onClick={() => { if (shownSystemEveId != null) requestCenterOnEveSystem(shownSystemEveId); }}
-                >
-                  <MapPinIcon size={11} weight="fill" />
-                  {shownSystem}
-                </button>
-              ) : (
-                <span
-                  className="toolbar__char-system"
-                  data-tooltip={shownSystemIsLast ? t('toolbar.lastKnownSystem') : t('toolbar.currentSystem')}
-                >
-                  <MapPinIcon size={11} weight="fill" />
-                  {shownSystem}
-                </span>
-              ))}
-              {checkedAt && <CheckedAtIcon checkedAt={checkedAt} />}
-            </div>
-          </div>
-          <CharacterSwitcher />
           <LanguageSwitcher />
           <button
             className="toolbar__toggle toolbar__toggle--icon"
