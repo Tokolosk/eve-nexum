@@ -8049,6 +8049,9 @@ select.sig-toolbar-btn option {
   height: auto;
   max-height: 80vh;
   overflow: hidden;
+  /* Own stacking context so the SVG (z-index 0) reliably sits behind the
+     columns (z-index 1) — i.e. connector lines render under the labels. */
+  isolation: isolate;
 }
 
 /* SVG line overlay sits BEHIND the column text (z-index 0); columns are lifted
