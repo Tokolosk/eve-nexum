@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
-  ReactFlow, Background, Controls, MiniMap,
+  ReactFlow, Background, Controls, ControlButton, MiniMap,
   useNodesState, BackgroundVariant, useReactFlow, ConnectionMode,
   applyNodeChanges,
 } from '@xyflow/react';
@@ -22,7 +22,8 @@ import { AddSystemModal } from '../ui/AddSystemModal';
 import { ContextMenu } from '../ui/ContextMenu';
 import {
   PathIcon, MapPinSimpleIcon, HouseIcon, LockIcon, LockOpenIcon,
-  XIcon, CheckIcon, PlusIcon, SelectionAllIcon, EyeIcon,
+  XIcon, CheckIcon, PlusIcon, SelectionAllIcon, EyeIcon, CrosshairSimpleIcon,
+  LinkSimpleIcon, ArrowsOutIcon,
 } from '@phosphor-icons/react';
 import type { MapSystem, SystemIntel } from '../../types';
 import { CLASS_COLORS } from '../../data/wormholes';
@@ -131,12 +132,14 @@ export function MapCanvas() {
   const autoLayoutPending    = useMapStore((s) => s.autoLayoutPending);
   const clearAutoLayoutPending = useMapStore((s) => s.clearAutoLayoutPending);
   const requestAutoLayout    = useMapStore((s) => s.requestAutoLayout);
+  const optimizeConnections  = useMapStore((s) => s.optimizeConnections);
   const compactMode          = useMapStore((s) => s.compactMode);
   const fitViewPending       = useMapStore((s) => s.fitViewPending);
   const clearFitView         = useMapStore((s) => s.clearFitView);
   const centerRequestEveId   = useMapStore((s) => s.centerRequestEveId);
   const centerRequestNodeId  = useMapStore((s) => s.centerRequestNodeId);
   const clearCenterRequest   = useMapStore((s) => s.clearCenterRequest);
+  const currentSystemId      = useMapStore((s) => s.currentSystemId);
   const routeOrigin          = useMapStore((s) => s.routeOrigin);
   const setRouteOrigin       = useMapStore((s) => s.setRouteOrigin);
   const requestCenterOnEveSystem = useMapStore((s) => s.requestCenterOnEveSystem);
@@ -263,6 +266,12 @@ export function MapCanvas() {
     );
     return true;
   }, [getNode, getZoom, setViewport]);
+
+  // "Centre on me" map-control: recentre on the pilot's current system node
+  // (the you-are-here node). Disabled when the pilot isn't in a mapped system.
+  const centerOnMe = useCallback(() => {
+    if (currentSystemId) centerOnSystem(currentSystemId);
+  }, [currentSystemId, centerOnSystem]);
 
   // On first load after login, centre the viewport on the pilot's last known
   // system (from /auth/me) if it's present on this map — so you land where you
@@ -1001,6 +1010,18 @@ export function MapCanvas() {
         action: () => setNodes((ns) => ns.map((n) => ({ ...n, selected: true }))),
         disabled: nodes.length === 0,
       },
+      {
+        label: t('ctxMenu.optimizeConnections'),
+        icon: <LinkSimpleIcon size={15} weight="regular" />,
+        action: () => optimizeConnections(),
+        disabled: connections.length === 0,
+      },
+      {
+        label: t('ctxMenu.spreadNodes'),
+        icon: <ArrowsOutIcon size={15} weight="regular" />,
+        action: () => requestAutoLayout(),
+        disabled: nodes.length === 0,
+      },
     ];
   })();
 
@@ -1046,7 +1067,16 @@ export function MapCanvas() {
           size={snapToGrid ? 1 : 1}
           color={snapToGrid ? '#1a2240' : '#1a2040'}
         />
-        <Controls position={controlsPosition} />
+        <Controls position={controlsPosition}>
+          <ControlButton
+            onClick={centerOnMe}
+            disabled={!currentSystemId}
+            title={t('mapControls.centerOnMe')}
+            aria-label={t('mapControls.centerOnMe')}
+          >
+            <CrosshairSimpleIcon size={14} weight="bold" />
+          </ControlButton>
+        </Controls>
         {showMinimap && (
           <MiniMap
             pannable
