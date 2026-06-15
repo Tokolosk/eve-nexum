@@ -662,6 +662,8 @@
   },
   "ctxMenu": {
     "disconnect": "Disconnect",
+    "optimizeConnections": "Optimize Connections",
+    "spreadNodes": "Spread Nodes",
     "jumpType": "Jump Type",
     "standardJump": "Standard Jump",
     "jumpgate": "Jumpgate",
