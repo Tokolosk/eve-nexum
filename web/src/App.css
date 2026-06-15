@@ -30,6 +30,11 @@
 
   --cv-status-unknown: #3a4a6a; --cv-status-visited: #3a8a5a; --cv-status-cleared: #2a6aaa;
   --cv-online-on: #3ddc84; --cv-online-off: #e05a5a;
+
+  --cv-storm-electric: #5a9af8; --cv-storm-gamma: #8ad08a; --cv-storm-exotic: #c084fc; --cv-storm-plasma: #f5793a; --cv-storm-unknown: #c0ccde;
+  --cv-effect-pulsar: #4db8ff; --cv-effect-blackhole: #8888aa; --cv-effect-cataclysmic: #aa55ff; --cv-effect-magnetar: #ff9900; --cv-effect-redgiant: #ff5522; --cv-effect-wolfrayet: #44dd88;
+  --cv-watch-target: #6ea0ff; --cv-watch-honeypot: #e0a64e; --cv-watch-avoid: #e0556e; --cv-watch-friendly: #4ade80; --cv-watch-watch: #67e8f9;
+  --cv-sig-data: #7ab4f0; --cv-sig-relic: #f0a8c0; --cv-sig-wormhole: #c084fc; --cv-sig-gas: #8ad08a; --cv-sig-ore: #f5b96a; --cv-sig-combat: #f87171; --cv-sig-unknown: #7a8aa8;
 }
 
 /* Red-green safe (deuteranopia + protanopia) — Okabe-Ito categorical hues;
@@ -57,6 +62,11 @@
 
   --cv-status-unknown: #777788; --cv-status-visited: #e69f00; --cv-status-cleared: #0072b2;
   --cv-online-on: #009e73; --cv-online-off: #d55e00;
+
+  --cv-storm-electric: #56b4e9; --cv-storm-gamma: #009e73; --cv-storm-exotic: #cc79a7; --cv-storm-plasma: #e69f00; --cv-storm-unknown: #aaaaaa;
+  --cv-effect-pulsar: #56b4e9; --cv-effect-blackhole: #888888; --cv-effect-cataclysmic: #cc79a7; --cv-effect-magnetar: #e69f00; --cv-effect-redgiant: #d55e00; --cv-effect-wolfrayet: #009e73;
+  --cv-watch-target: #0072b2; --cv-watch-honeypot: #e69f00; --cv-watch-avoid: #d55e00; --cv-watch-friendly: #009e73; --cv-watch-watch: #56b4e9;
+  --cv-sig-data: #0072b2; --cv-sig-relic: #cc79a7; --cv-sig-wormhole: #9467bd; --cv-sig-gas: #009e73; --cv-sig-ore: #e69f00; --cv-sig-combat: #d55e00; --cv-sig-unknown: #999999;
 }
 
 /* Tritanopia (blue-yellow) — lean on red/green/teal/magenta + lightness;
@@ -83,6 +93,11 @@
 
   --cv-status-unknown: #888888; --cv-status-visited: #117733; --cv-status-cleared: #aa4477;
   --cv-online-on: #117733; --cv-online-off: #cc3311;
+
+  --cv-storm-electric: #44aa99; --cv-storm-gamma: #117733; --cv-storm-exotic: #cc6699; --cv-storm-plasma: #cc3311; --cv-storm-unknown: #aaaaaa;
+  --cv-effect-pulsar: #44aa99; --cv-effect-blackhole: #888888; --cv-effect-cataclysmic: #cc6699; --cv-effect-magnetar: #ee7733; --cv-effect-redgiant: #cc3311; --cv-effect-wolfrayet: #117733;
+  --cv-watch-target: #44aa99; --cv-watch-honeypot: #ee9944; --cv-watch-avoid: #cc3311; --cv-watch-friendly: #117733; --cv-watch-watch: #88ccaa;
+  --cv-sig-data: #44aa99; --cv-sig-relic: #cc6699; --cv-sig-wormhole: #aa4477; --cv-sig-gas: #117733; --cv-sig-ore: #ee9944; --cv-sig-combat: #cc3311; --cv-sig-unknown: #999999;
 }
 
 /* ── Layout ─────────────────────────────────────────────── */
@@ -3392,11 +3407,11 @@
   line-height: 1;
 }
 
-.system-node__storm-icon--electric { color: #5a9af8; filter: drop-shadow(0 0 3px #5a9af888); }
-.system-node__storm-icon--gamma    { color: #8ad08a; filter: drop-shadow(0 0 3px #8ad08a88); }
-.system-node__storm-icon--exotic   { color: #c084fc; filter: drop-shadow(0 0 3px #c084fc88); }
-.system-node__storm-icon--plasma   { color: #f5793a; filter: drop-shadow(0 0 3px #f5793a88); }
-.system-node__storm-icon--unknown  { color: #c0ccde; }
+.system-node__storm-icon--electric { color: var(--cv-storm-electric); filter: drop-shadow(0 0 3px color-mix(in srgb, var(--cv-storm-electric) 53%, transparent)); }
+.system-node__storm-icon--gamma    { color: var(--cv-storm-gamma);    filter: drop-shadow(0 0 3px color-mix(in srgb, var(--cv-storm-gamma) 53%, transparent)); }
+.system-node__storm-icon--exotic   { color: var(--cv-storm-exotic);   filter: drop-shadow(0 0 3px color-mix(in srgb, var(--cv-storm-exotic) 53%, transparent)); }
+.system-node__storm-icon--plasma   { color: var(--cv-storm-plasma);   filter: drop-shadow(0 0 3px color-mix(in srgb, var(--cv-storm-plasma) 53%, transparent)); }
+.system-node__storm-icon--unknown  { color: var(--cv-storm-unknown); }
 
 .system-node__storm-tooltip {
   display: none;

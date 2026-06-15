@@ -103,14 +103,16 @@ export const WORMHOLE_EFFECTS: WormholeEffect[] = [
   'none', 'pulsar', 'black_hole', 'cataclysmic_variable', 'magnetar', 'red_giant', 'wolf_rayet',
 ];
 
+// Colours are CSS custom properties (--cv-effect-* in App.css) so they re-map
+// per colour-vision mode; used in DOM inline styles, so var() resolves.
 export const EFFECT_ICONS: Record<WormholeEffect, { symbol: string; color: string }> = {
   none:                 { symbol: '',  color: '' },
-  pulsar:               { symbol: '⚡', color: '#4db8ff' },
-  black_hole:           { symbol: '◉', color: '#8888aa' },
-  cataclysmic_variable: { symbol: '⟳', color: '#aa55ff' },
-  magnetar:             { symbol: '✦', color: '#ff9900' },
-  red_giant:            { symbol: '★', color: '#ff5522' },
-  wolf_rayet:           { symbol: '⚔', color: '#44dd88' },
+  pulsar:               { symbol: '⚡', color: 'var(--cv-effect-pulsar)' },
+  black_hole:           { symbol: '◉', color: 'var(--cv-effect-blackhole)' },
+  cataclysmic_variable: { symbol: '⟳', color: 'var(--cv-effect-cataclysmic)' },
+  magnetar:             { symbol: '✦', color: 'var(--cv-effect-magnetar)' },
+  red_giant:            { symbol: '★', color: 'var(--cv-effect-redgiant)' },
+  wolf_rayet:           { symbol: '⚔', color: 'var(--cv-effect-wolfrayet)' },
 };
 
 export const EFFECT_MODIFIERS: Record<WormholeEffect, Array<{ label: string; good: boolean }>> = {

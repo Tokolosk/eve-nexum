@@ -171,8 +171,8 @@ export function MapCanvas() {
     return max;
   }, [heatMetric, systems, heatKills, heatFleet, selfCharId]);
   const heatmapState = useMemo(
-    () => ({ metric: heatMetric, max: heatMax, intensity: heatIntensity }),
-    [heatMetric, heatMax, heatIntensity],
+    () => ({ metric: heatMetric, max: heatMax, intensity: heatIntensity, colorVision }),
+    [heatMetric, heatMax, heatIntensity, colorVision],
   );
 
   const [pendingPosition, setPendingPosition] = useState<{ x: number; y: number } | null>(null);
