@@ -23,6 +23,7 @@ import { ContextMenu } from '../ui/ContextMenu';
 import {
   PathIcon, MapPinSimpleIcon, HouseIcon, LockIcon, LockOpenIcon,
   XIcon, CheckIcon, PlusIcon, SelectionAllIcon, EyeIcon, CrosshairSimpleIcon,
+  LinkSimpleIcon, ArrowsOutIcon,
 } from '@phosphor-icons/react';
 import type { MapSystem, SystemIntel } from '../../types';
 import { CLASS_COLORS } from '../../data/wormholes';
@@ -131,6 +132,7 @@ export function MapCanvas() {
   const autoLayoutPending    = useMapStore((s) => s.autoLayoutPending);
   const clearAutoLayoutPending = useMapStore((s) => s.clearAutoLayoutPending);
   const requestAutoLayout    = useMapStore((s) => s.requestAutoLayout);
+  const optimizeConnections  = useMapStore((s) => s.optimizeConnections);
   const compactMode          = useMapStore((s) => s.compactMode);
   const fitViewPending       = useMapStore((s) => s.fitViewPending);
   const clearFitView         = useMapStore((s) => s.clearFitView);
@@ -1006,6 +1008,18 @@ export function MapCanvas() {
         label: t('ctxMenu.selectAll'),
         icon: <SelectionAllIcon size={14} weight="regular" />,
         action: () => setNodes((ns) => ns.map((n) => ({ ...n, selected: true }))),
+        disabled: nodes.length === 0,
+      },
+      {
+        label: t('ctxMenu.optimizeConnections'),
+        icon: <LinkSimpleIcon size={15} weight="regular" />,
+        action: () => optimizeConnections(),
+        disabled: connections.length === 0,
+      },
+      {
+        label: t('ctxMenu.spreadNodes'),
+        icon: <ArrowsOutIcon size={15} weight="regular" />,
+        action: () => requestAutoLayout(),
         disabled: nodes.length === 0,
       },
     ];
