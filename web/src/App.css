@@ -45,10 +45,10 @@
   --cv-sec-06: #35b779; --cv-sec-05: #1f9e89; --cv-sec-04: #26828e;
   --cv-sec-03: #31688e; --cv-sec-01: #3e4a89; --cv-sec-00: #482878; --cv-sec-neg: #440154;
 
-  --cv-class-c1: #56b4e9; --cv-class-c2: #0072b2; --cv-class-c3: #009e73;
+  --cv-class-c1: #56b4e9; --cv-class-c2: #0072b2; --cv-class-c3: #80cdc1;
   --cv-class-c4: #117733; --cv-class-c5: #e69f00; --cv-class-c6: #d55e00;
   --cv-class-c13: #cc79a7; --cv-class-hs: #009e73; --cv-class-ls: #f0e442;
-  --cv-class-ns: #d55e00; --cv-class-thera: #aa4499; --cv-class-pochven: #882255;
+  --cv-class-ns: #8a5fb5; --cv-class-thera: #aa4499; --cv-class-pochven: #882255;
   --cv-class-drifter: #888888;
 
   --cv-intel-friendly: #0072b2; --cv-intel-hostile: #d55e00;
@@ -66,7 +66,7 @@
   --cv-storm-electric: #56b4e9; --cv-storm-gamma: #009e73; --cv-storm-exotic: #cc79a7; --cv-storm-plasma: #e69f00; --cv-storm-unknown: #aaaaaa;
   --cv-effect-pulsar: #56b4e9; --cv-effect-blackhole: #888888; --cv-effect-cataclysmic: #cc79a7; --cv-effect-magnetar: #e69f00; --cv-effect-redgiant: #d55e00; --cv-effect-wolfrayet: #009e73;
   --cv-watch-target: #0072b2; --cv-watch-honeypot: #e69f00; --cv-watch-avoid: #d55e00; --cv-watch-friendly: #009e73; --cv-watch-watch: #56b4e9;
-  --cv-sig-data: #0072b2; --cv-sig-relic: #cc79a7; --cv-sig-wormhole: #9467bd; --cv-sig-gas: #009e73; --cv-sig-ore: #e69f00; --cv-sig-combat: #d55e00; --cv-sig-unknown: #999999;
+  --cv-sig-data: #0072b2; --cv-sig-relic: #cc79a7; --cv-sig-wormhole: #f0e442; --cv-sig-gas: #009e73; --cv-sig-ore: #e69f00; --cv-sig-combat: #d55e00; --cv-sig-unknown: #999999;
 }
 
 /* Tritanopia (blue-yellow) — lean on red/green/teal/magenta + lightness;
@@ -78,8 +78,8 @@
 
   --cv-class-c1: #44aa99; --cv-class-c2: #117733; --cv-class-c3: #88ccaa;
   --cv-class-c4: #225522; --cv-class-c5: #ee7733; --cv-class-c6: #cc3311;
-  --cv-class-c13: #cc6699; --cv-class-hs: #117733; --cv-class-ls: #ee9944;
-  --cv-class-ns: #cc3311; --cv-class-thera: #aa4477; --cv-class-pochven: #882255;
+  --cv-class-c13: #cc6699; --cv-class-hs: #5cb85c; --cv-class-ls: #ee9944;
+  --cv-class-ns: #99440f; --cv-class-thera: #aa4477; --cv-class-pochven: #882255;
   --cv-class-drifter: #888888;
 
   --cv-intel-friendly: #44aa99; --cv-intel-hostile: #cc3311;
