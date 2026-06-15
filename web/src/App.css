@@ -1,3 +1,90 @@
+/* ── Colour-vision (colour-blindness) palettes ──────────────
+   Every semantic colour (security gradient, system class, intel, sov
+   standings, connection mass/lifetime, status dots) is expressed as a
+   --cv-* custom property. Default = the original palette; the per-mode
+   blocks below re-map them. App.tsx sets data-color-vision on <html>, so
+   switching mode re-themes instantly via the cascade (no React re-render).
+   Derived backgrounds/borders use color-mix() off the base var.
+   deuteranopia + protanopia share one red-green-safe palette (the security
+   gradient uses a lightness-monotonic viridis ramp, safe for all three);
+   tritanopia (blue-yellow) gets its own. */
+:root {
+  --cv-sec-09: #2aff85; --cv-sec-08: #00ff66; --cv-sec-07: #00ff33;
+  --cv-sec-06: #55ff00; --cv-sec-05: #99ff00; --cv-sec-04: #ffff00;
+  --cv-sec-03: #ff9900; --cv-sec-01: #ff6600; --cv-sec-00: #ff3300; --cv-sec-neg: #ff0000;
+
+  --cv-class-c1: #3a6bc4; --cv-class-c2: #2e85c4; --cv-class-c3: #2a9b7a;
+  --cv-class-c4: #2a7a5a; --cv-class-c5: #c45a2a; --cv-class-c6: #c42a2a;
+  --cv-class-c13: #8a3ac4; --cv-class-hs: #4caf50; --cv-class-ls: #c4a42a;
+  --cv-class-ns: #7b3fc4; --cv-class-thera: #c42a8a; --cv-class-pochven: #8a2ac4;
+  --cv-class-drifter: #555577;
+
+  --cv-intel-friendly: #5b9bff; --cv-intel-hostile: #e05a5a;
+  --cv-intel-occupied: #f0a030; --cv-intel-empty: #8c98ac;
+
+  --cv-stand-friendly: #5b9bff; --cv-stand-good: #8fc8ff;
+  --cv-stand-bad: #f5a623; --cv-stand-hostile: #e74c3c;
+
+  --cv-conn-4h: #f0c040; --cv-conn-1h: #ff9800; --cv-conn-expired: #f44336;
+  --cv-conn-standard: #8a9ab8; --cv-conn-jumpgate: #4db8c4;
+
+  --cv-status-unknown: #3a4a6a; --cv-status-visited: #3a8a5a; --cv-status-cleared: #2a6aaa;
+  --cv-online-on: #3ddc84; --cv-online-off: #e05a5a;
+}
+
+/* Red-green safe (deuteranopia + protanopia) — Okabe-Ito categorical hues;
+   viridis security ramp (bright = high-sec, dark = null). */
+:root[data-color-vision="deuteranopia"],
+:root[data-color-vision="protanopia"] {
+  --cv-sec-09: #fde725; --cv-sec-08: #b5de2b; --cv-sec-07: #6ece58;
+  --cv-sec-06: #35b779; --cv-sec-05: #1f9e89; --cv-sec-04: #26828e;
+  --cv-sec-03: #31688e; --cv-sec-01: #3e4a89; --cv-sec-00: #482878; --cv-sec-neg: #440154;
+
+  --cv-class-c1: #56b4e9; --cv-class-c2: #0072b2; --cv-class-c3: #009e73;
+  --cv-class-c4: #117733; --cv-class-c5: #e69f00; --cv-class-c6: #d55e00;
+  --cv-class-c13: #cc79a7; --cv-class-hs: #009e73; --cv-class-ls: #f0e442;
+  --cv-class-ns: #d55e00; --cv-class-thera: #aa4499; --cv-class-pochven: #882255;
+  --cv-class-drifter: #888888;
+
+  --cv-intel-friendly: #0072b2; --cv-intel-hostile: #d55e00;
+  --cv-intel-occupied: #e69f00; --cv-intel-empty: #999999;
+
+  --cv-stand-friendly: #0072b2; --cv-stand-good: #56b4e9;
+  --cv-stand-bad: #e69f00; --cv-stand-hostile: #d55e00;
+
+  --cv-conn-4h: #f0e442; --cv-conn-1h: #e69f00; --cv-conn-expired: #d55e00;
+  --cv-conn-standard: #8a9ab8; --cv-conn-jumpgate: #56b4e9;
+
+  --cv-status-unknown: #777788; --cv-status-visited: #e69f00; --cv-status-cleared: #0072b2;
+  --cv-online-on: #009e73; --cv-online-off: #d55e00;
+}
+
+/* Tritanopia (blue-yellow) — lean on red/green/teal/magenta + lightness;
+   reuse the viridis security ramp (lightness-monotonic, safe here too). */
+:root[data-color-vision="tritanopia"] {
+  --cv-sec-09: #fde725; --cv-sec-08: #b5de2b; --cv-sec-07: #6ece58;
+  --cv-sec-06: #35b779; --cv-sec-05: #1f9e89; --cv-sec-04: #26828e;
+  --cv-sec-03: #31688e; --cv-sec-01: #3e4a89; --cv-sec-00: #482878; --cv-sec-neg: #440154;
+
+  --cv-class-c1: #44aa99; --cv-class-c2: #117733; --cv-class-c3: #88ccaa;
+  --cv-class-c4: #225522; --cv-class-c5: #ee7733; --cv-class-c6: #cc3311;
+  --cv-class-c13: #cc6699; --cv-class-hs: #117733; --cv-class-ls: #ee9944;
+  --cv-class-ns: #cc3311; --cv-class-thera: #aa4477; --cv-class-pochven: #882255;
+  --cv-class-drifter: #888888;
+
+  --cv-intel-friendly: #44aa99; --cv-intel-hostile: #cc3311;
+  --cv-intel-occupied: #ee7733; --cv-intel-empty: #999999;
+
+  --cv-stand-friendly: #44aa99; --cv-stand-good: #88ccaa;
+  --cv-stand-bad: #ee7733; --cv-stand-hostile: #cc3311;
+
+  --cv-conn-4h: #88ccaa; --cv-conn-1h: #ee7733; --cv-conn-expired: #cc3311;
+  --cv-conn-standard: #8a9ab8; --cv-conn-jumpgate: #44aa99;
+
+  --cv-status-unknown: #888888; --cv-status-visited: #117733; --cv-status-cleared: #aa4477;
+  --cv-online-on: #117733; --cv-online-off: #cc3311;
+}
+
 /* ── Layout ─────────────────────────────────────────────── */
 .layout {
   display: flex;
@@ -1050,8 +1137,8 @@
   }
   /* Reveal handled by the global TooltipLayer (viewport-clamped). */
 
-  &.toolbar__status-dot--on  { background: #3ddc84; box-shadow: 0 0 4px #3ddc8466; }
-  &.toolbar__status-dot--off { background: #e05a5a; box-shadow: 0 0 4px #e05a5a66; }
+  &.toolbar__status-dot--on  { background: var(--cv-online-on);  box-shadow: 0 0 4px color-mix(in srgb, var(--cv-online-on) 40%, transparent); }
+  &.toolbar__status-dot--off { background: var(--cv-online-off); box-shadow: 0 0 4px color-mix(in srgb, var(--cv-online-off) 40%, transparent); }
 }
 
 /* Status LED for toolbar toggle buttons whose on/off state isn't obvious
@@ -2640,8 +2727,8 @@
 /* Hostile / friendly sov halos. Box-shadow only — doesn't displace the
    layout the way a thicker border would. The map-canvas zoom keeps these
    readable even at small node sizes. */
-.system-node--sov-hostile { box-shadow: 0 0 0 2px #e74c3c, 0 0 10px rgba(231,76,60,0.55); }
-.system-node--sov-blue    { box-shadow: 0 0 0 2px #5b9bff, 0 0 10px rgba(91,155,255,0.45); }
+.system-node--sov-hostile { box-shadow: 0 0 0 2px var(--cv-stand-hostile), 0 0 10px color-mix(in srgb, var(--cv-stand-hostile) 55%, transparent); }
+.system-node--sov-blue    { box-shadow: 0 0 0 2px var(--cv-stand-friendly), 0 0 10px color-mix(in srgb, var(--cv-stand-friendly) 45%, transparent); }
 
 /* Manual intel tag — replaces the default class-color border with a
    thicker, fully-saturated intel colour so the tag reads at a glance
@@ -3589,9 +3676,9 @@ div.system-node__easy-handle {
   height: 6px;
   border-radius: 50%;
 
-  &[data-status='unknown']  { background: #3a4a6a; }
-  &[data-status='visited']  { background: #3a8a5a; }
-  &[data-status='cleared']  { background: #2a6aaa; }
+  &[data-status='unknown']  { background: var(--cv-status-unknown); }
+  &[data-status='visited']  { background: var(--cv-status-visited); }
+  &[data-status='cleared']  { background: var(--cv-status-cleared); }
 }
 
 .system-handle {
@@ -3642,9 +3729,9 @@ div.system-node__easy-handle {
 .connection-label__eol {
   font-size: calc(13px * var(--font-scale, 1));
   font-weight: 700;
-  color: #f0c040;
-  background: #2a2010;
-  border: 1px solid #5a4a10;
+  color: var(--cv-conn-4h);
+  background: color-mix(in srgb, var(--cv-conn-4h) 16%, #0b0e16);
+  border: 1px solid color-mix(in srgb, var(--cv-conn-4h) 38%, #0b0e16);
   border-radius: 3px;
   padding: 1px 4px;
 }
@@ -3652,9 +3739,9 @@ div.system-node__easy-handle {
 .connection-label__crit {
   font-size: calc(13px * var(--font-scale, 1));
   font-weight: 900;
-  color: #f44336;
-  background: #2a1010;
-  border: 1px solid #5a2020;
+  color: var(--cv-conn-expired);
+  background: color-mix(in srgb, var(--cv-conn-expired) 16%, #0b0e16);
+  border: 1px solid color-mix(in srgb, var(--cv-conn-expired) 38%, #0b0e16);
   border-radius: 3px;
   padding: 1px 5px;
 }
@@ -3669,15 +3756,15 @@ div.system-node__easy-handle {
   padding: 1px 4px;
 
   &.connection-label__mass--warn {
-    color: #ff9800;
-    background: #1f1200;
-    border-color: #7a4000;
+    color: var(--cv-conn-1h);
+    background: color-mix(in srgb, var(--cv-conn-1h) 14%, #0b0e16);
+    border-color: color-mix(in srgb, var(--cv-conn-1h) 40%, #0b0e16);
   }
 
   &.connection-label__mass--crit {
-    color: #f44336;
-    background: #2a1010;
-    border-color: #5a2020;
+    color: var(--cv-conn-expired);
+    background: color-mix(in srgb, var(--cv-conn-expired) 16%, #0b0e16);
+    border-color: color-mix(in srgb, var(--cv-conn-expired) 38%, #0b0e16);
   }
 }
 
@@ -7996,10 +8083,10 @@ select.sig-toolbar-btn option {
 /* EVE in-game standings palette: dark blue at +10 (excellent), light blue
    at +5 (good), orange at -5 (bad), red at -10 (terrible). Neutral falls
    through to the base pill colours. */
-.sys-info__sov-standing--friendly { color: #5b9bff; background: rgba(91,155,255,0.12); border-color: rgba(91,155,255,0.35); }  /* +10 dark blue */
-.sys-info__sov-standing--good     { color: #8fc8ff; background: rgba(143,200,255,0.10); border-color: rgba(143,200,255,0.30); }  /* +5  light blue */
-.sys-info__sov-standing--bad      { color: #f5a623; background: rgba(245,166,35,0.10);  border-color: rgba(245,166,35,0.35); }  /* -5  orange */
-.sys-info__sov-standing--hostile  { color: #e74c3c; background: rgba(231,76,60,0.12);   border-color: rgba(231,76,60,0.40); }   /* -10 red */
+.sys-info__sov-standing--friendly { color: var(--cv-stand-friendly); background: color-mix(in srgb, var(--cv-stand-friendly) 12%, transparent); border-color: color-mix(in srgb, var(--cv-stand-friendly) 35%, transparent); }  /* +10 */
+.sys-info__sov-standing--good     { color: var(--cv-stand-good);     background: color-mix(in srgb, var(--cv-stand-good) 10%, transparent);     border-color: color-mix(in srgb, var(--cv-stand-good) 30%, transparent); }      /* +5  */
+.sys-info__sov-standing--bad      { color: var(--cv-stand-bad);      background: color-mix(in srgb, var(--cv-stand-bad) 10%, transparent);      border-color: color-mix(in srgb, var(--cv-stand-bad) 35%, transparent); }       /* -5  */
+.sys-info__sov-standing--hostile  { color: var(--cv-stand-hostile);  background: color-mix(in srgb, var(--cv-stand-hostile) 12%, transparent);  border-color: color-mix(in srgb, var(--cv-stand-hostile) 40%, transparent); }   /* -10 */
 .sys-info__sov-standing--none     { color: #4a5670; }
 .sys-info__sov-standing--none .sys-info__sov-standing-label { color: #3a4254; }
 

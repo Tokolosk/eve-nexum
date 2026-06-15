@@ -400,6 +400,13 @@
       "west": "Left (west)",
       "north": "Above (north)"
     },
+    "colorVision": "Colour vision",
+    "colorVisionOptions": {
+      "off": "Default colours",
+      "deuteranopia": "Deuteranopia (red-green)",
+      "protanopia": "Protanopia (red-green)",
+      "tritanopia": "Tritanopia (blue-yellow)"
+    },
     "resetZoom": "Reset to 100%",
     "compact": "Compact",
     "uniformSize": "Uniform Size",

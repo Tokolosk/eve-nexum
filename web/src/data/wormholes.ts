@@ -1,19 +1,21 @@
 import type { SystemClass, WormholeEffect } from '../types';
 
+// CSS custom properties so the colour-vision palettes (--cv-class-* in
+// App.css) can re-map system-class colours per colour-blindness mode.
 export const CLASS_COLORS: Record<SystemClass, string> = {
-  C1: '#3a6bc4',
-  C2: '#2e85c4',
-  C3: '#2a9b7a',
-  C4: '#2a7a5a',
-  C5: '#c45a2a',
-  C6: '#c42a2a',
-  C13: '#8a3ac4',
-  HS: '#4caf50',
-  LS: '#c4a42a',
-  NS: '#7b3fc4',
-  Thera: '#c42a8a',
-  Pochven: '#8a2ac4',
-  Drifter: '#555577',
+  C1: 'var(--cv-class-c1)',
+  C2: 'var(--cv-class-c2)',
+  C3: 'var(--cv-class-c3)',
+  C4: 'var(--cv-class-c4)',
+  C5: 'var(--cv-class-c5)',
+  C6: 'var(--cv-class-c6)',
+  C13: 'var(--cv-class-c13)',
+  HS: 'var(--cv-class-hs)',
+  LS: 'var(--cv-class-ls)',
+  NS: 'var(--cv-class-ns)',
+  Thera: 'var(--cv-class-thera)',
+  Pochven: 'var(--cv-class-pochven)',
+  Drifter: 'var(--cv-class-drifter)',
 };
 
 export const CLASS_LABELS: Record<SystemClass, string> = {
