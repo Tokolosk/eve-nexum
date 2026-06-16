@@ -166,10 +166,9 @@
         "colLastKnown": "Letztes bekanntes System",
         "colSystemsAdded": "Systeme hinzugefügt",
         "colSystemsDeleted": "Systeme gelöscht",
-        "colLastCorpStructure": "Letzte Corp-Struktur",
-        "colTotalStructures": "Strukturen gesamt",
         "colLastCorpSignature": "Letzte Corp-Signatur",
-        "colTotalSignatures": "Signaturen gesamt"
+        "colTotalSignatures": "Signaturen gesamt",
+        "colLastActive": "Zuletzt aktiv"
       },
       "systems": {
         "loadFailed": "Systembericht konnte nicht geladen werden",
@@ -335,7 +334,8 @@
       "mergeMaps": "Karten zusammenführen",
       "liveSharing": "Live-Karten-Übertragung",
       "shareMap": "Karte teilen",
-      "shortcuts": "Tastenkürzel"
+      "shortcuts": "Tastenkürzel",
+      "notifications": "Benachrichtigungen"
     },
     "snapToGrid": "Am Raster ausrichten",
     "settings": "Einstellungen",
@@ -356,7 +356,11 @@
     "crossMapSyncHelp": "Wenn du Signaturen und Anomalien an einem System hinzufügst oder bearbeitest, werden sie auf das gleiche System auf deinen anderen Karten kopiert (persönliche Karten mit deinen anderen persönlichen Karten; Corp-Karten mit den anderen Karten der Corp). Nicht-destruktiv: Es füllt nur fehlende oder leere Einträge — vorhandene Daten werden nie überschrieben oder gelöscht.",
     "placementOptions": {
       "horizontal": "Horizontal (rechts)",
-      "vertical": "Vertikal (unten)"
+      "vertical": "Vertikal (unten)",
+      "east": "Rechts (Osten)",
+      "south": "Unten (Süden)",
+      "west": "Links (Westen)",
+      "north": "Oben (Norden)"
     },
     "resetZoom": "Auf 100% zurücksetzen",
     "compact": "Kompakt",
@@ -455,7 +459,23 @@
     "exportFailed": "Export fehlgeschlagen: {{error}}",
     "invalidJson": "Ungültige JSON-Datei.",
     "notNexumMap": "Die Datei sieht nicht wie ein Eve-Nexum-Kartenexport aus.",
-    "importFailed": "Import fehlgeschlagen: {{error}}"
+    "importFailed": "Import fehlgeschlagen: {{error}}",
+    "colorVision": "Farbsehen",
+    "colorVisionOptions": {
+      "off": "Standardfarben",
+      "deuteranopia": "Deuteranopie (Rot-Grün)",
+      "protanopia": "Protanopie (Rot-Grün)",
+      "tritanopia": "Tritanopie (Blau-Gelb)"
+    },
+    "lazyRemoveWh": "Veraltete Wurmlöcher automatisch entfernen",
+    "lazyRemoveWhHint": "Entfernt regelmäßig Wurmloch-Signaturen, die älter als die maximale Lebensdauer ihres Typs sind. Wenn die Sig eine Verbindung gestützt hat, die sonst nichts hält, wird die Verbindung als unterbrochen markiert (Quarantäne) statt gelöscht. Läuft serverseitig und greift daher auch, wenn die Karte nicht geöffnet ist.",
+    "proximityNotifyHint": "Schalte die Desktop-Benachrichtigung und den Ton dafür im Abschnitt Benachrichtigungen unten um.",
+    "notifHint": "Wähle, welche Ereignisse dich benachrichtigen und wie. Desktop-Benachrichtigungen benötigen die Browser-Berechtigung oben.",
+    "notifColDesktop": "Desktop",
+    "notifColSound": "Ton",
+    "notifK162": "Eingehendes K162",
+    "notifProximity": "Nahe Bedrohungen",
+    "notifWatchlist": "Beobachtungslisten-Treffer"
   },
   "customIntel": {
     "title": "Eigene Intel",
@@ -498,7 +518,8 @@
     "remove": "Aus Beobachtungsliste entfernen",
     "max": "Maximal {{count}} Einträge in der Beobachtungsliste",
     "add": "Zur Beobachtungsliste hinzufügen",
-    "appeared": "Beobachtungsliste: {{name}} ({{marker}}) ist auf der Karte"
+    "appeared": "Beobachtungsliste: {{name}} ({{marker}}) ist auf der Karte",
+    "notifTitle": "Beobachtungslisten-Treffer"
   },
   "chainExits": {
     "noExits": "Keine K-Space-Ausgänge in dieser Kette.",
@@ -594,14 +615,18 @@
     "collapseConfirmStrand": " Dein Roller wäre auf der Fern-Seite gestrandet.",
     "collapseConfirmHome": " Dein Roller endet auf der Heimat-Seite.",
     "rollIt": "Durchrollen",
-    "removeConnection": "Verbindung entfernen"
+    "removeConnection": "Verbindung entfernen",
+    "brokenNotice": "Verbindung unterbrochen — die stützende Wurmloch-Sig wurde gelöscht. Bleibt auf der Karte, ist aber vom Routing in Quarantäne.",
+    "restore": "Wiederherstellen",
+    "restoreTitle": "Die Unterbrochen-Markierung entfernen und dies wieder als aktive Verbindung behandeln"
   },
   "mapControls": {
     "panel": "Steuerungsfeld",
     "zoomIn": "Vergrößern",
     "zoomOut": "Verkleinern",
     "fitView": "Ansicht einpassen",
-    "interactive": "Interaktivität umschalten"
+    "interactive": "Interaktivität umschalten",
+    "centerOnMe": "Auf meinen Standort zentrieren"
   },
   "demo": {
     "hintClick": "Klicke auf ein System, um hier seine Details zu sehen.",
@@ -650,7 +675,11 @@
     "noHomeSet": "Kein Heimatsystem festgelegt. Rechtsklick auf ein System → \"Als Heimat festlegen\".",
     "failSetDest": "Ziel konnte nicht festgelegt werden",
     "failAddWaypoint": "Wegpunkt konnte nicht hinzugefügt werden",
-    "canvasHint": "Rechtsklick auf die Leinwand zum Hinzufügen · Zwischen den Griffen ziehen zum Verbinden · Shift+Klick oder Ziehen für Mehrfachauswahl · Rechtsklick auf System zum Interagieren"
+    "canvasHint": "Rechtsklick auf die Leinwand zum Hinzufügen · Zwischen den Griffen ziehen zum Verbinden · Shift+Klick oder Ziehen für Mehrfachauswahl · Rechtsklick auf System zum Interagieren",
+    "optimizeConnections": "Verbindungen optimieren",
+    "spreadNodes": "Knoten verteilen",
+    "removeOrphans": "Verwaiste Systeme entfernen ({{count}})",
+    "removeOrphansConfirm": "{{count}} verwaiste(s) System(e) entfernen? Diese haben keine gültige Verbindung (keine oder nur unterbrochene). Heimat- und gesperrte Systeme bleiben erhalten. Dies kann rückgängig gemacht werden."
   },
   "panel": {
     "notes": "Notizen",
@@ -983,7 +1012,8 @@
       "hostileSov": "Feindliche Sov",
       "threat": "Bedrohung",
       "closest": "Nächstes {{label}}-System"
-    }
+    },
+    "resetLayout": "Symbolleisten-Layout zurücksetzen"
   },
   "landing": {
     "tagline": "Wurmloch-Kettenkartierung für EVE Online",
@@ -1048,6 +1078,18 @@
       "sigAging": {
         "title": "Wurmloch-Sig-Alterung",
         "desc": "Wurmloch-Sigs werden je nach ihrer Position in der bekannten Lebensdauer des WH-Typs eingefärbt — gelb bei 50%, orange bei 90%, rot nach dem erwarteten Schließen. Erfasst vergessene Ketten, bevor sie jemandem zusammenbrechen."
+      },
+      "brokenChain": {
+        "title": "Erkennung unterbrochener Ketten",
+        "desc": "Wenn du eine Wurmloch-Sig löschst, bleibt die von ihr gestützte Verbindung nicht stillschweigend verbunden — sie wird unter Quarantäne gestellt: bleibt auf der Karte, wird aber durchtrennt dargestellt (rot gestrichelt mit ✂-Markierung) und vom Routing ausgeschlossen, sodass eine zusammengebrochene Kette sofort erkennbar ist, statt vollständig auszusehen. Wird automatisch wiederhergestellt, wenn die Verbindung erneut von einer Sig gestützt oder durchsprungen wird."
+      },
+      "orphanCleanup": {
+        "title": "Verwaiste Systeme aufräumen",
+        "desc": "Ein Rechtsklick-Durchlauf entfernt verwaiste Systeme — solche ohne aktive Verbindung oder nur mit unterbrochenen — und schützt dabei dein Heimatsystem und alle gesperrten Systeme. Hält eine aktive Kette aufgeräumt, ohne dass du Streuner von Hand suchen musst."
+      },
+      "lazyWhRemoval": {
+        "title": "Veraltete Wurmlöcher automatisch entfernen",
+        "desc": "Pro Karte aktivierbar: Ein serverseitiger Durchlauf entfernt Wurmloch-Sigs, sobald sie die maximale Lebensdauer ihres Typs überschreiten, und stellt jede von ihnen gestützte Verbindung unter Quarantäne. Läuft auch, wenn niemand die Karte geöffnet hat, sodass synchronisierte und Corp-Ketten von selbst aktuell bleiben."
       },
       "soloCorp": {
         "title": "Solo- / Corp-Trennung",
@@ -1366,6 +1408,58 @@
   "mapEdge": {
     "lessThan24h": "< 24 Std",
     "lessThan4h": "< 4 Std",
-    "lessThan1h": "< 1 Std"
+    "lessThan1h": "< 1 Std",
+    "broken": "Verbindung unterbrochen — die Wurmloch-Sig wurde gelöscht (Loch kollabiert)"
+  },
+  "apiKeys": {
+    "title": "API-Schlüssel",
+    "hint": "Erstelle einen Schlüssel, damit externe Tools deine Karten über die API nutzen können. Ein Schlüssel handelt als der gewählte Charakter — er kann nur das, was dieser Charakter darf. \"Lesen + Live-Events\"-Schlüssel können zusätzlich den Live-Event-Stream abonnieren; \"Lesen + Inhalte schreiben\"-Schlüssel können außerdem Signaturen, Anomalien und Strukturen hinzufügen und bearbeiten (niemals die Kartentopologie).",
+    "name": "Name",
+    "namePlaceholder": "z. B. Flotten-Bot",
+    "character": "Handelt als",
+    "scope": "Zugriff",
+    "scopeRead": "Nur lesen",
+    "scopeEvents": "Lesen + Live-Events",
+    "scopeWrite": "Lesen + Inhalte schreiben",
+    "scopeReadBadge": "lesen",
+    "scopeEventsBadge": "Events",
+    "scopeWriteBadge": "schreiben",
+    "expiry": "Läuft ab",
+    "expiryNever": "Nie",
+    "expiryDays": "{{count}} Tage",
+    "create": "Schlüssel erstellen",
+    "creating": "Wird erstellt…",
+    "created": "\"{{name}}\" erstellt",
+    "createFailed": "Schlüssel konnte nicht erstellt werden. Bitte erneut versuchen.",
+    "copyNow": "Kopiere diesen Schlüssel jetzt — er wird nicht erneut angezeigt.",
+    "dismiss": "Fertig",
+    "keyCopied": "Schlüssel in die Zwischenablage kopiert",
+    "copyFailed": "Kopieren fehlgeschlagen — bitte manuell auswählen und kopieren.",
+    "loading": "Schlüssel werden geladen…",
+    "none": "Noch keine API-Schlüssel.",
+    "boundTo": "Handelt als {{name}}",
+    "lastUsed": "Zuletzt verwendet {{ago}}",
+    "neverUsed": "Nie verwendet",
+    "expires": "Läuft ab {{date}}",
+    "noExpiry": "Kein Ablaufdatum",
+    "flagExpired": "abgelaufen",
+    "flagInert": "inaktiv",
+    "revoke": "Widerrufen",
+    "revokeConfirm": "\"{{name}}\" widerrufen? Jedes Tool, das diesen Schlüssel nutzt, verliert sofort den Zugriff.",
+    "revoked": "\"{{name}}\" widerrufen",
+    "revokeFailed": "Schlüssel konnte nicht widerrufen werden. Bitte erneut versuchen."
+  },
+  "whChart": {
+    "open": "⊟ Wurmloch-Referenz",
+    "tooltip": "Beliebigen Wurmloch-Typ nachschlagen — Spawn, Ziel, Schiffsgröße, Masse und Lebensdauer",
+    "title": "Wurmloch-Typ-Referenz",
+    "searchPlaceholder": "Filtern…",
+    "colWormholes": "Wurmlöcher",
+    "colRespawn": "Respawn",
+    "colSpawnIn": "Spawn in",
+    "colLeadsTo": "Führt zu",
+    "colShipSize": "Schiff-Sprunggröße",
+    "colTotalMass": "Gesamtmasse",
+    "colLifetime": "Lebensdauer"
   }
 }

@@ -419,6 +419,8 @@
     "optimizeConnections": "⟳ Optimize Connections",
     "spreadNodes": "⊞ Spread Nodes",
     "spreadNodesTooltip": "Adjust system nodes to stop overlapping",
+    "lazyRemoveWh": "Auto-remove aged wormholes",
+    "lazyRemoveWhHint": "Periodically removes wormhole signatures older than their type's maximum lifetime. If the sig backed a connection with nothing else holding it, the connection is marked broken (quarantined) rather than deleted. Runs server-side, so it applies even when the map isn't open.",
     "routePreference": "Route Preference",
     "routeShortest": "Shortest",
     "routeSecure": "Secure",
@@ -1114,6 +1116,18 @@
       "sigAging": {
         "title": "Wormhole sig aging",
         "desc": "Wormhole sigs tint by their position in the WH type's known lifetime — yellow at 50%, orange at 90%, red past expected close. Catches forgotten chains before they collapse on someone."
+      },
+      "brokenChain": {
+        "title": "Broken-chain detection",
+        "desc": "Delete a wormhole sig and the connection it backed isn't left silently joined — it's quarantined: kept on the map but rendered severed (red dashed with a ✂ marker) and excluded from routing, so a collapsed chain is obvious instead of looking complete. Auto-restores if a sig backs the link again or you jump it."
+      },
+      "orphanCleanup": {
+        "title": "Orphan cleanup",
+        "desc": "One right-click sweep removes orphaned systems — those with no live connection, or only broken ones — while protecting your home and any locked systems. Keeps a working chain tidy without hunting down strays by hand."
+      },
+      "lazyWhRemoval": {
+        "title": "Auto-remove aged wormholes",
+        "desc": "Opt-in per map: a server-side sweep removes wormhole sigs once they pass their type's maximum lifetime, quarantining any connection they backed. Runs even when nobody has the map open, so synced and corp chains stay current on their own."
       },
       "soloCorp": {
         "title": "Solo / Corp split",

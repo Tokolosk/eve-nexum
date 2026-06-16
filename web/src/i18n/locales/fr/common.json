@@ -166,10 +166,9 @@
         "colLastKnown": "Dernier système connu",
         "colSystemsAdded": "Systèmes ajoutés",
         "colSystemsDeleted": "Systèmes supprimés",
-        "colLastCorpStructure": "Dernière structure corp",
-        "colTotalStructures": "Total structures",
         "colLastCorpSignature": "Dernière signature corp",
-        "colTotalSignatures": "Total signatures"
+        "colTotalSignatures": "Total signatures",
+        "colLastActive": "Dernière activité"
       },
       "systems": {
         "loadFailed": "Échec du chargement du rapport des systèmes",
@@ -335,7 +334,8 @@
       "mergeMaps": "Fusionner les cartes",
       "liveSharing": "Diffusion de carte en direct",
       "shareMap": "Partager la carte",
-      "shortcuts": "Raccourcis"
+      "shortcuts": "Raccourcis",
+      "notifications": "Notifications"
     },
     "snapToGrid": "Aligner sur la grille",
     "settings": "Paramètres",
@@ -356,7 +356,11 @@
     "crossMapSyncHelp": "Lorsque vous ajoutez ou modifiez des signatures et anomalies sur un système, elles sont copiées vers le même système sur vos autres cartes (les cartes personnelles avec vos autres cartes personnelles ; les cartes de corpo avec les autres cartes de la corpo). Non destructif : il ne remplit que les entrées manquantes ou vides — il n'écrase jamais les données déjà saisies et ne supprime rien.",
     "placementOptions": {
       "horizontal": "Horizontal (à droite)",
-      "vertical": "Vertical (en dessous)"
+      "vertical": "Vertical (en dessous)",
+      "east": "Droite (est)",
+      "south": "En bas (sud)",
+      "west": "Gauche (ouest)",
+      "north": "En haut (nord)"
     },
     "resetZoom": "Réinitialiser à 100 %",
     "compact": "Compact",
@@ -455,7 +459,23 @@
     "exportFailed": "Échec de l'export : {{error}}",
     "invalidJson": "Fichier JSON invalide.",
     "notNexumMap": "Le fichier ne ressemble pas à un export de carte Eve-Nexum.",
-    "importFailed": "Échec de l'import : {{error}}"
+    "importFailed": "Échec de l'import : {{error}}",
+    "colorVision": "Vision des couleurs",
+    "colorVisionOptions": {
+      "off": "Couleurs par défaut",
+      "deuteranopia": "Deutéranopie (rouge-vert)",
+      "protanopia": "Protanopie (rouge-vert)",
+      "tritanopia": "Tritanopie (bleu-jaune)"
+    },
+    "lazyRemoveWh": "Supprimer auto les trous de ver expirés",
+    "lazyRemoveWhHint": "Retire périodiquement les signatures de trou de ver plus anciennes que la durée de vie maximale de leur type. Si la sig soutenait une connexion que rien d'autre ne maintient, la connexion est marquée rompue (mise en quarantaine) au lieu d'être supprimée. S'exécute côté serveur, donc s'applique même quand la carte n'est pas ouverte.",
+    "proximityNotifyHint": "Activez la notification de bureau et le son pour cela dans la section Notifications ci-dessous.",
+    "notifHint": "Choisissez quels événements vous alertent, et comment. Les notifications de bureau nécessitent l'autorisation du navigateur ci-dessus.",
+    "notifColDesktop": "Bureau",
+    "notifColSound": "Son",
+    "notifK162": "K162 entrant",
+    "notifProximity": "Menaces de proximité",
+    "notifWatchlist": "Correspondance de liste de surveillance"
   },
   "customIntel": {
     "title": "Intel personnalisée",
@@ -498,7 +518,8 @@
     "remove": "Retirer de la liste de surveillance",
     "max": "Maximum {{count}} entrées dans la liste de surveillance",
     "add": "Ajouter à la liste de surveillance",
-    "appeared": "Liste de surveillance : {{name}} ({{marker}}) est sur la carte"
+    "appeared": "Liste de surveillance : {{name}} ({{marker}}) est sur la carte",
+    "notifTitle": "Correspondance de liste de surveillance"
   },
   "chainExits": {
     "noExits": "Aucune sortie K-space dans cette chaîne.",
@@ -594,14 +615,18 @@
     "collapseConfirmStrand": " Votre roller serait bloqué du côté opposé.",
     "collapseConfirmHome": " Votre roller finit du côté origine.",
     "rollIt": "Effectuer le passage",
-    "removeConnection": "Retirer la connexion"
+    "removeConnection": "Retirer la connexion",
+    "brokenNotice": "Connexion rompue — la sig de trou de ver qui la soutenait a été supprimée. Conservée sur la carte mais mise en quarantaine du routage.",
+    "restore": "Rétablir",
+    "restoreTitle": "Effacer le marqueur de rupture et traiter à nouveau comme une connexion active"
   },
   "mapControls": {
     "panel": "Panneau de contrôle",
     "zoomIn": "Zoom avant",
     "zoomOut": "Zoom arrière",
     "fitView": "Ajuster la vue",
-    "interactive": "Basculer l'interactivité"
+    "interactive": "Basculer l'interactivité",
+    "centerOnMe": "Centrer sur ma position"
   },
   "demo": {
     "hintClick": "Cliquez sur un système pour voir ses détails ici.",
@@ -650,7 +675,11 @@
     "noHomeSet": "Aucun système d'origine défini. Clic droit sur un système → « Définir comme origine ».",
     "failSetDest": "Échec de la définition de la destination",
     "failAddWaypoint": "Échec de l'ajout du point de cheminement",
-    "canvasHint": "Clic droit sur le canvas pour ajouter un système · Glissez entre les poignées pour connecter · Maj+clic ou glisser pour sélection multiple · Clic droit sur un système pour interagir"
+    "canvasHint": "Clic droit sur le canvas pour ajouter un système · Glissez entre les poignées pour connecter · Maj+clic ou glisser pour sélection multiple · Clic droit sur un système pour interagir",
+    "optimizeConnections": "Optimiser les connexions",
+    "spreadNodes": "Espacer les nœuds",
+    "removeOrphans": "Supprimer les systèmes orphelins ({{count}})",
+    "removeOrphansConfirm": "Supprimer {{count}} système(s) orphelin(s) ? Ils n'ont aucune connexion valide (aucune, ou uniquement rompues). Les systèmes d'origine et verrouillés sont conservés. Cette action est réversible."
   },
   "panel": {
     "notes": "Notes",
@@ -983,7 +1012,8 @@
       "hostileSov": "Sov hostile",
       "threat": "Menace",
       "closest": "Système {{label}} le plus proche"
-    }
+    },
+    "resetLayout": "Réinitialiser la disposition de la barre d'outils"
   },
   "landing": {
     "tagline": "Cartographie de chaînes de trous de ver pour EVE Online",
@@ -1048,6 +1078,18 @@
       "sigAging": {
         "title": "Vieillissement des sigs de trou de ver",
         "desc": "Les sigs de trou de ver se teintent selon leur position dans la durée de vie connue du type de WH — jaune à 50 %, orange à 90 %, rouge au-delà de la fermeture prévue. Repère les chaînes oubliées avant qu'elles ne s'effondrent sur quelqu'un."
+      },
+      "brokenChain": {
+        "title": "Détection de chaîne rompue",
+        "desc": "Supprimez une sig de trou de ver et la connexion qu'elle soutenait n'est pas laissée connectée en silence — elle est mise en quarantaine : conservée sur la carte mais affichée rompue (pointillés rouges avec un marqueur ✂) et exclue du routage, pour qu'une chaîne effondrée saute aux yeux au lieu de paraître complète. Rétablie automatiquement si une sig soutient à nouveau le lien ou si vous le sautez."
+      },
+      "orphanCleanup": {
+        "title": "Nettoyage des orphelins",
+        "desc": "Un balayage par clic droit retire les systèmes orphelins — ceux sans connexion active, ou uniquement rompues — tout en protégeant votre système d'origine et les systèmes verrouillés. Garde une chaîne active bien rangée sans traquer les égarés à la main."
+      },
+      "lazyWhRemoval": {
+        "title": "Suppression auto des trous de ver expirés",
+        "desc": "Activable par carte : un balayage côté serveur retire les sigs de trou de ver dès qu'elles dépassent la durée de vie maximale de leur type, en mettant en quarantaine toute connexion qu'elles soutenaient. Fonctionne même quand personne n'a la carte ouverte, pour que les chaînes synchronisées et de corpo restent à jour d'elles-mêmes."
       },
       "soloCorp": {
         "title": "Séparation Solo / Corp",
@@ -1366,6 +1408,58 @@
   "mapEdge": {
     "lessThan24h": "< 24h",
     "lessThan4h": "< 4 h",
-    "lessThan1h": "< 1 h"
+    "lessThan1h": "< 1 h",
+    "broken": "Connexion rompue — la sig de trou de ver a été supprimée (trou effondré)"
+  },
+  "apiKeys": {
+    "title": "Clés API",
+    "hint": "Générez une clé pour permettre à des outils externes d'utiliser vos cartes via l'API. Une clé agit comme le personnage sélectionné — elle ne peut faire que ce que ce personnage peut faire. Les clés « Lecture + événements en direct » peuvent aussi s'abonner au flux d'événements en direct ; les clés « Lecture + écriture de contenu » peuvent aussi ajouter et modifier signatures, anomalies et structures (jamais la topologie de la carte).",
+    "name": "Nom",
+    "namePlaceholder": "ex. bot de flotte",
+    "character": "Agit comme",
+    "scope": "Accès",
+    "scopeRead": "Lecture seule",
+    "scopeEvents": "Lecture + événements en direct",
+    "scopeWrite": "Lecture + écriture de contenu",
+    "scopeReadBadge": "lecture",
+    "scopeEventsBadge": "événements",
+    "scopeWriteBadge": "écriture",
+    "expiry": "Expire",
+    "expiryNever": "Jamais",
+    "expiryDays": "{{count}} jours",
+    "create": "Créer une clé",
+    "creating": "Création…",
+    "created": "« {{name}} » créée",
+    "createFailed": "Impossible de créer la clé. Veuillez réessayer.",
+    "copyNow": "Copiez cette clé maintenant — elle ne sera plus affichée.",
+    "dismiss": "Terminé",
+    "keyCopied": "Clé copiée dans le presse-papiers",
+    "copyFailed": "Copie impossible — sélectionnez et copiez-la manuellement.",
+    "loading": "Chargement des clés…",
+    "none": "Aucune clé API pour l'instant.",
+    "boundTo": "Agit comme {{name}}",
+    "lastUsed": "Dernière utilisation {{ago}}",
+    "neverUsed": "Jamais utilisée",
+    "expires": "Expire le {{date}}",
+    "noExpiry": "Pas d'expiration",
+    "flagExpired": "expirée",
+    "flagInert": "inactive",
+    "revoke": "Révoquer",
+    "revokeConfirm": "Révoquer « {{name}} » ? Tout outil utilisant cette clé perdra immédiatement l'accès.",
+    "revoked": "« {{name}} » révoquée",
+    "revokeFailed": "Impossible de révoquer la clé. Veuillez réessayer."
+  },
+  "whChart": {
+    "open": "⊟ Référence trous de ver",
+    "tooltip": "Recherchez n'importe quel type de trou de ver — spawn, destination, taille de vaisseau, masse et durée de vie",
+    "title": "Référence des types de trou de ver",
+    "searchPlaceholder": "Filtrer…",
+    "colWormholes": "Trous de ver",
+    "colRespawn": "Réapparition",
+    "colSpawnIn": "Apparaît dans",
+    "colLeadsTo": "Mène à",
+    "colShipSize": "Taille de saut de vaisseau",
+    "colTotalMass": "Masse totale",
+    "colLifetime": "Durée de vie"
   }
 }
