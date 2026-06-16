@@ -166,10 +166,9 @@
         "colLastKnown": "最後に確認されたシステム",
         "colSystemsAdded": "追加した星系",
         "colSystemsDeleted": "削除した星系",
-        "colLastCorpStructure": "最終コーポストラクチャ",
-        "colTotalStructures": "総ストラクチャ数",
         "colLastCorpSignature": "最終コーポシグネチャ",
-        "colTotalSignatures": "総シグネチャ数"
+        "colTotalSignatures": "総シグネチャ数",
+        "colLastActive": "最終アクティブ"
       },
       "systems": {
         "loadFailed": "星系レポートの読み込みに失敗しました",
@@ -335,7 +334,8 @@
       "mergeMaps": "マップを統合",
       "liveSharing": "ライブマップ配信",
       "shareMap": "マップを共有",
-      "shortcuts": "ショートカット"
+      "shortcuts": "ショートカット",
+      "notifications": "通知"
     },
     "snapToGrid": "グリッドに合わせる",
     "settings": "設定",
@@ -356,7 +356,11 @@
     "crossMapSyncHelp": "あるシステムにシグネチャやアノマリーを追加・編集すると、自分の他のマップ上の同じシステムにもコピーされます（個人マップは他の個人マップと、コープマップはコープの他のマップと同期）。非破壊的：不足または空欄の項目のみを埋め、既に入力したデータを上書きしたり削除したりすることはありません。",
     "placementOptions": {
       "horizontal": "水平（右）",
-      "vertical": "垂直（下）"
+      "vertical": "垂直（下）",
+      "east": "右（東）",
+      "south": "下（南）",
+      "west": "左（西）",
+      "north": "上（北）"
     },
     "resetZoom": "100% にリセット",
     "compact": "コンパクト",
@@ -455,7 +459,23 @@
     "exportFailed": "エクスポートに失敗しました: {{error}}",
     "invalidJson": "無効な JSON ファイルです。",
     "notNexumMap": "このファイルは Eve-Nexum のマップエクスポートではないようです。",
-    "importFailed": "インポートに失敗しました: {{error}}"
+    "importFailed": "インポートに失敗しました: {{error}}",
+    "colorVision": "色覚",
+    "colorVisionOptions": {
+      "off": "デフォルトの色",
+      "deuteranopia": "第二色覚（赤緑）",
+      "protanopia": "第一色覚（赤緑）",
+      "tritanopia": "第三色覚（青黄）"
+    },
+    "lazyRemoveWh": "期限切れワームホールの自動削除",
+    "lazyRemoveWhHint": "そのタイプの最大寿命を超えたワームホールシグを定期的に削除します。そのシグが他に支えのない接続を支えていた場合、接続は削除されず、切断（隔離）として表示されます。サーバー側で実行されるため、マップを開いていなくても適用されます。",
+    "proximityNotifyHint": "これのデスクトップ通知と音は、下の「通知」セクションで切り替えます。",
+    "notifHint": "どのイベントでどのように通知するかを選びます。デスクトップ通知には上のブラウザ許可が必要です。",
+    "notifColDesktop": "デスクトップ",
+    "notifColSound": "音",
+    "notifK162": "着信 K162",
+    "notifProximity": "近接の脅威",
+    "notifWatchlist": "ウォッチリスト一致"
   },
   "customIntel": {
     "title": "カスタムインテル",
@@ -498,7 +518,8 @@
     "remove": "ウォッチリストから削除",
     "max": "ウォッチリストの登録は最大 {{count}} 件",
     "add": "ウォッチリストに追加",
-    "appeared": "ウォッチリスト：{{name}}（{{marker}}）がマップ上にあります"
+    "appeared": "ウォッチリスト：{{name}}（{{marker}}）がマップ上にあります",
+    "notifTitle": "ウォッチリスト一致"
   },
   "chainExits": {
     "noExits": "このチェーンに Kスペース出口はありません。",
@@ -594,14 +615,18 @@
     "collapseConfirmStrand": " あなたのローラーが向こう側に取り残されます。",
     "collapseConfirmHome": " あなたのローラーはホーム側で終わります。",
     "rollIt": "通過を実行",
-    "removeConnection": "接続を削除"
+    "removeConnection": "接続を削除",
+    "brokenNotice": "接続が切断されました — 支えていたワームホールシグが削除されました。マップ上には残りますが、ルーティングからは隔離されています。",
+    "restore": "復元",
+    "restoreTitle": "切断フラグを解除し、再び有効な接続として扱います"
   },
   "mapControls": {
     "panel": "コントロールパネル",
     "zoomIn": "拡大",
     "zoomOut": "縮小",
     "fitView": "画面に合わせる",
-    "interactive": "操作のオン/オフ"
+    "interactive": "操作のオン/オフ",
+    "centerOnMe": "自分の位置を中央に"
   },
   "demo": {
     "hintClick": "星系をクリックすると、ここに詳細が表示されます。",
@@ -650,7 +675,11 @@
     "noHomeSet": "ホーム星系が設定されていません。星系を右クリック →「ホームに設定」。",
     "failSetDest": "目的地の設定に失敗しました",
     "failAddWaypoint": "ウェイポイントの追加に失敗しました",
-    "canvasHint": "キャンバスを右クリックで星系追加 · ハンドル間をドラッグで接続 · Shift+クリックまたはドラッグで複数選択 · 星系を右クリックで操作"
+    "canvasHint": "キャンバスを右クリックで星系追加 · ハンドル間をドラッグで接続 · Shift+クリックまたはドラッグで複数選択 · 星系を右クリックで操作",
+    "optimizeConnections": "接続を最適化",
+    "spreadNodes": "ノードを広げる",
+    "removeOrphans": "孤立システムを削除 ({{count}})",
+    "removeOrphansConfirm": "{{count}} 個の孤立システムを削除しますか？これらには有効な接続がありません（接続なし、または切断のみ）。ホームとロックされたシステムは保持されます。元に戻せます。"
   },
   "panel": {
     "notes": "メモ",
@@ -983,7 +1012,8 @@
       "hostileSov": "敵対主権",
       "threat": "脅威",
       "closest": "最も近い{{label}}星系"
-    }
+    },
+    "resetLayout": "ツールバーのレイアウトをリセット"
   },
   "landing": {
     "tagline": "EVE Online のためのワームホールチェーン・マッピング",
@@ -1048,6 +1078,18 @@
       "sigAging": {
         "title": "ワームホールシグネチャの経年",
         "desc": "ワームホールシグネチャは、その WH タイプの既知の寿命における位置に応じて色付けされます — 50% で黄、90% で橙、予想閉鎖を過ぎると赤。忘れられたチェーンが誰かの上で崩壊する前に見つけます。"
+      },
+      "brokenChain": {
+        "title": "切断チェーンの検出",
+        "desc": "ワームホールシグを削除しても、それが支えていた接続はそのまま黙って繋がったままにはなりません — 隔離されます。マップ上には残りますが、切断された状態（赤い破線と ✂ マーカー）で表示され、ルーティングから除外されるため、崩壊したチェーンが完全に見えるのではなく一目で分かります。再びシグがリンクを支えるか、ジャンプすると自動的に復元されます。"
+      },
+      "orphanCleanup": {
+        "title": "孤立システムの一掃",
+        "desc": "右クリックの一掃で孤立したシステム — 有効な接続がない、または切断された接続しかないもの — を削除し、ホームシステムとロックされたシステムは保護します。手作業ではぐれを探さなくても、稼働中のチェーンを整然と保てます。"
+      },
+      "lazyWhRemoval": {
+        "title": "期限切れワームホールの自動削除",
+        "desc": "マップごとに有効化: サーバー側の一掃が、ワームホールシグをそのタイプの最大寿命を超えた時点で削除し、それが支えていた接続を隔離します。誰もマップを開いていないときも実行されるため、同期マップやコープのチェーンが自動的に最新に保たれます。"
       },
       "soloCorp": {
         "title": "ソロ / コーポ分離",
@@ -1366,6 +1408,58 @@
   "mapEdge": {
     "lessThan24h": "< 24h",
     "lessThan4h": "< 4h",
-    "lessThan1h": "< 1h"
+    "lessThan1h": "< 1h",
+    "broken": "接続が切断されました — ワームホールシグが削除されました（ホール崩壊）"
+  },
+  "apiKeys": {
+    "title": "API キー",
+    "hint": "外部ツールが API 経由であなたのマップを利用できるようにするキーを生成します。キーは選択したキャラクターとして動作し、そのキャラクターができることだけを行えます。「読み取り + ライブイベント」キーはライブイベントストリームも購読できます。「読み取り + コンテンツ書き込み」キーはシグネチャ・アノマリー・ストラクチャの追加と編集もできます（マップのトポロジーは不可）。",
+    "name": "名前",
+    "namePlaceholder": "例: フリートボット",
+    "character": "動作キャラクター",
+    "scope": "アクセス",
+    "scopeRead": "読み取りのみ",
+    "scopeEvents": "読み取り + ライブイベント",
+    "scopeWrite": "読み取り + コンテンツ書き込み",
+    "scopeReadBadge": "読み取り",
+    "scopeEventsBadge": "イベント",
+    "scopeWriteBadge": "書き込み",
+    "expiry": "有効期限",
+    "expiryNever": "なし",
+    "expiryDays": "{{count}} 日",
+    "create": "キーを作成",
+    "creating": "作成中…",
+    "created": "「{{name}}」を作成しました",
+    "createFailed": "キーを作成できませんでした。もう一度お試しください。",
+    "copyNow": "今このキーをコピーしてください — 再表示されません。",
+    "dismiss": "完了",
+    "keyCopied": "キーをクリップボードにコピーしました",
+    "copyFailed": "コピーできませんでした — 手動で選択してコピーしてください。",
+    "loading": "キーを読み込み中…",
+    "none": "API キーはまだありません。",
+    "boundTo": "{{name}} として動作",
+    "lastUsed": "最終使用 {{ago}}",
+    "neverUsed": "未使用",
+    "expires": "{{date}} に期限切れ",
+    "noExpiry": "期限なし",
+    "flagExpired": "期限切れ",
+    "flagInert": "非アクティブ",
+    "revoke": "失効",
+    "revokeConfirm": "「{{name}}」を失効しますか？このキーを使用しているツールは直ちにアクセスを失います。",
+    "revoked": "「{{name}}」を失効しました",
+    "revokeFailed": "キーを失効できませんでした。もう一度お試しください。"
+  },
+  "whChart": {
+    "open": "⊟ ワームホール一覧",
+    "tooltip": "任意のワームホールタイプを検索 — 出現・行き先・艦船サイズ・質量・寿命",
+    "title": "ワームホールタイプ一覧",
+    "searchPlaceholder": "絞り込み…",
+    "colWormholes": "ワームホール",
+    "colRespawn": "再出現",
+    "colSpawnIn": "出現場所",
+    "colLeadsTo": "行き先",
+    "colShipSize": "艦船ジャンプサイズ",
+    "colTotalMass": "総質量",
+    "colLifetime": "寿命"
   }
 }

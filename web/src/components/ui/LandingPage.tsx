@@ -4,6 +4,7 @@ import { Trans, useTranslation } from 'react-i18next';
 import type { Icon } from '@phosphor-icons/react';
 import {
   GraphIcon, MapTrifoldIcon, GaugeIcon, MagnifyingGlassIcon, SelectionIcon, ImageIcon, HourglassIcon,
+  LinkBreakIcon, BroomIcon, TimerIcon,
   UsersIcon, UsersThreeIcon, StackIcon, ArrowsMergeIcon, ArrowsClockwiseIcon, LockIcon, ShieldCheckIcon,
   CardsIcon, WaveformIcon, BuildingsIcon, SparkleIcon, ChartLineIcon, FlagBannerIcon, SwordIcon, HandshakeIcon,
   PathIcon, StarIcon, SnowflakeIcon, LightningIcon, WarningIcon, NavigationArrowIcon, MapPinIcon, BroadcastIcon, BellRingingIcon, DiscordLogoIcon, BinocularsIcon,
@@ -25,7 +26,7 @@ interface LastCharacter { characterId: number; characterName: string; }
 type SectionId = 'mapping' | 'personalCorp' | 'sysIntel' | 'liveOps' | 'productivity';
 type FeatureId =
   | 'interactiveMap' | 'seedRegion' | 'whIntel' | 'rollingCalc' | 'whPicker'
-  | 'multiSelect' | 'pngExport' | 'sigAging'
+  | 'multiSelect' | 'pngExport' | 'sigAging' | 'brokenChain' | 'orphanCleanup' | 'lazyWhRemoval'
   | 'soloCorp' | 'multiCharacter' | 'multiMap' | 'mergeMaps' | 'crossMapSync' | 'realtime' | 'mapLocking' | 'rbac'
   | 'systemPanel' | 'sigMgmt' | 'structImport' | 'autoStruct' | 'activityCharts'
   | 'sovStation' | 'killboard' | 'effectDigest' | 'standings'
@@ -52,6 +53,9 @@ const FEATURE_SECTIONS: FeatureSection[] = [
       { icon: SelectionIcon,       id: 'multiSelect'    },
       { icon: ImageIcon,           id: 'pngExport'      },
       { icon: HourglassIcon,       id: 'sigAging'       },
+      { icon: LinkBreakIcon,       id: 'brokenChain'    },
+      { icon: BroomIcon,           id: 'orphanCleanup'  },
+      { icon: TimerIcon,           id: 'lazyWhRemoval'  },
     ],
   },
   {

@@ -106,6 +106,9 @@ Open <http://localhost> and click **Log in with EVE Online**. That's it.
 - **PNG export** — render the current map (with sig counts, connections, status) to a PNG for sharing.
 - **Map PNG / clipboard** — copy or download the current chain as an image for pings.
 - **Wormhole sig aging** — wormhole signatures tint by their position in the WH type's known lifetime (yellow ≥50%, orange ≥90%, red past expected close). K162s stay neutral since the lifetime isn't knowable from this side.
+- **Broken-chain detection** — deleting a wormhole signature severs the connection it backed instead of leaving two now-separate chains silently joined. Rather than removing the link (which loses the chain), it's *quarantined*: kept on the map but rendered severed — red dashed with a ✂ marker, stale labels dropped — and excluded from routing, so a collapsed chain is obvious instead of looking complete to a quick glance. The connection panel offers a one-click restore, and the link auto-un-breaks if a sig backs it again or a pilot jumps it.
+- **Orphan cleanup** — a right-click canvas action sweeps away orphaned systems (no live connection, or only broken ones) in one go, while always protecting your home system and any locked systems. Shows a live count and confirms before removing; every removal is undoable.
+- **Auto-remove aged wormholes** — opt-in per map (Connections section of the sidebar). A server-side sweep periodically removes wormhole signatures older than their type's maximum lifetime and quarantines any connection they backed. Because it runs server-side on a fixed cadence (`LAZY_WH_SWEEP_MINUTES`, default 15), it keeps synced and corp chains current even when nobody has the map open. K162s are aged against the 48h maximum WH lifetime; codes with no known lifetime are left alone.
 
 ### Personal & corp maps
 
@@ -307,6 +310,7 @@ Edit `.env` and fill in the required values:
 | `CORP_MAP_TIME` | Optional | Days an idle corp map can sit untouched before it's auto-archived. Default `30`. |
 | `MAX_USER_MAPS` | Optional | Max number of personal maps per user. Default `5`. |
 | `MAX_CORP_MAPS` | Optional | Max number of corp maps per corp. Default `5`. |
+| `LAZY_WH_SWEEP_MINUTES` | Optional | Cadence (minutes) of the lazy wormhole-removal sweep, which removes aged-out WH sigs and quarantines the connections they backed on maps that have opted in. Default `15`. Set to `0` to disable the sweep entirely. |
 | `DISCORD_WEBHOOK_URL` | Optional | Discord webhook(s) for corp-intel notifications (inbound K162, new connections). One URL fires for **every** corp map; for multi-corp deployments use `corpId=URL` pairs (comma-separated) to route each corp to its own channel — e.g. `98000001=https://discord.com/api/webhooks/…,98000002=https://discord.com/api/webhooks/…`. Personal maps never notify. Leave unset to disable. Which regions/maps actually notify is then filtered per corp in the admin **Discord** tab. See [Discord notifications](#discord-notifications). |
 
 #### EVE developer app scopes
