@@ -708,6 +708,8 @@
     "unlockSystem": "Unlock System",
     "removeSystem": "Remove System",
     "removeSystems": "Remove {{count}} Systems",
+    "removeOrphans": "Remove Orphan Systems ({{count}})",
+    "removeOrphansConfirm": "Remove {{count}} orphan system(s)? These have no valid connection (none, or only broken ones). Home and locked systems are kept. This can be undone.",
     "addSystem": "Add System",
     "selectAll": "Select All",
     "noHomeSet": "No home system set. Right-click a system → \"Set as home\".",
