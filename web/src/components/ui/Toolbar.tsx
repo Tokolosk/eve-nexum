@@ -193,6 +193,26 @@ function ProximityChip() {
 // flow layout that seeds their default positions).
 const DEFAULT_TOOLBAR_ORDER = ['map', 'status', 'tools', 'server', 'account'];
 
+// Min gap (px) kept between sections so they never visually touch.
+const SECTION_GAP = 6;
+
+// Snap a dropped section's x to the nearest spot that doesn't overlap any
+// section sharing its row, so groups can't land on top of each other. `bars`
+// are the x-intervals {l,r} of those same-row sections. If the drop point is
+// already clear it's kept; otherwise the closest free slot (just before/after
+// an obstacle, or a bar edge) is chosen.
+function nearestFreeX(desiredX: number, w: number, bars: { l: number; r: number }[], barW: number): number {
+  const fits = (px: number) =>
+    px >= 0 && px + w <= barW && !bars.some((b) => px < b.r + SECTION_GAP && px + w + SECTION_GAP > b.l);
+  if (fits(desiredX)) return desiredX;
+  const cands = [0, Math.max(0, barW - w)];
+  for (const b of bars) { cands.push(b.r + SECTION_GAP, b.l - w - SECTION_GAP); }
+  const valid = cands.filter(fits);
+  if (!valid.length) return desiredX; // row full — nothing we can do, leave it
+  valid.sort((a, b) => Math.abs(a - desiredX) - Math.abs(b - desiredX));
+  return valid[0];
+}
+
 // One freely-placeable toolbar group. Always draggable, no separate handle: the
 // 6px pointer activation distance (see the DndContext sensor) means a tap still
 // clicks the controls inside — only a press-and-move starts a drag. The dragged
@@ -335,11 +355,21 @@ export function Toolbar() {
     const tb = toolbarRef.current?.getBoundingClientRect();
     const el = sectionEls.current.get(id);
     if (!cur || !tb || !el) return;
-    // Land exactly where dropped (start + drag delta); clamp to stay on the bar
-    // and within ~two rows. Absolute placement means no reflow — it stays put.
-    const maxX = Math.max(0, tb.width - el.offsetWidth);
-    const x = Math.min(Math.max(0, Math.round(cur.x + e.delta.x)), maxX);
+    // Land where dropped (start + drag delta); clamp to stay on the bar and
+    // within ~two rows. Absolute placement means no reflow — it stays put.
+    const w = el.offsetWidth, h = el.offsetHeight;
     const y = Math.min(Math.max(0, Math.round(cur.y + e.delta.y)), 56);
+    const dropX = Math.min(Math.max(0, Math.round(cur.x + e.delta.x)), Math.max(0, tb.width - w));
+    // Sections that share the dropped row (vertically overlapping) are obstacles;
+    // snap x to the nearest free slot so groups can't be dropped onto each other.
+    const bars: { l: number; r: number }[] = [];
+    sectionEls.current.forEach((oel, oid) => {
+      if (oid === id) return;
+      const p = posOf(oid);
+      if (!p || y + h <= p.y || y >= p.y + oel.offsetHeight) return;
+      bars.push({ l: p.x, r: p.x + oel.offsetWidth });
+    });
+    const x = nearestFreeX(dropX, w, bars, tb.width);
     setSavedPositions({ ...savedPositions, [id]: { x, y } });
   };
 
