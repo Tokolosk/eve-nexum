@@ -16,6 +16,7 @@ import { watchMarker } from '../../data/watchMarkers';
 // colour-vision palettes (--cv-conn-* in App.css) re-map connection colours.
 const STANDARD_COLOR = 'var(--cv-conn-standard)';
 const JUMPGATE_COLOR  = 'var(--cv-conn-jumpgate)';
+const HIGHLIGHT_COLOR = 'var(--cv-conn-highlight)';
 
 // Perpendicular spacing between multiple connections that share the same pair
 // of systems, so they fan apart instead of stacking on one line.
@@ -70,9 +71,11 @@ export const ConnectionEdge = memo(({
   const selectConnection = useMapStore((s) => s.selectConnection);
   const now = useNow30s();
 
-  // Emphasised = clicked-selected OR lit because the hovered/selected system is
-  // one of its endpoints (so you can trace a system's links through a tangle).
-  const emphasized = selected || !!conn?.highlighted;
+  // Lit because the hovered/selected system is one of its endpoints — these get
+  // recoloured (not just glowed) so a system's links pop out of a tangle.
+  const highlighted = !!conn?.highlighted;
+  // Emphasised = clicked-selected OR highlighted: drives stroke width / glow.
+  const emphasized = selected || highlighted;
 
   // Watchlist: a connection whose wormhole type (or frig-hole size) is on the
   // user's watchlist gets a coloured glow in the marker colour.
@@ -125,6 +128,11 @@ export const ConnectionEdge = memo(({
   const color = isJumpgate
     ? JUMPGATE_COLOR
     : (eolState?.color ?? TIME_COLORS[timeStatus ?? ''] ?? STANDARD_COLOR);
+  // Final stroke: broken keeps severed-red; otherwise a highlighted link (its
+  // system is hovered/selected) takes the highlight hue, else its own state colour.
+  const strokeColor = broken
+    ? 'var(--cv-conn-expired)'
+    : highlighted ? HIGHLIGHT_COLOR : color;
   // Per-user thickness preference. Standard = the historical 4 / 6 pair;
   // other steps scale around that. Selected always renders 2px thicker
   // than unselected so the selection highlight stays visible at every
@@ -157,11 +165,14 @@ export const ConnectionEdge = memo(({
         id={id}
         path={edgePath}
         style={{
-          stroke: broken ? 'var(--cv-conn-expired)' : color,
+          // A hovered/selected system's links recolour to the highlight hue so
+          // they stand out; broken links keep the severed-red so their state
+          // stays readable even while highlighted.
+          stroke: strokeColor,
           strokeWidth: watchColor ? strokeWidth + 1 : strokeWidth,
           strokeDasharray: broken ? '5 7' : isJumpgate ? '10 5' : undefined,
           filter: [
-            emphasized ? `drop-shadow(0 0 6px ${broken ? 'var(--cv-conn-expired)' : color})` : null,
+            emphasized ? `drop-shadow(0 0 6px ${strokeColor})` : null,
             watchColor ? `drop-shadow(0 0 5px ${watchColor}) drop-shadow(0 0 2px ${watchColor})` : null,
           ].filter(Boolean).join(' ') || undefined,
           opacity: broken ? 0.7 : emphasized || watchColor ? 1 : 0.85,
