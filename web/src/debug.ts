@@ -160,7 +160,12 @@ const nexumDebug = {
       if (id) {
         prev = id;
         useMapStore.getState().setCurrentSystem(id);
-        useMapStore.getState().selectSystem(id);
+        // Selecting a system opens its detail panel, whose panes immediately
+        // GET /systems/:id/{signatures,structures,anomalies}. In a dry run the
+        // system was never persisted, so those reads 404 (and toast) for every
+        // ghost hop — flooding the console. Placement is what a dry run tests,
+        // so leave selection alone; the node + its connection still render.
+        if (!dryRun) useMapStore.getState().selectSystem(id);
         const pos = useMapStore.getState().map.systems.find((s) => s.id === id)?.position;
         console.log(`[nexum] jump ${i}/${names.length} → ${sys.name}  @ (${pos?.x}, ${pos?.y})`);
       }
