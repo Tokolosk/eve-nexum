@@ -566,12 +566,33 @@ export function MapCanvas() {
     Map<string, { sourceHandle: string; targetHandle: string }>
   >(new Map());
 
+  // Hovered system: while set, every connection touching it is highlighted so
+  // its links can be traced through overlapping edges. Cleared on mouse-out.
+  const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
+  const onNodeMouseEnter = useCallback((_: React.MouseEvent, node: Node) => setHoveredNodeId(node.id), []);
+  const onNodeMouseLeave = useCallback(() => setHoveredNodeId(null), []);
+
   // Edges driven directly from store — no local duplicate state, except for
   // the live drag-handle overrides above.
   const edges = useMemo(
-    () =>
-      connections.map((c) => {
+    () => {
+      // Group connections by unordered system pair so multiples between the
+      // same two systems can be fanned apart (parallelIndex / parallelCount)
+      // instead of stacking on one line.
+      const pairGroups = new Map<string, string[]>();
+      for (const c of connections) {
+        const key = c.sourceId < c.targetId ? `${c.sourceId}|${c.targetId}` : `${c.targetId}|${c.sourceId}`;
+        const g = pairGroups.get(key);
+        if (g) g.push(c.id);
+        else pairGroups.set(key, [c.id]);
+      }
+      return connections.map((c) => {
         const ov = dragHandles.get(c.id);
+        const key = c.sourceId < c.targetId ? `${c.sourceId}|${c.targetId}` : `${c.targetId}|${c.sourceId}`;
+        const group = pairGroups.get(key)!;
+        const highlighted =
+          (hoveredNodeId != null && (c.sourceId === hoveredNodeId || c.targetId === hoveredNodeId)) ||
+          (selectedSystemId != null && (c.sourceId === selectedSystemId || c.targetId === selectedSystemId));
         return {
           id: c.id,
           source: c.sourceId,
@@ -579,11 +600,17 @@ export function MapCanvas() {
           sourceHandle: ov?.sourceHandle ?? c.sourceHandle ?? undefined,
           targetHandle: ov?.targetHandle ?? c.targetHandle ?? undefined,
           type: 'connection',
-          data: { ...c, edgeStyle, connectionThickness } as unknown as Record<string, unknown>,
+          // Lift highlighted edges above the rest so the traced link sits on top.
+          zIndex: highlighted ? 10 : 0,
+          data: {
+            ...c, edgeStyle, connectionThickness, highlighted,
+            parallelIndex: group.indexOf(c.id), parallelCount: group.length,
+          } as unknown as Record<string, unknown>,
           selected: c.id === selectedConnectionId,
         };
-      }),
-    [connections, selectedConnectionId, edgeStyle, connectionThickness, dragHandles],
+      });
+    },
+    [connections, selectedConnectionId, edgeStyle, connectionThickness, dragHandles, hoveredNodeId, selectedSystemId],
   );
 
   const onEdgesChange = useCallback(
@@ -1086,6 +1113,8 @@ export function MapCanvas() {
         onConnect={onConnect}
         onNodeDrag={onNodeDrag}
         onNodeDragStop={onNodeDragStop}
+        onNodeMouseEnter={onNodeMouseEnter}
+        onNodeMouseLeave={onNodeMouseLeave}
         onPaneContextMenu={onPaneContextMenu}
         onNodeContextMenu={onNodeContextMenu}
         onEdgeContextMenu={onEdgeContextMenu}
