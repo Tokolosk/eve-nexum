@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { useMapStore } from '../store/mapStore';
+import { useMapStore, getPlacementCell } from '../store/mapStore';
 import { useCharacterLocation } from './useCharacterLocation';
 import { useCanEdit } from './useCanEdit';
 import { readUserSetting } from './useUserSetting';
@@ -109,7 +109,7 @@ export interface JumpSystem {
  * console debug tool drives the exact same placement code as a real jump.
  */
 export function applyJump(system: JumpSystem, prevMapSystemId: string | null, canAdd: boolean): string | null {
-  const { map, addSystem, addConnection, updateConnection, uniformWidth, uniformHeight, snapToGrid } = useMapStore.getState();
+  const { map, addSystem, addConnection, updateConnection, snapToGrid } = useMapStore.getState();
 
   let mapSystemId: string;
   const existing = map.systems.find((s) => s.eveSystemId === system.eveSystemId);
@@ -117,8 +117,13 @@ export function applyJump(system: JumpSystem, prevMapSystemId: string | null, ca
     mapSystemId = existing.id;
   } else {
     if (!canAdd) return null;
-    const w = uniformWidth || 220;
-    const h = uniformHeight || 120;
+    // Placement cell = the largest full node footprint (height included), so
+    // every cell fits any node and tiles with consistent 3-square gutters
+    // regardless of the uniform-size toggle. Falls back to a nominal node size
+    // before any node has been measured.
+    const cell = getPlacementCell();
+    const w = cell.w || 220;
+    const h = cell.h || 120;
     const gap = PLACEMENT_GAP;
     let source: { x: number; y: number };
     if (prevMapSystemId && map.systems.some((s) => s.id === prevMapSystemId)) {
