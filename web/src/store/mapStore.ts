@@ -33,6 +33,21 @@ const nodeSizes = new Map<string, { w: number; h: number; countHeight: boolean }
 const GRID = 20;
 const snapUpToGrid = (n: number) => (n > 0 ? Math.ceil(n / GRID) * GRID : 0);
 
+// Largest *full* node footprint seen so far (width and height, ungated by
+// countHeight), snapped up to the grid. This is the auto-placement cell: unlike
+// the uniform-size max — which excludes tall static nodes from the height so it
+// doesn't force every node tall — placement needs a cell big enough for ANY
+// node, so cells tile with consistent 3-square gutters and nothing overflows
+// into its neighbour. Returns {0,0} until at least one node has reported a size.
+export function getPlacementCell(): { w: number; h: number } {
+  let w = 0, h = 0;
+  for (const s of nodeSizes.values()) {
+    if (s.w > w) w = s.w;
+    if (s.h > h) h = s.h;
+  }
+  return { w: snapUpToGrid(w), h: snapUpToGrid(h) };
+}
+
 function recomputeUniformMax(): { w: number; h: number } {
   let w = 0, h = 0, hAll = 0;
   let anyHeightEligible = false;
