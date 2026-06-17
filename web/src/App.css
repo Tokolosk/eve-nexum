@@ -26,7 +26,7 @@
   --cv-stand-bad: #f5a623; --cv-stand-hostile: #e74c3c;
 
   --cv-conn-4h: #f0c040; --cv-conn-1h: #ff9800; --cv-conn-expired: #f44336;
-  --cv-conn-standard: #8a9ab8; --cv-conn-jumpgate: #4db8c4;
+  --cv-conn-standard: #8a9ab8; --cv-conn-jumpgate: #4db8c4; --cv-conn-highlight: #67e8f9;
 
   --cv-status-unknown: #3a4a6a; --cv-status-visited: #3a8a5a; --cv-status-cleared: #2a6aaa;
   --cv-online-on: #3ddc84; --cv-online-off: #e05a5a;
@@ -58,7 +58,7 @@
   --cv-stand-bad: #e69f00; --cv-stand-hostile: #d55e00;
 
   --cv-conn-4h: #f0e442; --cv-conn-1h: #e69f00; --cv-conn-expired: #d55e00;
-  --cv-conn-standard: #8a9ab8; --cv-conn-jumpgate: #56b4e9;
+  --cv-conn-standard: #8a9ab8; --cv-conn-jumpgate: #56b4e9; --cv-conn-highlight: #56b4e9;
 
   --cv-status-unknown: #777788; --cv-status-visited: #e69f00; --cv-status-cleared: #0072b2;
   --cv-online-on: #009e73; --cv-online-off: #d55e00;
@@ -89,7 +89,7 @@
   --cv-stand-bad: #ee7733; --cv-stand-hostile: #cc3311;
 
   --cv-conn-4h: #88ccaa; --cv-conn-1h: #ee7733; --cv-conn-expired: #cc3311;
-  --cv-conn-standard: #8a9ab8; --cv-conn-jumpgate: #44aa99;
+  --cv-conn-standard: #8a9ab8; --cv-conn-jumpgate: #44aa99; --cv-conn-highlight: #ee99cc;
 
   --cv-status-unknown: #888888; --cv-status-visited: #117733; --cv-status-cleared: #aa4477;
   --cv-online-on: #117733; --cv-online-off: #cc3311;

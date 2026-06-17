@@ -16,6 +16,11 @@ import { watchMarker } from '../../data/watchMarkers';
 // colour-vision palettes (--cv-conn-* in App.css) re-map connection colours.
 const STANDARD_COLOR = 'var(--cv-conn-standard)';
 const JUMPGATE_COLOR  = 'var(--cv-conn-jumpgate)';
+const HIGHLIGHT_COLOR = 'var(--cv-conn-highlight)';
+
+// Perpendicular spacing between multiple connections that share the same pair
+// of systems, so they fan apart instead of stacking on one line.
+const PARALLEL_SEP = 18;
 
 const EOL_LIFE_MS    = 4 * 60 * 60 * 1000;
 const EOL_LESS_1H_MS = 60 * 60 * 1000;
@@ -56,9 +61,21 @@ export const ConnectionEdge = memo(({
   sourcePosition, targetPosition, data, selected,
 }: EdgeProps) => {
   const { t } = useTranslation();
-  const conn = data as unknown as MapConnection & { edgeStyle?: string; connectionThickness?: 'thin' | 'standard' | 'thick' | 'extra' };
+  const conn = data as unknown as MapConnection & {
+    edgeStyle?: string;
+    connectionThickness?: 'thin' | 'standard' | 'thick' | 'extra';
+    highlighted?: boolean;
+    parallelIndex?: number;
+    parallelCount?: number;
+  };
   const selectConnection = useMapStore((s) => s.selectConnection);
   const now = useNow30s();
+
+  // Lit because the hovered/selected system is one of its endpoints — these get
+  // recoloured (not just glowed) so a system's links pop out of a tangle.
+  const highlighted = !!conn?.highlighted;
+  // Emphasised = clicked-selected OR highlighted: drives stroke width / glow.
+  const emphasized = selected || highlighted;
 
   // Watchlist: a connection whose wormhole type (or frig-hole size) is on the
   // user's watchlist gets a coloured glow in the marker colour.
@@ -66,7 +83,7 @@ export const ConnectionEdge = memo(({
   const watch = conn ? matchConnection(watchEntries, conn) : null;
   const watchColor = watch ? watchMarker(watch.marker).color : null;
 
-  const [edgePath, labelX, labelY] = (() => {
+  let [edgePath, labelX, labelY] = (() => {
     const args = { sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition };
     switch (conn?.edgeStyle) {
       case 'straight':     return getStraightPath({ sourceX, sourceY, targetX, targetY });
@@ -74,6 +91,29 @@ export const ConnectionEdge = memo(({
       default:             return getBezierPath(args);
     }
   })();
+
+  // Multiple connections between the same two systems would otherwise draw on
+  // top of each other. Bow each one perpendicular to the straight source->
+  // target line by an index-based offset, symmetric around the centre, so they
+  // fan apart. Style-agnostic: a single edge (the common case) is untouched.
+  const parallelCount = conn?.parallelCount ?? 1;
+  if (parallelCount > 1) {
+    const idx    = conn?.parallelIndex ?? 0;
+    const spread = (idx - (parallelCount - 1) / 2) * PARALLEL_SEP;
+    if (spread !== 0) {
+      const dx  = targetX - sourceX;
+      const dy  = targetY - sourceY;
+      const len = Math.hypot(dx, dy) || 1;
+      const nx  = -dy / len; // perpendicular unit vector
+      const ny  =  dx / len;
+      const cx  = (sourceX + targetX) / 2 + nx * spread;
+      const cy  = (sourceY + targetY) / 2 + ny * spread;
+      edgePath = `M ${sourceX},${sourceY} Q ${cx},${cy} ${targetX},${targetY}`;
+      // Quadratic-bezier midpoint (t=0.5) for the label.
+      labelX = 0.25 * sourceX + 0.5 * cx + 0.25 * targetX;
+      labelY = 0.25 * sourceY + 0.5 * cy + 0.25 * targetY;
+    }
+  }
 
   const isJumpgate = conn?.connectionType === 'jumpgate';
   // Quarantined: the backing wormhole sig was deleted (hole collapsed). Kept on
@@ -88,6 +128,11 @@ export const ConnectionEdge = memo(({
   const color = isJumpgate
     ? JUMPGATE_COLOR
     : (eolState?.color ?? TIME_COLORS[timeStatus ?? ''] ?? STANDARD_COLOR);
+  // Final stroke: broken keeps severed-red; otherwise a highlighted link (its
+  // system is hovered/selected) takes the highlight hue, else its own state colour.
+  const strokeColor = broken
+    ? 'var(--cv-conn-expired)'
+    : highlighted ? HIGHLIGHT_COLOR : color;
   // Per-user thickness preference. Standard = the historical 4 / 6 pair;
   // other steps scale around that. Selected always renders 2px thicker
   // than unselected so the selection highlight stays visible at every
@@ -98,7 +143,7 @@ export const ConnectionEdge = memo(({
     conn?.connectionThickness === 'extra' ? 8 :
     4
   );
-  const strokeWidth = selected ? baseWidth + 2 : baseWidth;
+  const strokeWidth = emphasized ? baseWidth + 2 : baseWidth;
   const massLabel   = !isJumpgate && conn?.massStatus ? (MASS_LABELS[conn.massStatus] ?? null) : null;
 
   // Prefer the live countdown label; fall back to the static category label
@@ -120,14 +165,17 @@ export const ConnectionEdge = memo(({
         id={id}
         path={edgePath}
         style={{
-          stroke: broken ? 'var(--cv-conn-expired)' : color,
+          // A hovered/selected system's links recolour to the highlight hue so
+          // they stand out; broken links keep the severed-red so their state
+          // stays readable even while highlighted.
+          stroke: strokeColor,
           strokeWidth: watchColor ? strokeWidth + 1 : strokeWidth,
           strokeDasharray: broken ? '5 7' : isJumpgate ? '10 5' : undefined,
           filter: [
-            selected ? `drop-shadow(0 0 6px ${broken ? 'var(--cv-conn-expired)' : color})` : null,
+            emphasized ? `drop-shadow(0 0 6px ${strokeColor})` : null,
             watchColor ? `drop-shadow(0 0 5px ${watchColor}) drop-shadow(0 0 2px ${watchColor})` : null,
           ].filter(Boolean).join(' ') || undefined,
-          opacity: broken ? 0.7 : selected || watchColor ? 1 : 0.85,
+          opacity: broken ? 0.7 : emphasized || watchColor ? 1 : 0.85,
         }}
         markerEnd={undefined}
       />
