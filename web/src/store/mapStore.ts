@@ -32,6 +32,18 @@ const nodeSizes = new Map<string, { w: number; h: number; countHeight: boolean }
 // of N renders an N-px outer box.
 const GRID = 20;
 const snapUpToGrid = (n: number) => (n > 0 ? Math.ceil(n / GRID) * GRID : 0);
+const roundToGrid  = (n: number) => Math.round(n / GRID) * GRID;
+const PLACEMENT_GAP = 3 * GRID; // keep in sync with useLocationTracking
+
+// One-shot post-measure placement fixes. A node auto-placed *above* or *left*
+// of its source can overlap it once it renders taller/wider than the placement
+// cell knew at the time (a brand-new max not yet measured — e.g. the first
+// statics-heavy WH node). Keyed by node id and consumed on first measure in
+// reportNodeSize, which nudges it back to the 3-square gap using its real size.
+const placementFixes = new Map<string, { sourceId: string; fixY: boolean; fixX: boolean }>();
+export function registerPlacementFix(nodeId: string, sourceId: string, fixY: boolean, fixX: boolean): void {
+  placementFixes.set(nodeId, { sourceId, fixY, fixX });
+}
 
 // Largest *full* node footprint seen so far (width and height, ungated by
 // countHeight), snapped up to the grid. This is the auto-placement cell: unlike
@@ -712,8 +724,35 @@ export const useMapStore = create<MapStore>()((set, get) => {
       if (cur.uniformWidth !== w || cur.uniformHeight !== h) {
         set({ uniformWidth: w, uniformHeight: h });
       }
+
+      // Consume a pending placement fix now we know this node's real size.
+      // Only ever moves the node FARTHER from the source (restores the gap when
+      // it overlapped); a node already clear of the source is left where the
+      // lattice put it, so aligned small nodes are untouched.
+      const fix = placementFixes.get(id);
+      if (fix) {
+        placementFixes.delete(id);
+        const st  = get();
+        const node = st.map.systems.find((s) => s.id === id);
+        const src  = st.map.systems.find((s) => s.id === fix.sourceId);
+        if (node && src) {
+          const snap = st.snapToGrid ? roundToGrid : (n: number) => n;
+          let { x, y } = node.position;
+          let moved = false;
+          if (fix.fixY && y + height > src.position.y - PLACEMENT_GAP) {
+            y = snap(src.position.y - PLACEMENT_GAP - height);
+            moved = true;
+          }
+          if (fix.fixX && x + width > src.position.x - PLACEMENT_GAP) {
+            x = snap(src.position.x - PLACEMENT_GAP - width);
+            moved = true;
+          }
+          if (moved) st.moveSystem(id, { x, y }, { skipUndo: true });
+        }
+      }
     },
     forgetNodeSize: (id) => {
+      placementFixes.delete(id);
       if (!nodeSizes.delete(id)) return;
       const { w, h } = recomputeUniformMax();
       const cur = get();
