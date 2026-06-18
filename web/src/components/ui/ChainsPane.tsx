@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useMapStore } from '../../store/mapStore';
 import { useCanEdit } from '../../hooks/useCanEdit';
+import { useWormholeTypes } from '../../hooks/useWormholeTypes';
 import { api } from '../../api/client';
 import { toast } from './Toaster';
 import { buildChainPath, buildChainSteps } from '../../utils/chains';
@@ -23,6 +24,7 @@ export function ChainsPane() {
   const removeRoute       = useMapStore((s) => s.removeRoute);
   const requestCenterOnNode = useMapStore((s) => s.requestCenterOnNode);
   const canEdit           = useCanEdit();
+  const whTypes           = useWormholeTypes();
 
   const [fromId, setFromId] = useState('');
   const [toId, setToId]     = useState('');
@@ -62,15 +64,18 @@ export function ChainsPane() {
     return () => { cancelled = true; };
   }, [expandedId, map.id, map.routes]);
 
-  // Wormhole size class -> label (reuses the connection-panel size strings).
-  const sizeLabel = (size: string) => {
-    switch (size) {
-      case 'xl':     return t('connPanel.sizeXl');
-      case 'large':  return t('connPanel.sizeLarge');
-      case 'medium': return t('connPanel.sizeMedium');
-      case 'small':  return t('connPanel.sizeSmall');
-      default:       return size;
-    }
+  // Derive a wormhole's size class from its SDE max-jumpable-mass (attr 1383,
+  // served via /api/wormholes/types), mapped to the connection-panel size
+  // labels. Returns null for unknown codes (e.g. K162, which has no dogma).
+  const sizeLabel = (whType: string | null): string | null => {
+    if (!whType) return null;
+    const spec = whTypes[whType.toUpperCase()];
+    const m = spec?.maxJumpMass ?? 0;
+    if (!m) return null;
+    if (m >= 1_000_000_000) return t('connPanel.sizeXl');
+    if (m >= 300_000_000)   return t('connPanel.sizeLarge');
+    if (m >= 62_000_000)    return t('connPanel.sizeMedium');
+    return t('connPanel.sizeSmall');
   };
 
   const create = () => {
@@ -191,12 +196,15 @@ export function ChainsPane() {
                             </span>
                           )}
                         </div>
-                        {step.kind === 'wormhole' && !step.broken && (step.whType || step.size) && (
-                          <div className="chain-step__meta">
-                            {step.whType && <span>{t('chains.whTypeLabel')}: {step.whType}</span>}
-                            {step.size && <span>{t('chains.whSizeLabel')}: {sizeLabel(step.size)}</span>}
-                          </div>
-                        )}
+                        {step.kind === 'wormhole' && !step.broken && step.whType && (() => {
+                          const size = sizeLabel(step.whType);
+                          return (
+                            <div className="chain-step__meta">
+                              <span>{t('chains.whTypeLabel')}: {step.whType}</span>
+                              {size && <span>{t('chains.whSizeLabel')}: {size}</span>}
+                            </div>
+                          );
+                        })()}
                       </li>
                     ))}
                   </ol>
