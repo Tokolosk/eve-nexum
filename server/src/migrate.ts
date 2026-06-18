@@ -294,7 +294,7 @@ export async function migrate() {
     DO $gateclassify$
     BEGIN
       IF to_regclass('public.map_stargates') IS NOT NULL
-         AND NOT EXISTS (SELECT 1 FROM applied_migrations WHERE name = 'gate_classify_v1') THEN
+         AND NOT EXISTS (SELECT 1 FROM applied_migrations WHERE name = 'gate_classify_v2') THEN
         UPDATE map_connections c
            SET connection_type = 'gate'
           FROM map_systems s, map_systems t
@@ -307,7 +307,7 @@ export async function migrate() {
               WHERE (g.system_id = s.eve_system_id AND g.destination_system_id = t.eve_system_id)
                  OR (g.system_id = t.eve_system_id AND g.destination_system_id = s.eve_system_id)
            );
-        INSERT INTO applied_migrations(name) VALUES ('gate_classify_v1');
+        INSERT INTO applied_migrations(name) VALUES ('gate_classify_v2');
       END IF;
     END
     $gateclassify$;
