@@ -189,7 +189,9 @@ export const ConnectionEdge = memo(({
           <div
             className="connection-break"
             title={t('mapEdge.broken')}
-            style={{ transform: `translate(-50%, -50%) translate(${labelX}px,${labelY}px)` }}
+            // Lift above a highlighted edge (zIndex 10) so the marker isn't
+            // drawn under the hover-elevated line.
+            style={{ transform: `translate(-50%, -50%) translate(${labelX}px,${labelY}px)`, zIndex: highlighted ? 1001 : undefined }}
             onClick={() => selectConnection(id)}
           >
             &#9986;
@@ -218,7 +220,10 @@ export const ConnectionEdge = memo(({
           return (
             <div
               className="connection-label"
-              style={{ transform: `translate(-50%, -50%) translate(${labelX}px,${labelY}px)` }}
+              // Lift above a highlighted edge (zIndex 10) — the edge-label
+              // layer has no stacking context, so the label's own z-index wins
+              // against the hover-elevated line and the badge stays readable.
+              style={{ transform: `translate(-50%, -50%) translate(${labelX}px,${labelY}px)`, zIndex: highlighted ? 1001 : undefined }}
               onClick={() => selectConnection(id)}
             >
               {count === 3 ? (
