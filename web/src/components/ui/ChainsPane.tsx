@@ -2,9 +2,11 @@ import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useMapStore } from '../../store/mapStore';
 import { useCanEdit } from '../../hooks/useCanEdit';
+import { useWormholeTypes } from '../../hooks/useWormholeTypes';
 import { api } from '../../api/client';
 import { toast } from './Toaster';
 import { buildChainPath, buildChainSteps } from '../../utils/chains';
+import { whSizeForType, whSizeLabel } from '../../utils/wormholeSize';
 import { SystemCombobox } from './SystemCombobox';
 import type { Signature } from '../../types';
 import {
@@ -23,14 +25,15 @@ export function ChainsPane() {
   const removeRoute       = useMapStore((s) => s.removeRoute);
   const requestCenterOnNode = useMapStore((s) => s.requestCenterOnNode);
   const canEdit           = useCanEdit();
+  const whTypes           = useWormholeTypes();
 
   const [fromId, setFromId] = useState('');
   const [toId, setToId]     = useState('');
   const [name, setName]     = useState('');
   const [expandedId, setExpandedId] = useState<string | null>(null);
-  // uuid -> Signature for the expanded chain's endpoint systems, so steps can
-  // show the exact sig code you warp to.
-  const [sigsById, setSigsById] = useState<Map<string, Signature>>(new Map());
+  // systemId -> its signatures, for the expanded chain's from-systems, so steps
+  // can name the sig to warp to (explicit link or auto-matched by "leads to").
+  const [sigsBySystem, setSigsBySystem] = useState<Map<string, Signature[]>>(new Map());
 
   const sortedSystems = useMemo(
     () => [...map.systems].sort((a, b) => a.name.localeCompare(b.name)),
@@ -55,12 +58,18 @@ export function ChainsPane() {
       ),
     ).then((lists) => {
       if (cancelled) return;
-      const next = new Map<string, Signature>();
-      for (const list of lists) for (const sig of list) next.set(sig.id, sig);
-      setSigsById(next);
+      const next = new Map<string, Signature[]>();
+      fromSystems.forEach((sysId, i) => next.set(sysId, lists[i] ?? []));
+      setSigsBySystem(next);
     });
     return () => { cancelled = true; };
   }, [expandedId, map.id, map.routes]);
+
+  // Wormhole size derived from the SDE per-jump cap (shared helper).
+  const sizeLabel = (whType: string | null): string | null => {
+    const cls = whSizeForType(whType, whTypes);
+    return cls ? whSizeLabel(t, cls) : null;
+  };
 
   const create = () => {
     if (!fromId || !toId || fromId === toId) return;
@@ -117,7 +126,7 @@ export function ChainsPane() {
           {map.routes.map((route) => {
             const open  = expandedId === route.id;
             const hops  = route.connectionIds.length;
-            const steps = open ? buildChainSteps(route, map, sigsById) : [];
+            const steps = open ? buildChainSteps(route, map, sigsBySystem) : [];
             return (
               <li key={route.id} className="chain-item">
                 <div className="chain-item__head">
@@ -177,10 +186,18 @@ export function ChainsPane() {
                               {step.sigId
                                 ? t('chains.warpSig', { sig: step.sigId })
                                 : t('chains.warpWormhole')}
-                              {step.whType ? <span className="chain-step__wh">{step.whType}</span> : null}
                             </span>
                           )}
                         </div>
+                        {step.kind === 'wormhole' && !step.broken && step.whType && (() => {
+                          const size = sizeLabel(step.whType);
+                          return (
+                            <div className="chain-step__meta">
+                              <span>{t('chains.whTypeLabel')}: {step.whType}</span>
+                              {size && <span>{t('chains.whSizeLabel')}: {size}</span>}
+                            </div>
+                          );
+                        })()}
                       </li>
                     ))}
                   </ol>

@@ -3808,6 +3808,12 @@ div.system-node__easy-handle {
   font-family: monospace; font-size: calc(10px * var(--font-scale, 1));
 }
 .chain-step__broken { display: inline-flex; align-items: center; gap: 4px; color: var(--cv-conn-expired); }
+/* Type / Size line under a wormhole hop's "warp to" line. */
+.chain-step__meta {
+  display: flex; flex-wrap: wrap; gap: 4px 12px;
+  padding-left: 16px;
+  font-size: calc(10px * var(--font-scale, 1)); color: #8a9ab8;
+}
 
 /* Per-end "backing signature" link controls in the connection panel. */
 .conn-siglink {

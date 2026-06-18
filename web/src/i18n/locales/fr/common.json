@@ -13,6 +13,8 @@
     "brokenHop": "Saut rompu — à re-scanner",
     "viaGate": "Warp vers la stargate",
     "viaJumpBridge": "Emprunter le pont de saut",
+    "whTypeLabel": "Type",
+    "whSizeLabel": "Taille",
     "warpSig": "Warp vers {{sig}}",
     "warpWormhole": "Warp vers le trou de ver",
     "noMatch": "Aucun système correspondant",

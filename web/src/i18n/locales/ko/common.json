@@ -13,6 +13,8 @@
     "brokenHop": "끊긴 점프 — 재정찰 필요",
     "viaGate": "스타게이트로 워프",
     "viaJumpBridge": "점프 브리지 이용",
+    "whTypeLabel": "유형",
+    "whSizeLabel": "크기",
     "warpSig": "{{sig}}(으)로 워프",
     "warpWormhole": "웜홀로 워프",
     "noMatch": "일치하는 성계 없음",

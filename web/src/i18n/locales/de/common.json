@@ -13,6 +13,8 @@
     "brokenHop": "Sprung unterbrochen – neu scouten",
     "viaGate": "Zum Stargate warpen",
     "viaJumpBridge": "Sprungbrücke nutzen",
+    "whTypeLabel": "Typ",
+    "whSizeLabel": "Größe",
     "warpSig": "Zu {{sig}} warpen",
     "warpWormhole": "Zum Wurmloch warpen",
     "noMatch": "Kein passendes System",

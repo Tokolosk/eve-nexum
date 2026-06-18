@@ -13,6 +13,8 @@
     "brokenHop": "Salto quebrado — explore novamente",
     "viaGate": "Warp para o portão estelar",
     "viaJumpBridge": "Usar a ponte de salto",
+    "whTypeLabel": "Tipo",
+    "whSizeLabel": "Tamanho",
     "warpSig": "Warp para {{sig}}",
     "warpWormhole": "Warp para o buraco de minhoca",
     "noMatch": "Nenhum sistema correspondente",
