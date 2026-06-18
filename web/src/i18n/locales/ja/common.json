@@ -13,6 +13,8 @@
     "brokenHop": "ホップが切断 — 再スカウトが必要",
     "viaGate": "スターゲートへワープ",
     "viaJumpBridge": "ジャンプブリッジを使用",
+    "whTypeLabel": "タイプ",
+    "whSizeLabel": "サイズ",
     "warpSig": "{{sig}} へワープ",
     "warpWormhole": "ワームホールへワープ",
     "noMatch": "一致する星系なし",

@@ -13,6 +13,8 @@
     "brokenHop": "Прыжок разорван — нужна разведка",
     "viaGate": "Варп к старгейту",
     "viaJumpBridge": "Использовать прыжковый мост",
+    "whTypeLabel": "Тип",
+    "whSizeLabel": "Размер",
     "warpSig": "Варп к {{sig}}",
     "warpWormhole": "Варп к червоточине",
     "noMatch": "Нет подходящих систем",

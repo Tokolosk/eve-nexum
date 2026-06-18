@@ -62,6 +62,17 @@ export function ChainsPane() {
     return () => { cancelled = true; };
   }, [expandedId, map.id, map.routes]);
 
+  // Wormhole size class -> label (reuses the connection-panel size strings).
+  const sizeLabel = (size: string) => {
+    switch (size) {
+      case 'xl':     return t('connPanel.sizeXl');
+      case 'large':  return t('connPanel.sizeLarge');
+      case 'medium': return t('connPanel.sizeMedium');
+      case 'small':  return t('connPanel.sizeSmall');
+      default:       return size;
+    }
+  };
+
   const create = () => {
     if (!fromId || !toId || fromId === toId) return;
     const path = buildChainPath(map, fromId, toId);
@@ -177,10 +188,15 @@ export function ChainsPane() {
                               {step.sigId
                                 ? t('chains.warpSig', { sig: step.sigId })
                                 : t('chains.warpWormhole')}
-                              {step.whType ? <span className="chain-step__wh">{step.whType}</span> : null}
                             </span>
                           )}
                         </div>
+                        {step.kind === 'wormhole' && !step.broken && (step.whType || step.size) && (
+                          <div className="chain-step__meta">
+                            {step.whType && <span>{t('chains.whTypeLabel')}: {step.whType}</span>}
+                            {step.size && <span>{t('chains.whSizeLabel')}: {sizeLabel(step.size)}</span>}
+                          </div>
+                        )}
                       </li>
                     ))}
                   </ol>

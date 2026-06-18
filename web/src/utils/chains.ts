@@ -65,7 +65,8 @@ export interface ChainStep {
   fromName: string;
   toName: string;
   kind: ChainStepKind;      // jump a gate, or warp a wormhole
-  whType: string | null;    // wormhole code on the connection, if recorded
+  whType: string | null;    // wormhole code (connection's, else the matched sig's)
+  size: string | null;      // connection size class (xl/large/medium/small)
   sigId: string | null;     // the in-system sig code (ABC-123) to warp to, if linked
   broken: boolean;          // connection removed or quarantined — needs re-scouting
 }
@@ -98,6 +99,7 @@ export function buildChainSteps(
 
     let kind: ChainStepKind = 'wormhole';
     let whType: string | null = null;
+    let size: string | null = null;
     let sigId: string | null = null;
     let broken = true;
 
@@ -106,6 +108,7 @@ export function buildChainSteps(
              : conn.connectionType === 'jumpgate' ? 'jumpgate'
              : 'wormhole';
       whType = conn.type ?? null;
+      size   = conn.size ?? null;
       broken = conn.broken;
       if (!broken && kind === 'wormhole') {
         // The sig you warp to lives in the FROM system. Prefer the explicitly
@@ -120,7 +123,10 @@ export function buildChainSteps(
           const to = sysById.get(toId);
           sig = fromSigs.find((s) => s.sigType === 'wormhole' && sigLeadsTo(s, to));
         }
-        if (sig) sigId = sig.sigId || null;
+        if (sig) {
+          sigId = sig.sigId || null;
+          if (!whType) whType = sig.whType || null; // fall back to the sig's code
+        }
       }
     }
 
@@ -129,7 +135,7 @@ export function buildChainSteps(
       fromId, toId,
       fromName: sysById.get(fromId)?.name ?? '?',
       toName:   sysById.get(toId)?.name ?? '?',
-      kind, whType, sigId, broken,
+      kind, whType, size, sigId, broken,
     });
   }
   return steps;

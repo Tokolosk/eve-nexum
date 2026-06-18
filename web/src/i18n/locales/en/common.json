@@ -13,6 +13,8 @@
     "brokenHop": "Hop broken — re-scout",
     "viaGate": "Warp to gate",
     "viaJumpBridge": "Take the jump bridge",
+    "whTypeLabel": "Type",
+    "whSizeLabel": "Size",
     "warpSig": "Warp to {{sig}}",
     "warpWormhole": "Warp to the wormhole",
     "noMatch": "No matching system",
