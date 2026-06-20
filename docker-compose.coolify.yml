@@ -107,6 +107,8 @@ services:
       args:
         VITE_GTM_ID: ${VITE_GTM_ID:-}
     restart: unless-stopped
+    expose:
+      - "80"
     environment:
       API_PORT: ${PORT:-3001}
     depends_on:
