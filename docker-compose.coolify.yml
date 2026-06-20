@@ -18,11 +18,29 @@ services:
     build:
       context: ./server
       dockerfile: Dockerfile
-    env_file: .env
+    restart: "no"
     environment:
       PG_HOST: postgres
       PG_PORT: 5432
+      PG_DB: ${PG_DB:-eve_nexum}
+      PG_USER: ${PG_USER:-nexum}
+      PG_PASSWORD: ${PG_PASSWORD:?PG_PASSWORD is required}
       NODE_ENV: production
+      SESSION_SECRET: ${SESSION_SECRET:?SESSION_SECRET is required}
+      TOKEN_ENCRYPTION_KEY: ${TOKEN_ENCRYPTION_KEY:?TOKEN_ENCRYPTION_KEY is required}
+      EVE_CLIENT_ID: ${EVE_CLIENT_ID:?EVE_CLIENT_ID is required}
+      EVE_CLIENT_SECRET: ${EVE_CLIENT_SECRET:?EVE_CLIENT_SECRET is required}
+      EVE_CALLBACK_URL: ${EVE_CALLBACK_URL:?EVE_CALLBACK_URL is required}
+      FRONTEND_URL: ${FRONTEND_URL:?FRONTEND_URL is required}
+      CORP_ID: ${CORP_ID:?CORP_ID is required}
+      ADMIN_CHAR_ID: ${ADMIN_CHAR_ID:?ADMIN_CHAR_ID is required}
+      CORP_MAP_SHARED: ${CORP_MAP_SHARED:-false}
+      CORP_MAP_TIME: ${CORP_MAP_TIME:-30}
+      MAX_USER_MAPS: ${MAX_USER_MAPS:-5}
+      MAX_CORP_MAPS: ${MAX_CORP_MAPS:-5}
+      LAZY_WH_SWEEP_MINUTES: ${LAZY_WH_SWEEP_MINUTES:-15}
+      DISCORD_WEBHOOK_URL: ${DISCORD_WEBHOOK_URL:-}
+      NEXUM_TELEMETRY: ${NEXUM_TELEMETRY:-0}
     command: ["node", "dist/scripts/setup-db.js"]
     volumes:
       - sde_cache:/app/.sde-cache
@@ -36,12 +54,29 @@ services:
       context: ./server
       dockerfile: Dockerfile
     restart: unless-stopped
-    env_file: .env
     environment:
       PG_HOST: postgres
       PG_PORT: 5432
-      NODE_ENV: production
+      PG_DB: ${PG_DB:-eve_nexum}
+      PG_USER: ${PG_USER:-nexum}
+      PG_PASSWORD: ${PG_PASSWORD:?PG_PASSWORD is required}
       PORT: ${PORT:-3001}
+      NODE_ENV: production
+      SESSION_SECRET: ${SESSION_SECRET:?SESSION_SECRET is required}
+      TOKEN_ENCRYPTION_KEY: ${TOKEN_ENCRYPTION_KEY:?TOKEN_ENCRYPTION_KEY is required}
+      EVE_CLIENT_ID: ${EVE_CLIENT_ID:?EVE_CLIENT_ID is required}
+      EVE_CLIENT_SECRET: ${EVE_CLIENT_SECRET:?EVE_CLIENT_SECRET is required}
+      EVE_CALLBACK_URL: ${EVE_CALLBACK_URL:?EVE_CALLBACK_URL is required}
+      FRONTEND_URL: ${FRONTEND_URL:?FRONTEND_URL is required}
+      CORP_ID: ${CORP_ID:?CORP_ID is required}
+      ADMIN_CHAR_ID: ${ADMIN_CHAR_ID:?ADMIN_CHAR_ID is required}
+      CORP_MAP_SHARED: ${CORP_MAP_SHARED:-false}
+      CORP_MAP_TIME: ${CORP_MAP_TIME:-30}
+      MAX_USER_MAPS: ${MAX_USER_MAPS:-5}
+      MAX_CORP_MAPS: ${MAX_CORP_MAPS:-5}
+      LAZY_WH_SWEEP_MINUTES: ${LAZY_WH_SWEEP_MINUTES:-15}
+      DISCORD_WEBHOOK_URL: ${DISCORD_WEBHOOK_URL:-}
+      NEXUM_TELEMETRY: ${NEXUM_TELEMETRY:-0}
     volumes:
       - sde_cache:/app/.sde-cache
     depends_on:
