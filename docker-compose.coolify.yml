@@ -109,6 +109,20 @@ services:
     restart: unless-stopped
     expose:
       - "80"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.eve-nexum-k162-web.rule=Host(`maps.k162.us`) && PathPrefix(`/`)"
+      - "traefik.http.routers.eve-nexum-k162-web.entrypoints=https"
+      - "traefik.http.routers.eve-nexum-k162-web.tls=true"
+      - "traefik.http.routers.eve-nexum-k162-web.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.eve-nexum-k162-web.priority=1000"
+      - "traefik.http.routers.eve-nexum-k162-web.service=eve-nexum-k162-web"
+      - "traefik.http.services.eve-nexum-k162-web.loadbalancer.server.port=80"
+      - "traefik.http.routers.eve-nexum-k162-web-http.rule=Host(`maps.k162.us`) && PathPrefix(`/`)"
+      - "traefik.http.routers.eve-nexum-k162-web-http.entrypoints=http"
+      - "traefik.http.routers.eve-nexum-k162-web-http.priority=1000"
+      - "traefik.http.routers.eve-nexum-k162-web-http.middlewares=eve-nexum-k162-web-redirect"
+      - "traefik.http.middlewares.eve-nexum-k162-web-redirect.redirectscheme.scheme=https"
     environment:
       API_PORT: ${PORT:-3001}
     depends_on:
