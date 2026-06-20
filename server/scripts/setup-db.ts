@@ -423,7 +423,8 @@ async function createTables() {
     ALTER TABLE users ALTER COLUMN panel_order SET DEFAULT '{notes,signatures,anomalies,structures,npcStations}';
   `);
 
-  // Step 2: indexes (columns guaranteed to exist after step 1)
+  // Step 2: static/SDE indexes. App-table indexes live in src/migrate.ts,
+  // where the full app schema columns are guaranteed to exist.
   await db.query(`
     CREATE INDEX IF NOT EXISTS idx_solar_systems_name          ON solar_systems (name text_pattern_ops);
     CREATE INDEX IF NOT EXISTS idx_solar_systems_constellation ON solar_systems (constellation_id);
@@ -432,17 +433,6 @@ async function createTables() {
     CREATE INDEX IF NOT EXISTS idx_item_groups_category        ON item_groups (category_id);
     CREATE INDEX IF NOT EXISTS idx_item_types_group            ON item_types (group_id);
     CREATE INDEX IF NOT EXISTS idx_item_types_name             ON item_types (name text_pattern_ops);
-    CREATE INDEX IF NOT EXISTS idx_maps_user                   ON maps (user_id);
-    CREATE INDEX IF NOT EXISTS idx_map_systems_map             ON map_systems (map_id);
-    CREATE INDEX IF NOT EXISTS idx_map_connections_map         ON map_connections (map_id);
-    CREATE INDEX IF NOT EXISTS idx_map_signatures_system       ON map_signatures (system_id);
-    CREATE INDEX IF NOT EXISTS idx_map_structures_system       ON map_structures (system_id);
-    CREATE INDEX IF NOT EXISTS idx_map_signatures_creator      ON map_signatures (created_by_user_id);
-    CREATE INDEX IF NOT EXISTS idx_map_structures_creator      ON map_structures (created_by_user_id);
-    CREATE INDEX IF NOT EXISTS idx_map_anomalies_system        ON map_anomalies (system_id);
-    CREATE INDEX IF NOT EXISTS idx_map_anomalies_creator       ON map_anomalies (created_by_user_id);
-    CREATE INDEX IF NOT EXISTS idx_user_events_map             ON user_events (map_id);
-    CREATE INDEX IF NOT EXISTS idx_maps_corp                   ON maps (corp_id);
   `);
 
   console.log('done');
