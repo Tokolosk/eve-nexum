@@ -1524,6 +1524,31 @@ mapsRouter.patch('/:mapId/systems/:systemId', async (req, res) => {
     vals.push(v);
   }
 
+  // Predefined labels — applied as coloured pills above the node. A subset of
+  // the fixed id set; deduped before storing.
+  if ('labels' in updates) {
+    const v = updates.labels;
+    const ALLOWED = new Set(['a', 'b', 'c', '1', '2', '3']);
+    if (!Array.isArray(v) || v.some((x) => typeof x !== 'string' || !ALLOWED.has(x))) {
+      res.status(400).json({ error: 'invalid labels' }); return;
+    }
+    sets.push(`labels = $${vals.length + 1}`);
+    vals.push([...new Set(v as string[])]);
+  }
+
+  // Custom labels — up to 3 entries, each 't:<text>' (<=40 chars) or
+  // 'i:<IconName>' (a Phosphor icon component name).
+  if ('customLabels' in updates) {
+    const v = updates.customLabels;
+    const valid = (s: unknown) =>
+      typeof s === 'string' && (/^t:.{1,40}$/.test(s) || /^i:[A-Za-z0-9]{1,40}$/.test(s));
+    if (!Array.isArray(v) || v.length > 3 || v.some((x) => !valid(x))) {
+      res.status(400).json({ error: 'invalid customLabels' }); return;
+    }
+    sets.push(`custom_labels = $${vals.length + 1}`);
+    vals.push(v);
+  }
+
   // handle position separately
   if (updates.position && typeof updates.position === 'object') {
     const pos = updates.position as { x?: number; y?: number };
