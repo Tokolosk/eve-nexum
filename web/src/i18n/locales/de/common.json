@@ -1277,6 +1277,10 @@
       "apiKeys": {
         "title": "API-Schlüsselverwaltung",
         "desc": "Erzeuge und widerrufe persönliche API-Schlüssel, um externe Tools mit deinen Karten zu betreiben. Jeder Schlüssel handelt als gewählter Charakter und ist begrenzt — nur lesen, lesen + Live-Events oder lesen + Inhalte schreiben — also kann er nur das, was auch dieser Charakter kann."
+      },
+      "chains": {
+        "title": "Gespeicherte Wurmloch-Ketten",
+        "desc": "Speichere jeden Pfad durch deine Karte als benannte Kette — wähle Start- und Zielsystem, und die Route wird mit Sprunganzahl gesichert. Fahre über eine Kette, um alles andere abzudunkeln und nur ihre Systeme und Verbindungen hervorzuheben, zentriere auf einen Sprung und ordne deine Ketten neu. Defekte Sprünge melden sich selbst zum erneuten Scouten."
       }
     },
     "corpFeatures": {

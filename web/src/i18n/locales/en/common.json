@@ -1315,6 +1315,10 @@
       "apiKeys": {
         "title": "API key management",
         "desc": "Generate and revoke personal API keys to drive external tools against your maps. Each key acts as a chosen character and is scoped — read-only, read + live events, or read + write content — so it can only ever do what that character can."
+      },
+      "chains": {
+        "title": "Saved wormhole chains",
+        "desc": "Record any path through your map as a named chain — pick a start and end system and the route is saved with its hop count. Hover a chain to dim everything off it and light up just its systems and connections, centre on any hop, and reorder your saved chains. Broken hops flag themselves for a re-scout."
       }
     },
     "corpFeatures": {

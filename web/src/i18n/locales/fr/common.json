@@ -1277,6 +1277,10 @@
       "apiKeys": {
         "title": "Gestion des clés API",
         "desc": "Générez et révoquez des clés API personnelles pour piloter des outils externes sur vos cartes. Chaque clé agit comme un personnage choisi et est limitée — lecture seule, lecture + événements en direct, ou lecture + écriture de contenu — elle ne peut donc faire que ce que ce personnage peut faire."
+      },
+      "chains": {
+        "title": "Chaînes de trous de ver enregistrées",
+        "desc": "Enregistrez n'importe quel chemin sur votre carte comme une chaîne nommée — choisissez un système de départ et d'arrivée, et la route est sauvegardée avec le nombre de sauts. Survolez une chaîne pour assombrir le reste et n'éclairer que ses systèmes et connexions, centrez sur un saut, et réordonnez vos chaînes. Les sauts rompus se signalent pour un re-scout."
       }
     },
     "corpFeatures": {

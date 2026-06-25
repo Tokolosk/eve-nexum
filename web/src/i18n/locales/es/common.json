@@ -1277,6 +1277,10 @@
       "apiKeys": {
         "title": "Gestión de claves API",
         "desc": "Genera y revoca claves API personales para usar herramientas externas con tus mapas. Cada clave actúa como un personaje elegido y tiene alcance — solo lectura, lectura + eventos en vivo, o lectura + escritura de contenido — así que solo puede hacer lo que ese personaje puede."
+      },
+      "chains": {
+        "title": "Cadenas de agujeros de gusano guardadas",
+        "desc": "Guarda cualquier ruta de tu mapa como una cadena con nombre — elige un sistema de inicio y fin y la ruta se guarda con el número de saltos. Pasa el ratón sobre una cadena para atenuar todo lo demás e iluminar solo sus sistemas y conexiones, céntrate en cualquier salto y reordena tus cadenas. Los saltos rotos se marcan para volver a explorar."
       }
     },
     "corpFeatures": {
