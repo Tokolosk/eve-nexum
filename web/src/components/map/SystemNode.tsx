@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Handle, Position, useConnection } from '@xyflow/react';
 import {
   HouseIcon, LockIcon, WarningIcon, SkullIcon, LightningIcon,
-  SunIcon, SnowflakeIcon, SwordIcon, SparkleIcon,
+  SunIcon, SnowflakeIcon, SwordIcon, SparkleIcon, DiamondsFourIcon,
 } from '@phosphor-icons/react';
 import type { NodeProps } from '@xyflow/react';
 import type { MapSystem } from '../../types';
@@ -21,6 +21,9 @@ import { useInsurgency, findInsurgency } from '../../hooks/useInsurgency';
 import { useStorms, findStorm } from '../../hooks/useStorms';
 import { useScoutConnections, findScoutConnections } from '../../hooks/useScoutConnections';
 import { useA0Systems } from '../../hooks/useA0Systems';
+import { useShatteredSystems } from '../../hooks/useShatteredSystems';
+import { PREDEFINED_LABELS, parseCustomLabel, labelTextColor } from '../../data/labels';
+import { iconComponent } from '../../utils/phosphorIcons';
 import { useIceBeltSystems, hasIceBelt } from '../../hooks/useIceBeltSystems';
 import { useCurrentHourKills } from '../../hooks/useCurrentHourKills';
 import { useNow30s } from '../../hooks/useNow30s';
@@ -124,6 +127,9 @@ export const SystemNode = memo(({ data, selected }: NodeProps) => {
   const a0Systems       = useA0Systems();
   const a0Ids           = useMemo(() => new Set(a0Systems.map(s => s.id)), [a0Systems]);
   const isA0            = sys.eveSystemId !== null && a0Ids.has(sys.eveSystemId);
+  const shatteredSystems = useShatteredSystems();
+  const shatteredIds    = useMemo(() => new Set(shatteredSystems.map(s => s.id)), [shatteredSystems]);
+  const isShattered     = sys.eveSystemId !== null && shatteredIds.has(sys.eveSystemId);
   const iceBeltSystems  = useIceBeltSystems();
   const isIceBelt       = useMemo(() => hasIceBelt(iceBeltSystems, sys.eveSystemId), [iceBeltSystems, sys.eveSystemId]);
   const allKills        = useCurrentHourKills();
@@ -223,7 +229,7 @@ export const SystemNode = memo(({ data, selected }: NodeProps) => {
         ...(uniformSize && uniformWidth  > 0 ? { minWidth:  uniformWidth  } : null),
         ...(uniformSize && uniformHeight > 0 ? { minHeight: uniformHeight } : null),
       } as React.CSSProperties}
-      data-selected={selected}
+      data-selected={selected || sys.selected}
       data-heat={heat ? '' : undefined}
       data-status={sys.status}
       data-intel={sys.intel ?? undefined}
@@ -238,6 +244,31 @@ export const SystemNode = memo(({ data, selected }: NodeProps) => {
         selectSystem(sys.id);
       }}
     >
+      {/* Label pills, anchored just above the node's top-left (absolutely
+          positioned so they sit outside the node body). Predefined coloured
+          pills first, then custom text / icon pills. */}
+      {(sys.labels?.length || sys.customLabels?.length) ? (
+        <div className="system-node__labels">
+          {PREDEFINED_LABELS.filter((l) => sys.labels?.includes(l.id)).map((l) => (
+            <span key={l.id} className="system-node__label" style={{ background: l.color }}>{l.char}</span>
+          ))}
+          {(sys.customLabels ?? []).map((raw, i) => {
+            const parsed = parseCustomLabel(raw);
+            if (!parsed) return null;
+            const Icon = parsed.kind === 'icon' ? iconComponent(parsed.value) : null;
+            return (
+              <span
+                key={i}
+                className={`system-node__label${parsed.color ? '' : ' system-node__label--custom'}`}
+                style={parsed.color ? { background: parsed.color, color: labelTextColor(parsed.color), textShadow: 'none' } : undefined}
+              >
+                {Icon ? <Icon size={12} weight="fill" /> : parsed.value}
+              </span>
+            );
+          })}
+        </div>
+      ) : null}
+
       {/* Always present so existing edge handle references stay valid across mode toggles */}
       <Handle type="source" position={Position.Top}    id="top"    className={easyConnect ? 'system-handle system-handle--ghost' : 'system-handle'} />
       <Handle type="source" position={Position.Right}  id="right"  className={easyConnect ? 'system-handle system-handle--ghost' : 'system-handle'} />
@@ -353,6 +384,12 @@ export const SystemNode = memo(({ data, selected }: NodeProps) => {
             <span className="system-node__a0-icon">
               <SunIcon size={14} weight="regular" />
               <span className="system-node__a0-tooltip">{t('mapNode.a0Sun')}</span>
+            </span>
+          )}
+          {isShattered && (
+            <span className="system-node__shattered-icon">
+              <DiamondsFourIcon size={14} weight="regular" />
+              <span className="system-node__shattered-tooltip">{t('mapNode.shattered')}</span>
             </span>
           )}
           {isIceBelt && (

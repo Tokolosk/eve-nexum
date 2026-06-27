@@ -361,6 +361,8 @@
     },
     "snapToGrid": "Aligner sur la grille",
     "settings": "Paramètres",
+    "centerOnJump": "Recentrer au saut",
+    "centerOnSelect": "Recentrer à la sélection",
     "invertZoom": "Inverser le zoom (souris/pavé tactile)",
     "minimap": "Mini-carte",
     "position": "Position",
@@ -708,7 +710,11 @@
     "optimizeConnections": "Optimiser les connexions",
     "spreadNodes": "Espacer les nœuds",
     "removeOrphans": "Supprimer les systèmes orphelins ({{count}})",
-    "removeOrphansConfirm": "Supprimer {{count}} système(s) orphelin(s) ? Ils n'ont aucune connexion valide (aucune, ou uniquement rompues). Les systèmes d'origine et verrouillés sont conservés. Cette action est réversible."
+    "removeOrphansConfirm": "Supprimer {{count}} système(s) orphelin(s) ? Ils n'ont aucune connexion valide (aucune, ou uniquement rompues). Les systèmes d'origine et verrouillés sont conservés. Cette action est réversible.",
+    "labels": "Labels",
+    "customLabel": "Label personnalisé",
+    "clearLabels": "Effacer",
+    "labelNamed": "Label {{name}}"
   },
   "panel": {
     "notes": "Notes",
@@ -1265,6 +1271,18 @@
       "colorVision": {
         "title": "Modes daltoniens",
         "desc": "Des palettes pour la deutéranopie, la protanopie et la tritanopie qui remappent chaque couleur de statut, de classe et de standing dans toute l’application."
+      },
+      "labels": {
+        "title": "Labels de système",
+        "desc": "Étiquetez n'importe quel système avec des labels colorés — activez le jeu prédéfini A/B/C et 1/2/3, ou ajoutez jusqu'à trois labels personnalisés (texte libre ou icône Phosphor) avec une couleur de fond au choix. Ils s'affichent en pastilles au-dessus du nœud et se synchronisent pour tous sur une carte de corporation."
+      },
+      "apiKeys": {
+        "title": "Gestion des clés API",
+        "desc": "Générez et révoquez des clés API personnelles pour piloter des outils externes sur vos cartes. Chaque clé agit comme un personnage choisi et est limitée — lecture seule, lecture + événements en direct, ou lecture + écriture de contenu — elle ne peut donc faire que ce que ce personnage peut faire."
+      },
+      "chains": {
+        "title": "Chaînes de trous de ver enregistrées",
+        "desc": "Enregistrez n'importe quel chemin sur votre carte comme une chaîne nommée — choisissez un système de départ et d'arrivée, et la route est sauvegardée avec le nombre de sauts. Survolez une chaîne pour assombrir le reste et n'éclairer que ses systèmes et connexions, centrez sur un saut, et réordonnez vos chaînes. Les sauts rompus se signalent pour un re-scout."
       }
     },
     "corpFeatures": {
@@ -1421,6 +1439,7 @@
     "altLastKnown": "(dernière connue)",
     "killsTooltip": "{{ships}} vaisseau · {{pods}} capsule détruits cette heure",
     "a0Sun": "Soleil A0",
+    "shattered": "Brisé",
     "iceBelt": "Système à ceinture de glace",
     "incursion": "Système d'incursion",
     "insurgency": "Système d'insurrection",
@@ -1492,5 +1511,25 @@
     "colShipSize": "Taille de saut de vaisseau",
     "colTotalMass": "Masse totale",
     "colLifetime": "Durée de vie"
+  },
+  "whJump": {
+    "confirmOne": "Saut vers {{system}}. Marquer {{sig}} comme y menant ?",
+    "confirmMany": "Saut vers {{system}}. Quelle signature avez-vous empruntée ?",
+    "confirm": "Confirmer",
+    "differentHole": "Autre trou",
+    "unmapped": "Trou inconnu",
+    "filled": "{{sig}} mène maintenant vers {{system}}",
+    "undo": "Annuler"
+  },
+  "labelsDialog": {
+    "title": "Labels personnalisés",
+    "max": "Jusqu'à {{n}} labels personnalisés",
+    "textPlaceholder": "Texte du label",
+    "addText": "Ajouter",
+    "searchIcons": "Rechercher des icônes…",
+    "moreIcons": "{{shown}} sur {{total}} — affinez la recherche",
+    "remove": "Supprimer",
+    "colour": "Couleur",
+    "maxReached": "Maximum de {{n}} labels personnalisés atteint — supprimez-en un pour en ajouter."
   }
 }

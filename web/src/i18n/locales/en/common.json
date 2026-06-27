@@ -399,6 +399,8 @@
     },
     "snapToGrid": "Snap to Grid",
     "settings": "Settings",
+    "centerOnJump": "Re-centre on jump",
+    "centerOnSelect": "Re-centre on select",
     "invertZoom": "Invert zoom (mouse/trackpad)",
     "minimap": "Minimap",
     "position": "Position",
@@ -735,6 +737,10 @@
     "intelEmpty": "Empty",
     "intelUnnamed": "(unnamed)",
     "clearIntel": "Clear Intel",
+    "labels": "Labels",
+    "customLabel": "Custom label",
+    "clearLabels": "Clear",
+    "labelNamed": "Label {{name}}",
     "lockSystem": "Lock System",
     "unlockSystem": "Unlock System",
     "removeSystem": "Remove System",
@@ -1303,6 +1309,18 @@
       "colorVision": {
         "title": "Colour-blind modes",
         "desc": "Deuteranopia, protanopia and tritanopia palettes that re-map every status, class and standings colour across the app."
+      },
+      "labels": {
+        "title": "System labels",
+        "desc": "Tag any system with coloured labels — toggle the built-in A/B/C and 1/2/3 set, or add up to three custom labels of your own (free text or a Phosphor icon) with a pick-your-own background colour. They render as pills above the node and sync to everyone on a corp map."
+      },
+      "apiKeys": {
+        "title": "API key management",
+        "desc": "Generate and revoke personal API keys to drive external tools against your maps. Each key acts as a chosen character and is scoped — read-only, read + live events, or read + write content — so it can only ever do what that character can."
+      },
+      "chains": {
+        "title": "Saved wormhole chains",
+        "desc": "Record any path through your map as a named chain — pick a start and end system and the route is saved with its hop count. Hover a chain to dim everything off it and light up just its systems and connections, centre on any hop, and reorder your saved chains. Broken hops flag themselves for a re-scout."
       }
     },
     "corpFeatures": {
@@ -1459,6 +1477,7 @@
     "altLastKnown": "(last known)",
     "killsTooltip": "{{ships}} ship · {{pods}} pod kills this hour",
     "a0Sun": "A0 sun",
+    "shattered": "Shattered",
     "iceBelt": "Ice belt system",
     "incursion": "Incursion System",
     "insurgency": "Insurgency System",
@@ -1479,5 +1498,25 @@
     "lessThan4h": "< 4 hrs",
     "lessThan1h": "< 1 hr",
     "broken": "Connection broken — the wormhole sig was deleted (hole collapsed)"
+  },
+  "labelsDialog": {
+    "title": "Custom labels",
+    "max": "Up to {{n}} custom labels",
+    "textPlaceholder": "Label text",
+    "addText": "Add",
+    "searchIcons": "Search icons…",
+    "moreIcons": "Showing {{shown}} of {{total}} — search to narrow",
+    "remove": "Remove",
+    "colour": "Colour",
+    "maxReached": "Maximum of {{n}} custom labels reached — remove one to add another."
+  },
+  "whJump": {
+    "confirmOne": "Jumped to {{system}}. Mark {{sig}} as leading there?",
+    "confirmMany": "Jumped to {{system}}. Which signature did you jump?",
+    "confirm": "Confirm",
+    "differentHole": "Different hole",
+    "unmapped": "Unmapped hole",
+    "filled": "{{sig}} now leads to {{system}}",
+    "undo": "Undo"
   }
 }
