@@ -25,8 +25,13 @@ import {
   PathIcon, MapPinSimpleIcon, HouseIcon, LockIcon, LockOpenIcon,
   XIcon, CheckIcon, PlusIcon, SelectionAllIcon, EyeIcon, CrosshairSimpleIcon,
   LinkSimpleIcon, LinkBreakIcon, ArrowsOutIcon, BookmarkSimpleIcon, TextAaIcon, TrashIcon,
+  HashIcon, ProhibitIcon,
 } from '@phosphor-icons/react';
 import { PREDEFINED_LABELS } from '../../data/labels';
+
+// Quick-tag character set: all letters then all digits, laid out in the grid
+// flyout. A single one of these (or none) marks a system via map_systems.tag.
+const TAG_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'.split('');
 import { CustomLabelDialog } from '../ui/CustomLabelDialog';
 import type { MapSystem, SystemIntel } from '../../types';
 import { CLASS_COLORS } from '../../data/wormholes';
@@ -269,16 +274,19 @@ export function MapCanvas() {
     const flowX  = node.position.x + (node.measured?.width  ?? 150) / 2;
     const flowY  = node.position.y + (node.measured?.height ?? 80)  / 2;
 
-    const rfEl   = document.querySelector<HTMLElement>('.react-flow');
-    const panel  = document.querySelector<HTMLElement>('.system-panel');
-    const cW     = rfEl?.offsetWidth  ?? window.innerWidth;
-    const cH     = rfEl?.offsetHeight ?? window.innerHeight;
-    const panelH = panel?.offsetHeight ?? 0;
+    // The canvas (.react-flow, inside the flex:1 .map-canvas) already shrinks to
+    // the space ABOVE the bottom dock (.system-panel is a flex-shrink:0 sibling)
+    // and right of the left sidebar — so its own box IS the available canvas.
+    // Centre within it directly; subtracting the dock height again (as before)
+    // double-counted and pushed the node off the top when the dock was tall.
+    const rfEl = document.querySelector<HTMLElement>('.react-flow');
+    const cW   = rfEl?.offsetWidth  ?? window.innerWidth;
+    const cH   = rfEl?.offsetHeight ?? window.innerHeight;
 
     setViewport(
       {
         x:    cW / 2 - flowX * zoom,
-        y:    (cH - panelH) / 2 - flowY * zoom,
+        y:    cH / 2 - flowY * zoom,
         zoom,
       },
       { duration: 300 },
@@ -1057,6 +1065,45 @@ export function MapCanvas() {
         },
       ];
 
+      // Tag: a single A-Z / 0-9 badge before the system name. The flyout is a
+      // grid of characters plus a clear cell; picking one persists through the
+      // same updateSystem path and closes the menu. Single-select only.
+      const tagItem = !multiSelected ? [{
+        label: t('ctxMenu.tag'),
+        icon:  <HashIcon size={16} weight="regular" color="#f5a623" />,
+        flyout: (close: () => void) => (
+          <div className="tag-picker">
+            {TAG_CHARS.map((c) => (
+              <button
+                key={c}
+                className={`tag-picker__cell${sys?.tag === c ? ' tag-picker__cell--active' : ''}`}
+                onMouseDown={(e) => {
+                  e.stopPropagation();
+                  // Toggle: re-picking the current tag clears it.
+                  updateSystem(contextMenu.nodeId!, { tag: sys?.tag === c ? null : c });
+                  close();
+                }}
+              >
+                {c}
+              </button>
+            ))}
+            <button
+              className="tag-picker__cell tag-picker__cell--clear"
+              disabled={!sys?.tag}
+              aria-label={t('ctxMenu.clearTag')}
+              data-tooltip={t('ctxMenu.clearTag')}
+              onMouseDown={(e) => {
+                e.stopPropagation();
+                updateSystem(contextMenu.nodeId!, { tag: null });
+                close();
+              }}
+            >
+              <ProhibitIcon size={15} weight="regular" />
+            </button>
+          </div>
+        ),
+      }] : [];
+
       // Labels: toggle predefined coloured pills (A/B/C/1/2/3), open the custom
       // dialog, or clear all. Single-select only — each toggle persists via the
       // same updateSystem path intel uses. Closes the menu on click (reopen to
@@ -1112,6 +1159,7 @@ export function MapCanvas() {
           },
         }] : []),
         ...homeItem,
+        ...tagItem,
         ...intelItem,
         ...labelItem,
         ...multiItems,

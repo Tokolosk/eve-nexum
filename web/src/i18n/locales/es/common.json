@@ -50,7 +50,7 @@
     "switchTo": "Cambiar a {{name}}",
     "focusLocation": "Centrar y rutar desde {{name}}",
     "noLocation": "No hay ubicación conocida de {{name}}",
-    "linkFailedNotInCorp": "No se pudo añadir ese personaje: no está en la corporación.",
+    "linkFailedNotInCorp": "No se pudo añadir ese personaje: no pertenece a una corporación o alianza autorizada.",
     "linkFailed": "No se pudo añadir ese personaje. Inténtalo de nuevo.",
     "remove": "Quitar",
     "removeCharacter": "Quitar a {{name}}",
@@ -109,7 +109,9 @@
       "loadFailed": "No se pudieron cargar los usuarios",
       "roleChangeFailed": "Error al cambiar el rol",
       "blockChangeFailed": "Error al cambiar el bloqueo",
-      "recheckFailed": "Error en la reverificación"
+      "recheckFailed": "Error en la reverificación",
+      "searchPlaceholder": "Buscar miembros…",
+      "noMatch": "Ningún miembro coincide con «{{query}}»."
     },
     "maps": {
       "title": "Mapas",
@@ -242,11 +244,37 @@
       "saving": "Guardando…",
       "saveRegions": "Guardar regiones",
       "saved": "Guardado",
+      "events": "Difusiones",
+      "broadcastChains": "Difundir cadenas guardadas",
+      "broadcastChainsHint": "Cuando está activado, al guardar una cadena de agujeros de gusano se publica en Discord con su nombre, sistemas de inicio y fin, tamaño máximo de nave y número de saltos.",
+      "webhooks": "Webhooks",
+      "webhooksHint": "Dónde se publican las notificaciones. Pega una URL de webhook de Discord para cada canal; deja un campo vacío para desactivar ese tipo.",
+      "connectionsWebhook": "Conexiones (K162 + conexiones nuevas)",
+      "chainsWebhook": "Cadenas (cadenas guardadas)",
+      "whFilters": "Filtros de agujero de gusano",
+      "whFiltersHint": "Filtra qué notificaciones de nueva conexión se envían. Deja un filtro vacío para permitir todo; un agujero debe coincidir con todos los filtros que establezcas.",
+      "whTypeLabel": "Tipo",
+      "whTypePlaceholder": "Añadir un tipo de agujero (p. ej. C247)…",
+      "whClassLabel": "Clase de destino",
+      "whSizeLabel": "Tamaño",
+      "whAll": "Todos",
+      "removeType": "Quitar {{name}}",
       "excludedMaps": "Mapas excluidos",
       "excludedHint": "Todos los mapas notifican por defecto. Marca un mapa para excluirlo de Discord.",
       "noCorpMaps": "Aún no hay mapas de corp.",
       "colMap": "Mapa",
       "colExclude": "Excluir"
+    },
+    "roles": {
+      "button": "¿Roles?",
+      "title": "Qué puede hacer cada rol",
+      "desc": {
+        "alliance_admin": "Control total sobre toda la alianza: gestiona los mapas de alianza y el rol de cada miembro. Incluye todo lo que puede hacer un Admin.",
+        "admin": "Administración de corporación: gestiona los usuarios de tu corp (cambiar roles, bloquear), bloquea mapas y todo lo que puede Full.",
+        "full": "Crear, eliminar y bloquear mapas de corp y alianza, además de toda la edición.",
+        "edit": "Editar mapas: sistemas, conexiones, firmas, estructuras y notas, pero no crear, eliminar ni bloquear mapas.",
+        "readonly": "Solo lectura. Puede ver los mapas pero no cambiar nada."
+      }
     }
   },
   "proximityOptIn": {
@@ -279,11 +307,13 @@
     "type": "Tipo",
     "personal": "Personal",
     "corp": "Corp",
+    "alliance": "Alianza",
     "regionLabel": "Región (opcional — vacío para un mapa en blanco)",
     "regionPlaceholder": "Escribe para buscar regiones…",
     "clearRegion": "Borrar región",
     "regionHint": "Genera {{count}} sistemas desde {{region}}, posicionados según sus coordenadas en el juego con todos los enlaces de puerta estelar.",
     "corpLimit": "Límite de mapas de corp alcanzado ({{max}}).",
+    "allianceLimit": "Límite de mapas de alianza alcanzado ({{max}}).",
     "personalLimit": "Límite de mapas personales alcanzado ({{max}}).",
     "createFailed": "No se pudo crear el mapa",
     "created": "«{{name}}» creado desde {{region}}",
@@ -374,6 +404,9 @@
     },
     "fontSize": "Tamaño de fuente",
     "placement": "Colocación de sistemas nuevos",
+    "mapBookmark": "Formato de marcador del mapa (compartido)",
+    "mapBookmarkPlaceholder": "Usar el formato propio de cada usuario",
+    "mapBookmarkHelp": "Cuando se define, todos en este mapa copian los marcadores con este formato. Déjalo en blanco para que cada usuario use su propio formato de abajo.",
     "sigBookmark": "Marcador de firma",
     "bookmarkHelp": "En la fila de una firma de agujero de gusano, haz clic en el icono de copiar para copiar un nombre de marcador listo, y pégalo en el marcador del juego. Crea el nombre con estos tokens:",
     "crossMapSync": "Sincronizar datos del sistema entre mis mapas",
@@ -444,6 +477,7 @@
     "fleetHeatmap": "Mapa de calor de flota",
     "showAccountChars": "Mostrar mis personajes",
     "staleHint": "Atenúa visualmente los sistemas que no se han actualizado en el intervalo elegido, para detectar de un vistazo los restos de cadenas antiguas.",
+    "staleNever": "Nunca",
     "exportJson": "↓ Exportar como JSON",
     "importJson": "↑ Importar desde JSON",
     "exportPng": "⎙ Exportar como PNG",
@@ -499,7 +533,12 @@
     "notifColSound": "Sonido",
     "notifK162": "K162 entrante",
     "notifProximity": "Amenazas de proximidad",
-    "notifWatchlist": "Coincidencia de lista de seguimiento"
+    "notifWatchlist": "Coincidencia de lista de seguimiento",
+    "routeIncludeThera": "Incluir conexiones de Thera",
+    "routeIncludeTurnur": "Incluir conexiones de Turnur",
+    "routeIncludeWormholes": "Incluir cadena de agujeros de gusano",
+    "routeShortcutNote": "Las rutas que usan un agujero de gusano, Thera, Turnur o una puerta de salto no se pueden establecer como destino o punto de ruta en el juego; haz clic derecho en un sistema k-space de la ruta para ir a él.",
+    "routeIncludeAnsiblex": "Incluir puertas Ansiblex"
   },
   "customIntel": {
     "title": "Intel personalizada",
@@ -543,7 +582,8 @@
     "max": "Máximo {{count}} entradas en la lista de seguimiento",
     "add": "Añadir a la lista de seguimiento",
     "appeared": "Lista de seguimiento: {{name}} ({{marker}}) está en el mapa",
-    "notifTitle": "Coincidencia de lista de seguimiento"
+    "notifTitle": "Coincidencia de lista de seguimiento",
+    "duplicate": "Ya está en la lista de seguimiento"
   },
   "chainExits": {
     "noExits": "No hay salidas de K-space en esta cadena.",
@@ -646,7 +686,9 @@
     "removeConnection": "Quitar conexión",
     "brokenNotice": "Conexión rota — la firma de agujero de gusano que la sostenía fue eliminada. Se mantiene en el mapa pero en cuarentena del enrutamiento.",
     "restore": "Restaurar",
-    "restoreTitle": "Quitar la marca de rota y volver a tratarla como una conexión activa"
+    "restoreTitle": "Quitar la marca de rota y volver a tratarla como una conexión activa",
+    "gateNote": "Stargate normal — sin datos de agujero de gusano.",
+    "jumpgateNote": "Puente Ansiblex — sin datos de agujero de gusano."
   },
   "mapControls": {
     "panel": "Panel de control",
@@ -714,7 +756,9 @@
     "labels": "Etiquetas",
     "customLabel": "Etiqueta personalizada",
     "clearLabels": "Borrar",
-    "labelNamed": "Etiqueta {{name}}"
+    "labelNamed": "Etiqueta {{name}}",
+    "tag": "Marca",
+    "clearTag": "Quitar marca"
   },
   "panel": {
     "notes": "Notas",
@@ -723,7 +767,9 @@
     "structures": "Estructuras",
     "npcStations": "Estaciones PNJ",
     "killboard": "zKillboard",
-    "activity": "Actividad"
+    "activity": "Actividad",
+    "undock": "Desacoplar a una ventana flotante",
+    "redock": "Volver a acoplar"
   },
   "systemPanel": {
     "unknownSystem": "Sistema desconocido",
@@ -801,7 +847,7 @@
     "home": "Origen",
     "noJumps": "— saltos",
     "removeFromList": "Quitar de la lista",
-    "signIn": "Inicia sesión y atraca en K-space para ver los saltos a los hubs.",
+    "signIn": "Inicia sesión y atraca en K-space para ver los saltos a los hubs, o activa las opciones de atajos de ruta para calcular rutas desde un agujero de gusano o Thera.",
     "searchPlaceholder": "Buscar nombre de sistema…",
     "onList": "en la lista",
     "noMatch": "Ningún sistema coincide con «{{query}}»"
@@ -826,7 +872,15 @@
   },
   "route": {
     "fromLastKnown": "Saltos desde {{system}} (última ubicación conocida)",
-    "fromCharacter": "Saltos desde {{character}} — {{system}}"
+    "fromCharacter": "Saltos desde {{character}} — {{system}}",
+    "viaWormhole": "Salto por agujero de gusano",
+    "viaThera": "Vía Thera",
+    "viaTurnur": "Vía Turnur",
+    "riskEol": "EOL",
+    "riskCritical": "Masa crítica",
+    "riskFrig": "Agujero de fragata",
+    "shortcutNoWaypoint": "Esta ruta usa un agujero de gusano/Thera/Turnur/puerta de salto y no se puede establecer como destino del piloto automático; haz clic derecho en un sistema k-space de la ruta.",
+    "viaAnsiblex": "Puerta de salto Ansiblex"
   },
   "activity": {
     "thisHour": "esta hora",
@@ -871,6 +925,8 @@
     "showNpcKills": "Mostrar kills de PNJ",
     "loading": "Cargando kills…",
     "noKills": "Sin kills en las últimas 24h.",
+    "lastKillAgo": "Sin kills en las últimas 24h — el último {{time}}.",
+    "noKillsOnRecord": "No hay kills registrados.",
     "noKillsNpc": "Sin kills en las últimas 24h — {{count}} solo de PNJ ocultos.",
     "showThem": "Mostrarlos",
     "loadMore": "Cargar más ({{count}} restantes)"
@@ -926,6 +982,7 @@
     "colNotes": "Notas",
     "colAge": "Antigüedad",
     "colUpdated": "Actualizado",
+    "columns": "Columnas",
     "namePlaceholder": "Nombre del sitio"
   },
   "anomalies": {
@@ -958,6 +1015,7 @@
     "colNotes": "Notas",
     "colAge": "Antigüedad",
     "colUpdated": "Actualizado",
+    "columns": "Columnas",
     "namePlaceholder": "Nombre de la anomalía"
   },
   "stats": {
@@ -1007,6 +1065,7 @@
     "mapType": {
       "shared": "Compartido",
       "corp": "Corp",
+      "alliance": "Alianza",
       "solo": "Solo"
     },
     "lockedTooltip": "El mapa está bloqueado — sistemas y conexiones congelados. Las firmas, estructuras y notas aún se pueden editar.",
@@ -1050,7 +1109,8 @@
       "threat": "Amenaza",
       "closest": "Sistema {{label}} más cercano"
     },
-    "resetLayout": "Restablecer disposición de la barra de herramientas"
+    "resetLayout": "Restablecer disposición de la barra de herramientas",
+    "copyThisMap": "Copiar este mapa"
   },
   "landing": {
     "tagline": "Cartografía de cadenas de agujeros de gusano para EVE Online",
@@ -1064,17 +1124,17 @@
       "joinDiscord": "Únete al Discord de Nexum"
     },
     "errors": {
-      "not_in_corp": "Tu personaje no es miembro de la corporación que gestiona esta instancia de Nexum. El acceso está restringido a miembros de la corp.",
+      "not_in_corp": "Tu personaje no pertenece a una corporación o alianza autorizada para acceder a esta instancia de Nexum. El acceso está restringido a miembros autorizados.",
       "corp_check_failed": "No se pudo verificar tu pertenencia a la corporación debido a un error de la ESI. Inténtalo de nuevo en un momento.",
       "unknown": "Ocurrió un error desconocido. Inténtalo de nuevo."
     },
     "sections": {
       "mapping": "Cartografía",
-      "personalCorp": "Mapas personales y de corp",
+      "personalCorp": "Mapas personales, de corp y de alianza",
       "sysIntel": "Inteligencia de sistemas",
       "liveOps": "Operaciones en vivo",
       "productivity": "Productividad y UX",
-      "forCorps": "Para corporaciones",
+      "forCorps": "Para corporaciones y alianzas",
       "compare": "¿Cómo se compara Nexum?",
       "languages": "Disponible en tu idioma",
       "discordCta": "¿Preguntas, ideas o bugs?",
@@ -1289,6 +1349,14 @@
       "multiCorp": {
         "title": "Despliegues multi-corp",
         "desc": "CORP_ID acepta una lista de IDs de corporación separados por comas. Una instancia de Nexum puede alojar varias corps; los mapas de cada corp se limitan a sus propios miembros salvo que CORP_MAP_SHARED=true."
+      },
+      "allianceMaps": {
+        "title": "Mapas de toda la alianza",
+        "desc": "ALLIANCE_ID añade un tercer ámbito de mapas por encima de la corp: mapas de alianza que todos los miembros pueden ver. Con ALLIANCE_MAP_SHARED=true se comparten entre una coalición de alianzas."
+      },
+      "allianceRoles": {
+        "title": "Rol de admin de alianza",
+        "desc": "Un nivel dedicado alliance_admin gestiona los mapas de alianza y el rol de cada miembro en toda la alianza, un superconjunto del admin de corp. Cualquier corp dentro de la alianza puede mantener sus propios mapas privados, sin lista CORP_ID."
       },
       "adminDash": {
         "title": "Panel de administración",
@@ -1531,5 +1599,20 @@
     "remove": "Eliminar",
     "colour": "Color",
     "maxReached": "Máximo de {{n}} etiquetas personalizadas alcanzado — elimina una para añadir otra."
+  },
+  "copyMap": {
+    "title": "Copiar mapa",
+    "sourceLabel": "Copiando desde",
+    "nameLabel": "Nombre del nuevo mapa",
+    "namePlaceholder": "Nombre del nuevo mapa",
+    "include": "Copiar",
+    "copyNotes": "Notas",
+    "copySignatures": "Firmas",
+    "copyStructures": "Estructuras",
+    "copyAnomalies": "Anomalías",
+    "submit": "Crear copia",
+    "copying": "Copiando…",
+    "success": "Copiado a {{name}}",
+    "failed": "Error al copiar"
   }
 }

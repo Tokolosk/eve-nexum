@@ -45,6 +45,9 @@ export const SystemNode = memo(({ data, selected }: NodeProps) => {
   const { t } = useTranslation();
   const sys = data as unknown as SystemNodeData;
   const color = CLASS_COLORS[sys.systemClass];
+  // Region is only worth showing for k-space; a wormhole's J-space region code
+  // ("B-R00007") carries no useful intel.
+  const isKspace = sys.systemClass === 'HS' || sys.systemClass === 'LS' || sys.systemClass === 'NS';
   const selectSystem    = useMapStore((s) => s.selectSystem);
   const compactMode     = useMapStore((s) => s.compactMode);
   const uniformSize     = useMapStore((s) => s.uniformSize);
@@ -153,7 +156,8 @@ export const SystemNode = memo(({ data, selected }: NodeProps) => {
   }, [heatmap.metric, heatmap.max, heatmap.intensity, heatmap.colorVision, sys.eveSystemId, allKills, fleet, user?.characterId]);
   const now             = useNow30s();
   const [staleHours]    = useStaleThreshold();
-  const isStale         = !!sys.lastActivityAt &&
+  // staleHours === 0 is the "Never fade" sentinel: no system is ever stale.
+  const isStale         = staleHours > 0 && !!sys.lastActivityAt &&
                           (now - new Date(sys.lastActivityAt).getTime()) > staleHours * 3_600_000;
   const connection      = useConnection();
   const [customIntel]   = useCustomIntel();
@@ -352,6 +356,7 @@ export const SystemNode = memo(({ data, selected }: NodeProps) => {
             <HouseIcon size={14} weight="regular" />
           </span>
         )}
+        {sys.tag && <span className="system-node__tag">{sys.tag}</span>}
         <span className="system-node__name">{sys.name || t('mapNode.unknown')}</span>
         {sys.security != null && Number.isFinite(Number(sys.security)) && (
           <span className="system-node__truesec" style={{ color: truesecColor(Number(sys.security)) }}>
@@ -450,7 +455,7 @@ export const SystemNode = memo(({ data, selected }: NodeProps) => {
         </div>
       </div>
 
-      {!compactMode && sys.regionName && (
+      {!compactMode && isKspace && sys.regionName && (
         <div className="system-node__npc-type">
           {sys.regionName}{sys.npcType ? ` - ${sys.npcType}` : ''}
         </div>

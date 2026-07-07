@@ -3,7 +3,7 @@ import { esiFetch } from '../utils/esi.js';
 import type { Request, Response } from 'express';
 import { db } from '../db.js';
 import { requireAuth } from '../middleware/requireAuth.js';
-import { authUser } from '../middleware/authContext.js';
+import { authUser, isAdmin, isAllianceAdmin } from '../middleware/authContext.js';
 import { config } from '../config.js';
 import { decryptToken } from '../utils/tokenCrypto.js';
 import { createLogger } from '../utils/logger.js';
@@ -19,7 +19,8 @@ import {
   createStructure, updateStructure, deleteStructure,
 } from '../services/mapWrite.js';
 import { reportPresence } from '../services/presence.js';
-import { notifyDiscord, webhookFor, k162Embed, connectionEmbed } from '../services/discord.js';
+import { copyMap } from '../services/mapCopy.js';
+import { notifyDiscord, k162Embed, connectionEmbed, chainEmbed } from '../services/discord.js';
 
 const log = createLogger('maps');
 const discordLog = createLogger('discord');
@@ -81,14 +82,17 @@ mapsRouter.use(requireAuth);
 // ── Access control helpers ────────────────────────────────────────────────────
 
 // How the current user can see this map. Determines which writes are allowed:
-//   - owner        : their personal map (or a corp map they happened to create)
-//   - corp_member  : visible via corp membership; role-gated for writes
-//   - shared       : explicit map_shares grant (character or corp) — full edit,
-//                    no role check, but lock + owner-only ops still apply
-export type AccessKind = 'owner' | 'corp_member' | 'shared';
+//   - owner          : their personal map (or a corp map they happened to create)
+//   - corp_member    : visible via corp membership; role-gated for writes
+//   - alliance_member: visible via alliance membership; role-gated for writes,
+//                      lifecycle/management is alliance_admin-only
+//   - shared         : explicit map_shares grant (character or corp) — full edit,
+//                      no role check, but lock + owner-only ops still apply
+export type AccessKind = 'owner' | 'corp_member' | 'alliance_member' | 'shared';
 export interface MapMeta {
   userId:     number;
   corpId:     number | null;
+  allianceId: number | null;
   locked:     boolean;
   accessKind: AccessKind;
 }
@@ -103,15 +107,17 @@ export async function getMapAccess(mapId: string, req: Request): Promise<MapMeta
   if (!UUID_RE.test(mapId)) return null;
   // Resolve identity from EITHER the session or an API-key context (req.apiAuth),
   // so the same access logic serves cookie clients and external API keys.
-  const auth       = authUser(req);
-  const userId     = auth.userId;
-  const userCorpId = auth.corpId;
+  const auth           = authUser(req);
+  const userId         = auth.userId;
+  const userCorpId     = auth.corpId;
+  const userAllianceId = auth.allianceId;
 
   // Pull map + caller's EVE character id in one round-trip; the latter is
   // needed to match against map_shares.target_character_id.
   const { rows } = await db.query<{
     userId:     number;
     corpId:     number | null;
+    allianceId: number | null;
     locked:     boolean;
     callerChar: number;
     mapOwner:    number | null;
@@ -119,6 +125,7 @@ export async function getMapAccess(mapId: string, req: Request): Promise<MapMeta
   }>(
     `SELECT m.user_id AS "userId",
             m.corp_id AS "corpId",
+            m.alliance_id AS "allianceId",
             m.locked,
             m.owner_id AS "mapOwner",
             u.character_id AS "callerChar",
@@ -130,27 +137,46 @@ export async function getMapAccess(mapId: string, req: Request): Promise<MapMeta
   );
   if (!rows.length) return null;
   const m = rows[0];
+  const meta = (accessKind: AccessKind): MapMeta =>
+    ({ userId: m.userId, corpId: m.corpId, allianceId: m.allianceId, locked: m.locked, accessKind });
 
   // Owner = this account. A map belongs to the account that owns it (any of
   // the account's characters), with a defensive fall back to the creating
   // character so you can never lose access to a map you made even if owner_id
   // is somehow unset.
   if (m.userId === userId || (m.mapOwner != null && m.callerOwner != null && m.mapOwner === m.callerOwner)) {
-    return { userId: m.userId, corpId: m.corpId, locked: m.locked, accessKind: 'owner' };
+    return meta('owner');
   }
 
-  const isCorpMap = config.corpMode
-    && m.corpId !== null
-    && config.corpIds.includes(m.corpId)
-    && (config.corpMapShared || m.corpId === userCorpId);
+  // Corp map access. Two ways in:
+  //   • Explicit corp deployment (CORP_ID): the map's corp must be listed;
+  //     CORP_MAP_SHARED decides whether other listed corps see it.
+  //   • Alliance deployment: any corp inside the (login-gated) alliance keeps
+  //     its own corp map, visible to same-corp members — no CORP_ID list, since
+  //     enumerating every member corp is unmanageable for a large alliance.
+  const isCorpMap = m.corpId !== null && (
+    (config.corpMode && config.corpIds.includes(m.corpId) && (config.corpMapShared || m.corpId === userCorpId))
+    || (config.allianceMode && m.corpId === userCorpId)
+  );
   if (isCorpMap) {
-    return { userId: m.userId, corpId: m.corpId, locked: m.locked, accessKind: 'corp_member' };
+    return meta('corp_member');
+  }
+
+  // Alliance map: visible to members of the owning alliance (or every listed
+  // alliance under ALLIANCE_MAP_SHARED). Mirrors the corp branch one scope up.
+  const isAllianceMap = config.allianceMode
+    && m.allianceId !== null
+    && config.allianceIds.includes(m.allianceId)
+    && (config.allianceMapShared || m.allianceId === userAllianceId);
+  if (isAllianceMap) {
+    return meta('alliance_member');
   }
 
   // Personal map shared with this character or their corp? Personal-map only —
-  // corp maps don't accept individual grants. Corp grants resolve against the
+  // a personal map has NEITHER corp_id nor alliance_id. Corp/alliance-scoped
+  // maps don't accept individual grants. Corp grants resolve against the
   // caller's *current* corp_id; switching corps moves access with them.
-  if (m.corpId === null) {
+  if (m.corpId === null && m.allianceId === null) {
     const { rowCount } = await db.query(
       `SELECT 1 FROM map_shares
          WHERE map_id = $1
@@ -160,7 +186,7 @@ export async function getMapAccess(mapId: string, req: Request): Promise<MapMeta
       [mapId, m.callerChar, userCorpId],
     );
     if (rowCount && rowCount > 0) {
-      return { userId: m.userId, corpId: m.corpId, locked: m.locked, accessKind: 'shared' };
+      return meta('shared');
     }
   }
 
@@ -208,9 +234,9 @@ export async function requireMapContentWrite(res: Response, mapId: string, req: 
 
   // Owners and explicit-share recipients always get write access. A share
   // grant is a deliberate invitation by the owner — honouring it shouldn't
-  // depend on the recipient's general role. Corp-map writes still go through
-  // the role check so readonly corp members can't silently edit.
-  if (access.accessKind === 'corp_member' && role === 'readonly') {
+  // depend on the recipient's general role. Corp- and alliance-map writes still
+  // go through the role check so readonly members can't silently edit.
+  if ((access.accessKind === 'corp_member' || access.accessKind === 'alliance_member') && role === 'readonly') {
     res.status(403).json({ error: 'Write access required' }); return null;
   }
   return access;
@@ -225,7 +251,12 @@ async function requireMapWrite(res: Response, mapId: string, req: Request): Prom
   if (authUser(req).apiScope) {
     res.status(403).json({ error: 'API keys cannot modify map topology' }); return null;
   }
-  if (access.locked && authUser(req).role !== 'admin') {
+  // Lock bypass mirrors who may toggle the lock: alliance maps need an alliance
+  // admin, corp/personal maps an ordinary admin — so a corp admin can't edit
+  // through an alliance lock they aren't allowed to set.
+  const bypassRole = authUser(req).role;
+  const canBypassLock = access.allianceId !== null ? isAllianceAdmin(bypassRole) : isAdmin(bypassRole);
+  if (access.locked && !canBypassLock) {
     res.status(403).json({ error: 'Map is locked' }); return null;
   }
   return access;
@@ -254,24 +285,28 @@ function regionAllowed(allRegions: boolean, allow: string[], names: (string | nu
 // wait longer than this, and a second detection for an already-pending sig is
 // ignored so the original deadline stands.
 const K162_DEFER_MS = 10_000;
-interface PendingK162 { timer: ReturnType<typeof setTimeout>; corpId: number | null; actor: string | null; }
+interface PendingK162 { timer: ReturnType<typeof setTimeout>; actor: string | null; }
 const pendingK162 = new Map<string, PendingK162>();
 
+// True when a map has an owning org that could have webhooks (corp or alliance).
+// Personal maps never notify, so we skip them without a DB round-trip.
+function hasOrg(meta: MapMeta): boolean { return meta.corpId != null || meta.allianceId != null; }
+
 export function dispatchK162(meta: MapMeta, sigId: string, systemId: string, actor: string | null): void {
-  if (!webhookFor(meta.corpId)) {
-    discordLog.info(`K162 detected (system ${systemId}) but not sending — no webhook for corpId=${meta.corpId ?? 'null (personal map; webhooks are corp-maps only)'}`);
+  if (!hasOrg(meta)) {
+    discordLog.info(`K162 detected (system ${systemId}) but not sending — personal map (no corp/alliance)`);
     return;
   }
   if (pendingK162.has(sigId)) {
     discordLog.info(`K162 (sig ${sigId}) already pending — keeping the existing ${K162_DEFER_MS / 1000}s window`);
     return;
   }
-  discordLog.info(`K162 on corp map (corpId=${meta.corpId}, sig ${sigId}) — deferring ${K162_DEFER_MS / 1000}s to catch a leads-to`);
+  discordLog.info(`K162 on org map (corpId=${meta.corpId ?? 'null'}/allianceId=${meta.allianceId ?? 'null'}, sig ${sigId}) — deferring ${K162_DEFER_MS / 1000}s to catch a leads-to`);
   const timer = setTimeout(() => {
     pendingK162.delete(sigId);
-    void fireK162(meta.corpId, sigId, actor);
+    void fireK162(sigId, actor);
   }, K162_DEFER_MS);
-  pendingK162.set(sigId, { timer, corpId: meta.corpId, actor });
+  pendingK162.set(sigId, { timer, actor });
 }
 
 // Send a pending K162 immediately — e.g. once its leads-to has been filled in —
@@ -283,31 +318,46 @@ export function flushK162(sigId: string): void {
   clearTimeout(p.timer);
   pendingK162.delete(sigId);
   discordLog.info(`K162 (sig ${sigId}) leads-to set — sending now instead of waiting`);
-  void fireK162(p.corpId, sigId, p.actor);
+  void fireK162(sigId, p.actor);
 }
+
+// The Discord settings resolved for a map's org (corp OR alliance), read by LEFT
+// JOINing both settings tables on the map's own corp_id / alliance_id — a map
+// matches exactly one, so COALESCE picks that row (or the permissive defaults
+// when the org has never saved settings). Includes the per-event webhook URLs.
+const DISCORD_SETTINGS_JOIN = `
+  LEFT JOIN corp_discord_settings     cds ON cds.corp_id     = m.corp_id
+  LEFT JOIN alliance_discord_settings ads ON ads.alliance_id = m.alliance_id`;
+const DISCORD_SETTINGS_COLS = `
+  COALESCE(cds.all_regions,   ads.all_regions,   TRUE)          AS "allRegions",
+  COALESCE(cds.regions,       ads.regions,       '{}'::text[])  AS "regions",
+  COALESCE(cds.notify_chains, ads.notify_chains, TRUE)          AS "notifyChains",
+  COALESCE(cds.connections_webhook, ads.connections_webhook)    AS "connectionsWebhook",
+  COALESCE(cds.chains_webhook,      ads.chains_webhook)         AS "chainsWebhook"`;
 
 // Re-read the signature now (after the defer window) and send if it's still a
 // K162, including the leads-to if one was set in the meantime.
-async function fireK162(corpId: number | null, sigId: string, actor: string | null): Promise<void> {
+async function fireK162(sigId: string, actor: string | null): Promise<void> {
   try {
     const { rows } = await db.query<{
       whType: string | null; leadsTo: string | null; system: string; systemClass: string;
       region: string | null; mapName: string; mapEnabled: boolean; allRegions: boolean; regions: string[];
+      connectionsWebhook: string | null;
     }>(
       `SELECT sg.wh_type AS "whType", sg.wh_leads_to AS "leadsTo",
               s.name AS "system", s.system_class AS "systemClass", s.region_name AS "region",
               m.name AS "mapName", m.discord_notify AS "mapEnabled",
-              COALESCE(cds.all_regions, TRUE)        AS "allRegions",
-              COALESCE(cds.regions, '{}'::text[])    AS "regions"
+              ${DISCORD_SETTINGS_COLS}
          FROM map_signatures sg
          JOIN map_systems s ON s.id = sg.system_id
          JOIN maps m ON m.id = s.map_id
-         LEFT JOIN corp_discord_settings cds ON cds.corp_id = $2
+         ${DISCORD_SETTINGS_JOIN}
         WHERE sg.id = $1`,
-      [sigId, corpId],
+      [sigId],
     );
     const r = rows[0];
     if (!r) { discordLog.info(`K162 (sig ${sigId}) removed before send — skipping`); return; }
+    if (!r.connectionsWebhook) { discordLog.info(`K162 (sig ${sigId}) suppressed — no connections webhook configured`); return; }
     if ((r.whType ?? '').toUpperCase() !== 'K162') {
       discordLog.info(`K162 (sig ${sigId}) changed to "${r.whType ?? ''}" before send — skipping`);
       return;
@@ -317,51 +367,203 @@ async function fireK162(corpId: number | null, sigId: string, actor: string | nu
       return;
     }
     if (!regionAllowed(r.allRegions, r.regions, [r.region])) {
-      discordLog.info(`K162 (sig ${sigId}) suppressed — region "${r.region ?? 'unknown'}" not in the corp filter`);
+      discordLog.info(`K162 (sig ${sigId}) suppressed — region "${r.region ?? 'unknown'}" not in the org filter`);
       return;
     }
-    notifyDiscord(corpId, k162Embed({ system: r.system, systemClass: r.systemClass, leadsTo: r.leadsTo, mapName: r.mapName, actor }));
+    notifyDiscord(r.connectionsWebhook, k162Embed({ system: r.system, systemClass: r.systemClass, leadsTo: r.leadsTo, mapName: r.mapName, actor }));
   } catch (e) {
     discordLog.warn(`K162 deferred dispatch failed: ${(e as Error).message}`);
   }
+}
+
+// The leads-to "band" a wormhole signature uses for an arrival class — mirrors
+// whJumpConfirm.bandFor on the client so the server's wormhole-evidence check
+// stays in step with what the client would treat as a plausible hole.
+function whBand(cls: string): string {
+  if (cls === 'C1' || cls === 'C2' || cls === 'C3') return 'C1-C3';
+  if (cls === 'C4' || cls === 'C5') return 'C4-C5';
+  return cls; // C6 / C13 / Thera / Pochven / Drifter / HS / LS / NS
+}
+
+// The wh_leads_to values a hole in `fromClass`-space could carry and still be a
+// plausible candidate for a jump that ARRIVED in a `toClass`/`toName` system:
+// unscanned ('' / 'unknown'), pinned to that exact system, or class/band-matched.
+// (A hole pinned to a different system name is excluded — it's already solved.)
+function candidateLeadsTo(toName: string, toClass: string): string[] {
+  return ['', 'unknown', toName, whBand(toClass), toClass];
+}
+
+// Whether a jump between two systems looks like a real WORMHOLE jump rather than
+// a gate / Ansiblex / bridge: at least one endpoint must hold a scanned wormhole
+// signature that plausibly accounts for the hop. In-game gates are already typed
+// 'gate' and never reach here; this catches jump-bridge hops between k-space
+// systems that the stargate check can't (they aren't stargate-adjacent), which
+// otherwise looked like fresh wormholes.
+//
+// Returns { backed, whType }: backed=false → suppress (no wormhole evidence);
+// whType is the backing hole's type code for the embed + type filter, preferring
+// the source-side sig's real code (e.g. 'C247') over a bare 'K162' twin, '' when
+// unknown. Best-effort: on a query error we assume it IS a wormhole (fail-open,
+// unknown type) rather than silently dropping a real one.
+async function wormholeEvidence(
+  sourceId: string, targetId: string,
+  aName: string, aClass: string, bName: string, bClass: string,
+): Promise<{ backed: boolean; whType: string }> {
+  try {
+    const { rows } = await db.query<{ whType: string | null }>(
+      `SELECT sg.wh_type AS "whType"
+         FROM map_signatures sg
+        WHERE sg.sig_type = 'wormhole'
+          AND ( (sg.system_id = $1 AND sg.wh_leads_to = ANY($3::text[]))
+             OR (sg.system_id = $2 AND sg.wh_leads_to = ANY($4::text[])) )
+        ORDER BY CASE WHEN COALESCE(sg.wh_type, '') NOT IN ('', 'K162') THEN 0 ELSE 1 END
+        LIMIT 1`,
+      [sourceId, targetId, candidateLeadsTo(bName, bClass), candidateLeadsTo(aName, aClass)],
+    );
+    if (rows.length === 0) return { backed: false, whType: '' };
+    return { backed: true, whType: (rows[0].whType ?? '').toUpperCase() };
+  } catch (e) {
+    discordLog.warn(`wormhole-evidence check failed (assuming wormhole): ${(e as Error).message}`);
+    return { backed: true, whType: '' };
+  }
+}
+
+// Wormhole notification filters (type code / dest class / size). An empty list
+// means "all" (the default). Type is fail-open on an unknown/empty code so a
+// hole whose type isn't scanned yet is never silently dropped by a type filter;
+// class and size are always known, so they match strictly.
+function whListAllows(list: string[], value: string): boolean {
+  return list.length === 0 || list.includes(value);
+}
+function whTypeAllows(list: string[], code: string): boolean {
+  return list.length === 0 || code === '' || list.includes(code);
 }
 
 function dispatchNewConnection(
   meta: MapMeta, mapId: string, sourceId: string, targetId: string,
   whType: string | null, size: string | null, actor: string | null,
 ): void {
-  if (!webhookFor(meta.corpId)) {
-    discordLog.info(`new connection but not sending — no webhook for corpId=${meta.corpId ?? 'null (personal map; webhooks are corp-maps only)'}`);
-    return;
-  }
-  discordLog.info(`new connection on corp map (corpId=${meta.corpId}) — building notification`);
+  if (!hasOrg(meta)) return; // personal map — never notifies
+  discordLog.info(`new connection on org map (corpId=${meta.corpId ?? 'null'}/allianceId=${meta.allianceId ?? 'null'}) — building notification`);
   db.query<{
-    a: string; b: string; regionA: string | null; regionB: string | null;
+    a: string; b: string; classA: string; classB: string; regionA: string | null; regionB: string | null;
     mapName: string; mapEnabled: boolean; allRegions: boolean; regions: string[];
+    whTypes: string[]; whClasses: string[]; whSizes: string[]; connectionsWebhook: string | null;
   }>(
-    `SELECT a.name AS a, b.name AS b, a.region_name AS "regionA", b.region_name AS "regionB",
+    `SELECT a.name AS a, b.name AS b, a.system_class AS "classA", b.system_class AS "classB",
+            a.region_name AS "regionA", b.region_name AS "regionB",
             m.name AS "mapName", m.discord_notify AS "mapEnabled",
-            COALESCE(cds.all_regions, TRUE)     AS "allRegions",
-            COALESCE(cds.regions, '{}'::text[]) AS "regions"
+            ${DISCORD_SETTINGS_COLS},
+            COALESCE(cds.wh_types,   ads.wh_types,   '{}'::text[]) AS "whTypes",
+            COALESCE(cds.wh_classes, ads.wh_classes, '{}'::text[]) AS "whClasses",
+            COALESCE(cds.wh_sizes,   ads.wh_sizes,   '{}'::text[]) AS "whSizes"
        FROM maps m
        JOIN map_systems a ON a.id = $2
        JOIN map_systems b ON b.id = $3
-       LEFT JOIN corp_discord_settings cds ON cds.corp_id = $4
+       ${DISCORD_SETTINGS_JOIN}
       WHERE m.id = $1`,
-    [mapId, sourceId, targetId, meta.corpId],
-  ).then(({ rows }) => {
+    [mapId, sourceId, targetId],
+  ).then(async ({ rows }) => {
     const r = rows[0];
     if (!r) { discordLog.warn(`connection dispatch: endpoints not found`); return; }
+    if (!r.connectionsWebhook) { discordLog.info(`new connection suppressed — no connections webhook configured`); return; }
     if (!r.mapEnabled) {
       discordLog.info(`new connection suppressed — map "${r.mapName}" is excluded from Discord`);
       return;
     }
     if (!regionAllowed(r.allRegions, r.regions, [r.regionA, r.regionB])) {
-      discordLog.info(`new connection suppressed — neither region (${r.regionA ?? '?'} / ${r.regionB ?? '?'}) in the corp filter`);
+      discordLog.info(`new connection suppressed — neither region (${r.regionA ?? '?'} / ${r.regionB ?? '?'}) in the org filter`);
       return;
     }
-    notifyDiscord(meta.corpId, connectionEmbed({ a: r.a, b: r.b, whType, size, mapName: r.mapName, actor }));
+    // Suppress gate / Ansiblex / bridge hops: only broadcast when a scanned
+    // wormhole signature plausibly backs the jump (see wormholeEvidence).
+    const ev = await wormholeEvidence(sourceId, targetId, r.a, r.classA, r.b, r.classB);
+    if (!ev.backed) {
+      discordLog.info(`new connection ${r.a} <-> ${r.b} suppressed — no wormhole signature backs it (likely a gate/jump-bridge)`);
+      return;
+    }
+    // Wormhole filters (dest class = the "to" end; size from the connection row).
+    if (!whTypeAllows(r.whTypes, ev.whType)) {
+      discordLog.info(`new connection ${r.a} <-> ${r.b} suppressed — hole type "${ev.whType || '?'}" not in the org's type filter`);
+      return;
+    }
+    // Turnur is a distinct destination option (like Thera), even though the SDE
+    // classes it low-sec — so a Turnur hole matches the 'Turnur' filter.
+    const destClass = r.b === 'Turnur' ? 'Turnur' : r.classB;
+    if (!whListAllows(r.whClasses, destClass)) {
+      discordLog.info(`new connection ${r.a} <-> ${r.b} suppressed — dest class "${destClass}" not in the org's class filter`);
+      return;
+    }
+    if (!whListAllows(r.whSizes, (size ?? 'large'))) {
+      discordLog.info(`new connection ${r.a} <-> ${r.b} suppressed — size "${size ?? 'large'}" not in the org's size filter`);
+      return;
+    }
+    notifyDiscord(r.connectionsWebhook, connectionEmbed({ a: r.a, b: r.b, whType: ev.whType || whType, size, mapName: r.mapName, actor }));
   }).catch((e) => discordLog.warn(`connection dispatch query failed: ${(e as Error).message}`));
+}
+
+// Smallest wormhole size across a chain's hops = the largest ship that can make
+// the whole trip. Only 'standard' (wormhole) links constrain it; gates/bridges
+// are unlimited, so a gates-only chain reports "Any". `size` is the connection's
+// stored jump-size class, same value the new-connection notification reports.
+const SIZE_RANK: Record<string, number> = { small: 0, medium: 1, large: 2, xl: 3 };
+const SIZE_LABEL: Record<string, string> = { small: 'Small', medium: 'Medium', large: 'Large', xl: 'XL' };
+function chainMaxSize(sizes: string[]): string {
+  let tightest: string | null = null;
+  for (const s of sizes) {
+    if (!(s in SIZE_RANK)) continue;
+    if (tightest === null || SIZE_RANK[s] < SIZE_RANK[tightest]) tightest = s;
+  }
+  return tightest ? (SIZE_LABEL[tightest] ?? tightest) : 'Any (gates)';
+}
+
+// Broadcast a saved wormhole chain. Same gates as the other notifications (org
+// webhook + per-map opt-out + region filter) plus the notify_chains toggle. The
+// region check uses the chain's endpoint systems.
+function dispatchChainSaved(
+  meta: MapMeta, mapId: string, route: { name: string; systemIds: string[]; connectionIds: string[] }, actor: string | null,
+): void {
+  if (!hasOrg(meta)) return; // personal map — never notifies
+  const startId = route.systemIds[0];
+  const endId   = route.systemIds[route.systemIds.length - 1];
+  db.query<{
+    startName: string; endName: string; startRegion: string | null; endRegion: string | null;
+    mapName: string; mapEnabled: boolean; allRegions: boolean; regions: string[]; notifyChains: boolean;
+    sizes: string[]; chainsWebhook: string | null;
+  }>(
+    `SELECT sn.name AS "startName", en.name AS "endName",
+            sn.region_name AS "startRegion", en.region_name AS "endRegion",
+            m.name AS "mapName", m.discord_notify AS "mapEnabled",
+            ${DISCORD_SETTINGS_COLS},
+            COALESCE((SELECT array_agg(c.size)
+                        FROM map_connections c
+                       WHERE c.id = ANY($4::uuid[]) AND c.connection_type = 'standard'), '{}'::text[]) AS sizes
+       FROM maps m
+       JOIN map_systems sn ON sn.id = $2
+       JOIN map_systems en ON en.id = $3
+       ${DISCORD_SETTINGS_JOIN}
+      WHERE m.id = $1`,
+    [mapId, startId, endId, route.connectionIds],
+  ).then(({ rows }) => {
+    const r = rows[0];
+    if (!r) { discordLog.warn(`chain dispatch: endpoints not found`); return; }
+    if (!r.chainsWebhook) { discordLog.info(`chain "${route.name}" suppressed — no chains webhook configured`); return; }
+    if (!r.mapEnabled) { discordLog.info(`chain "${route.name}" suppressed — map "${r.mapName}" is excluded from Discord`); return; }
+    if (!r.notifyChains) { discordLog.info(`chain "${route.name}" suppressed — chain broadcasts off for this org`); return; }
+    if (!regionAllowed(r.allRegions, r.regions, [r.startRegion, r.endRegion])) {
+      discordLog.info(`chain "${route.name}" suppressed — neither endpoint region in the org filter`);
+      return;
+    }
+    notifyDiscord(r.chainsWebhook, chainEmbed({
+      name:    route.name,
+      start:   r.startName,
+      end:     r.endName,
+      maxSize: chainMaxSize(r.sizes),
+      hops:    route.connectionIds.length,
+      mapName: r.mapName,
+      actor,
+    }));
+  }).catch((e) => discordLog.warn(`chain dispatch query failed: ${(e as Error).message}`));
 }
 
 // Confirms a system UUID actually belongs to the supplied map; prevents
@@ -378,13 +580,15 @@ async function verifySystemInMap(res: Response, systemId: string, mapId: string)
 // ── Maps ──────────────────────────────────────────────────────────────────────
 
 const MAX_MAP_NAME_LEN  = 200;
+const MAX_BOOKMARK_FMT_LEN = 200;
 const MAX_IMPORT_SYSTEMS     = 500;
 const MAX_IMPORT_CONNECTIONS = 2000;
 
 // GET /api/maps
 mapsRouter.get('/', async (req, res) => {
-  const userId     = req.session.userId!;
-  const userCorpId = req.session.userCorpId ?? null;
+  const userId         = req.session.userId!;
+  const userCorpId     = req.session.userCorpId ?? null;
+  const userAllianceId = req.session.userAllianceId ?? null;
   // Personal maps are scoped to the account (owner), so every linked alt sees
   // the same chain. -1 is an impossible owner id (so the clause matches nothing
   // rather than everything) when somehow unauthenticated for ownership.
@@ -397,29 +601,58 @@ mapsRouter.get('/', async (req, res) => {
   );
   const callerChar = meRows[0]?.characterId ?? null;
 
-  // Visibility query (personal + corp + shared) lives in the shared map-read
-  // module so the external /api/v1 list returns the identical set.
-  const rows = await listVisibleMaps({ userId, ownerId, userCorpId, callerChar });
+  // Visibility query (personal + corp + alliance + shared) lives in the shared
+  // map-read module so the external /api/v1 list returns the identical set.
+  const rows = await listVisibleMaps({ userId, ownerId, userCorpId, userAllianceId, callerChar });
 
   // Count corp maps for the user's own corp (the per-corp limit applies to
   // each corp independently — Corp A's slots are separate from Corp B's).
-  const corpMapCount = config.corpMode && userCorpId
+  const corpMapCount = (config.corpMode || config.allianceMode) && userCorpId
     ? (await db.query(`SELECT 1 FROM maps WHERE corp_id = $1`, [userCorpId])).rowCount ?? 0
     : 0;
+  const allianceMapCount = config.allianceMode && userAllianceId
+    ? (await db.query(`SELECT 1 FROM maps WHERE alliance_id = $1`, [userAllianceId])).rowCount ?? 0
+    : 0;
 
-  res.json({ maps: rows, maxMaps: config.maxUserMaps, maxCorpMaps: config.maxCorpMaps, corpMapCount });
+  res.json({
+    maps: rows,
+    maxMaps: config.maxUserMaps,
+    maxCorpMaps: config.maxCorpMaps,
+    corpMapCount,
+    maxAllianceMaps: config.maxAllianceMaps,
+    allianceMapCount,
+  });
 });
 
 // POST /api/maps
 mapsRouter.post('/', async (req, res) => {
-  const isCorpMap = config.corpMode && req.body.isCorpMap === true;
-  const role      = req.session.role ?? 'readonly';
+  // Scope is exclusive: alliance takes precedence over corp when both flags are
+  // sent. Alliance maps are alliance_admin-only; corp maps need full/admin.
+  const isAllianceMap = config.allianceMode && req.body.isAllianceMap === true;
+  const isCorpMap     = !isAllianceMap && (config.corpMode || config.allianceMode) && req.body.isCorpMap === true;
+  const role          = req.session.role ?? 'readonly';
 
   // Personal map creation is open to every role — they're scoped to the
-  // individual user, so role gating only matters for shared (corp) maps.
-  // Corp map creation still requires 'full' or 'admin'.
-  if (isCorpMap) {
-    if (role !== 'full' && role !== 'admin') {
+  // individual user, so role gating only matters for shared (corp/alliance) maps.
+  if (isAllianceMap) {
+    if (!isAllianceAdmin(role)) {
+      res.status(403).json({ error: 'Alliance map creation requires the alliance admin role' });
+      return;
+    }
+    if (!req.session.userAllianceId) {
+      res.status(403).json({ error: 'Cannot create alliance map: user has no alliance affiliation' });
+      return;
+    }
+    const { rowCount } = await db.query(
+      `SELECT 1 FROM maps WHERE alliance_id = $1`,
+      [req.session.userAllianceId],
+    );
+    if ((rowCount ?? 0) >= config.maxAllianceMaps) {
+      res.status(403).json({ error: 'Maximum alliance maps reached' });
+      return;
+    }
+  } else if (isCorpMap) {
+    if (role !== 'full' && !isAdmin(role)) {
       res.status(403).json({ error: 'Corp map creation requires full-edit or admin role' });
       return;
     }
@@ -441,7 +674,7 @@ mapsRouter.post('/', async (req, res) => {
     // can't make new ones until it deletes back under.
     const ownerId = await resolveOwnerId(req);
     const { rowCount } = await db.query(
-      `SELECT 1 FROM maps WHERE owner_id = $1 AND corp_id IS NULL`,
+      `SELECT 1 FROM maps WHERE owner_id = $1 AND corp_id IS NULL AND alliance_id IS NULL`,
       [ownerId],
     );
     if ((rowCount ?? 0) >= config.maxUserMaps) {
@@ -450,15 +683,60 @@ mapsRouter.post('/', async (req, res) => {
     }
   }
 
-  const name    = String(req.body.name ?? 'New Map').slice(0, MAX_MAP_NAME_LEN);
-  const corpId  = isCorpMap ? (req.session.userCorpId ?? null) : null;
-  const ownerId = await resolveOwnerId(req);
+  const name       = String(req.body.name ?? 'New Map').slice(0, MAX_MAP_NAME_LEN);
+  const corpId     = isCorpMap ? (req.session.userCorpId ?? null) : null;
+  const allianceId = isAllianceMap ? (req.session.userAllianceId ?? null) : null;
+  const ownerId    = await resolveOwnerId(req);
 
   const { rows } = await db.query<{ id: string }>(
-    `INSERT INTO maps (user_id, owner_id, name, corp_id) VALUES ($1, $2, $3, $4) RETURNING id`,
-    [req.session.userId, ownerId, name, corpId],
+    `INSERT INTO maps (user_id, owner_id, name, corp_id, alliance_id) VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+    [req.session.userId, ownerId, name, corpId, allianceId],
   );
   res.status(201).json({ id: rows[0].id });
+});
+
+// POST /api/maps/:mapId/copy — duplicate a map the caller can read into a new
+// personal map. A read-only corp map can't be copied; the copy counts against
+// the caller's personal map cap. Body: { name, include: { notes, signatures,
+// structures, anomalies } }.
+mapsRouter.post('/:mapId/copy', async (req, res) => {
+  const sourceMapId = req.params.mapId;
+  const access = await getMapAccess(sourceMapId, req);
+  if (!access) { res.status(404).json({ error: 'Map not found' }); return; }
+  if ((access.accessKind === 'corp_member' || access.accessKind === 'alliance_member') && authUser(req).role === 'readonly') {
+    res.status(403).json({ error: 'Read-only corp/alliance maps cannot be copied' });
+    return;
+  }
+
+  // The copy is always a personal map — enforce the personal cap (as POST /).
+  const ownerId = await resolveOwnerId(req);
+  const { rowCount } = await db.query(
+    `SELECT 1 FROM maps WHERE owner_id = $1 AND corp_id IS NULL AND alliance_id IS NULL`, [ownerId],
+  );
+  if ((rowCount ?? 0) >= config.maxUserMaps) {
+    res.status(403).json({ error: 'Maximum maps reached' });
+    return;
+  }
+
+  const name = String(req.body.name ?? '').trim().slice(0, MAX_MAP_NAME_LEN);
+  if (!name) { res.status(400).json({ error: 'Name is required' }); return; }
+
+  const inc = (req.body.include ?? {}) as Record<string, unknown>;
+  try {
+    const newId = await copyMap({
+      sourceMapId, name, ownerId, userId: req.session.userId!,
+      include: {
+        notes:      inc.notes === true,
+        signatures: inc.signatures === true,
+        structures: inc.structures === true,
+        anomalies:  inc.anomalies === true,
+      },
+    });
+    res.status(201).json({ id: newId });
+  } catch (err) {
+    log.error('Map copy failed:', err);
+    res.status(500).json({ error: 'Map copy failed' });
+  }
 });
 
 // POST /api/maps/from-region — create a new map pre-populated with an entire
@@ -467,16 +745,26 @@ mapsRouter.post('/', async (req, res) => {
 // stays on POST /api/maps; this is only the seeded path. See
 // region_map_feature.md.
 mapsRouter.post('/from-region', async (req, res) => {
-  const body     = req.body as { regionId?: unknown; name?: unknown; isCorpMap?: unknown };
+  const body     = req.body as { regionId?: unknown; name?: unknown; isCorpMap?: unknown; isAllianceMap?: unknown };
   const regionId = Number(body.regionId);
   if (!Number.isInteger(regionId)) { res.status(400).json({ error: 'regionId is required' }); return; }
 
-  const isCorpMap = config.corpMode && body.isCorpMap === true;
-  const role      = req.session.role ?? 'readonly';
+  const isAllianceMap = config.allianceMode && body.isAllianceMap === true;
+  const isCorpMap     = !isAllianceMap && (config.corpMode || config.allianceMode) && body.isCorpMap === true;
+  const role          = req.session.role ?? 'readonly';
 
   // Quota + role — mirrors POST /api/maps and /import.
-  if (isCorpMap) {
-    if (role !== 'full' && role !== 'admin') {
+  if (isAllianceMap) {
+    if (!isAllianceAdmin(role)) {
+      res.status(403).json({ error: 'Alliance map creation requires the alliance admin role' }); return;
+    }
+    if (!req.session.userAllianceId) {
+      res.status(403).json({ error: 'Cannot create alliance map: user has no alliance affiliation' }); return;
+    }
+    const { rowCount } = await db.query(`SELECT 1 FROM maps WHERE alliance_id = $1`, [req.session.userAllianceId]);
+    if ((rowCount ?? 0) >= config.maxAllianceMaps) { res.status(403).json({ error: 'Maximum alliance maps reached' }); return; }
+  } else if (isCorpMap) {
+    if (role !== 'full' && !isAdmin(role)) {
       res.status(403).json({ error: 'Corp map creation requires full-edit or admin role' }); return;
     }
     if (!req.session.userCorpId) {
@@ -486,7 +774,7 @@ mapsRouter.post('/from-region', async (req, res) => {
     if ((rowCount ?? 0) >= config.maxCorpMaps) { res.status(403).json({ error: 'Maximum corp maps reached' }); return; }
   } else {
     const oid = await resolveOwnerId(req);
-    const { rowCount } = await db.query(`SELECT 1 FROM maps WHERE owner_id = $1 AND corp_id IS NULL`, [oid]);
+    const { rowCount } = await db.query(`SELECT 1 FROM maps WHERE owner_id = $1 AND corp_id IS NULL AND alliance_id IS NULL`, [oid]);
     if ((rowCount ?? 0) >= config.maxUserMaps) { res.status(403).json({ error: 'Maximum maps reached' }); return; }
   }
 
@@ -588,8 +876,10 @@ mapsRouter.post('/from-region', async (req, res) => {
 
     const ownerId = await resolveOwnerId(req);
     const mapRes = await client.query<{ id: string }>(
-      `INSERT INTO maps (user_id, owner_id, name, corp_id) VALUES ($1, $2, $3, $4) RETURNING id`,
-      [req.session.userId, ownerId, mapName, isCorpMap ? (req.session.userCorpId ?? null) : null],
+      `INSERT INTO maps (user_id, owner_id, name, corp_id, alliance_id) VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+      [req.session.userId, ownerId, mapName,
+       isCorpMap ? (req.session.userCorpId ?? null) : null,
+       isAllianceMap ? (req.session.userAllianceId ?? null) : null],
     );
     const mapId = mapRes.rows[0].id;
 
@@ -661,16 +951,31 @@ mapsRouter.post('/from-region', async (req, res) => {
 
 // POST /api/maps/import
 mapsRouter.post('/import', async (req, res) => {
-  const isCorpImport = config.corpMode && (req.body as Record<string, unknown>).isCorpMap === true;
-  const role         = req.session.role ?? 'readonly';
+  const importBody     = req.body as Record<string, unknown>;
+  const isAllianceImport = config.allianceMode && importBody.isAllianceMap === true;
+  const isCorpImport     = !isAllianceImport && (config.corpMode || config.allianceMode) && importBody.isCorpMap === true;
+  const role             = req.session.role ?? 'readonly';
 
-  // Quota check against the matching tier — importing a corp map counts
-  // against MAX_CORP_MAPS (for the user's corp), importing a personal map
-  // counts against MAX_USER_MAPS. Previously this always checked the
-  // personal quota, so corp imports skipped MAX_CORP_MAPS entirely.
-  // Personal imports are open to every role; corp imports need full/admin.
-  if (isCorpImport) {
-    if (role !== 'full' && role !== 'admin') {
+  // Quota check against the matching tier — importing a corp/alliance map counts
+  // against the corresponding cap, importing a personal map counts against
+  // MAX_USER_MAPS. Personal imports are open to every role; corp imports need
+  // full/admin; alliance imports need alliance_admin.
+  if (isAllianceImport) {
+    if (!isAllianceAdmin(role)) {
+      res.status(403).json({ error: 'Alliance map import requires the alliance admin role' });
+      return;
+    }
+    if (!req.session.userAllianceId) {
+      res.status(403).json({ error: 'Cannot import alliance map: user has no alliance affiliation' });
+      return;
+    }
+    const { rowCount } = await db.query(`SELECT 1 FROM maps WHERE alliance_id = $1`, [req.session.userAllianceId]);
+    if ((rowCount ?? 0) >= config.maxAllianceMaps) {
+      res.status(403).json({ error: 'Maximum alliance maps reached' });
+      return;
+    }
+  } else if (isCorpImport) {
+    if (role !== 'full' && !isAdmin(role)) {
       res.status(403).json({ error: 'Corp map import requires full-edit or admin role' });
       return;
     }
@@ -689,7 +994,7 @@ mapsRouter.post('/import', async (req, res) => {
   } else {
     const oid = await resolveOwnerId(req);
     const { rowCount } = await db.query(
-      `SELECT 1 FROM maps WHERE owner_id = $1 AND corp_id IS NULL`,
+      `SELECT 1 FROM maps WHERE owner_id = $1 AND corp_id IS NULL AND alliance_id IS NULL`,
       [oid],
     );
     if ((rowCount ?? 0) >= config.maxUserMaps) {
@@ -724,8 +1029,10 @@ mapsRouter.post('/import', async (req, res) => {
     const importName = String(name ?? 'Imported Map').slice(0, MAX_MAP_NAME_LEN);
     const ownerId = await resolveOwnerId(req);
     const mapRes = await client.query<{ id: string }>(
-      `INSERT INTO maps (user_id, owner_id, name, corp_id) VALUES ($1, $2, $3, $4) RETURNING id`,
-      [req.session.userId, ownerId, importName, isCorpImport ? (req.session.userCorpId ?? null) : null],
+      `INSERT INTO maps (user_id, owner_id, name, corp_id, alliance_id) VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+      [req.session.userId, ownerId, importName,
+       isCorpImport ? (req.session.userCorpId ?? null) : null,
+       isAllianceImport ? (req.session.userAllianceId ?? null) : null],
     );
     const mapId = mapRes.rows[0].id;
 
@@ -1322,9 +1629,9 @@ mapsRouter.post('/:mapId/presence', async (req, res) => {
 // toggle merge-source eligibility (corp maps, full/admin only)
 mapsRouter.patch('/:mapId', async (req, res) => {
   const { mapId } = req.params;
-  const { name, locked, allowAsMergeSource, allowAsMergeDestination, lazyRemoveWormholes } = req.body as {
+  const { name, locked, allowAsMergeSource, allowAsMergeDestination, lazyRemoveWormholes, bookmarkFormat } = req.body as {
     name?: string; locked?: boolean; allowAsMergeSource?: boolean; allowAsMergeDestination?: boolean;
-    lazyRemoveWormholes?: boolean;
+    lazyRemoveWormholes?: boolean; bookmarkFormat?: string | null;
   };
 
   const access = await requireMapWrite(res, mapId, req);
@@ -1340,7 +1647,7 @@ mapsRouter.patch('/:mapId', async (req, res) => {
       res.status(400).json({ error: 'Only corp maps can be flagged as a merge source/destination' }); return;
     }
     const role = req.session.role ?? 'readonly';
-    if (role !== 'full' && role !== 'admin') {
+    if (role !== 'full' && !isAdmin(role)) {
       res.status(403).json({ error: 'Full-edit or admin role required' }); return;
     }
     if (allowAsMergeSource !== undefined) {
@@ -1359,12 +1666,25 @@ mapsRouter.patch('/:mapId', async (req, res) => {
     if (access.accessKind === 'shared') {
       res.status(403).json({ error: 'Only the owner can rename this map' }); return;
     }
+    // Renaming an alliance map is a management action reserved for alliance
+    // admins — checked on the map's alliance scope, not accessKind, so a former
+    // alliance admin who created it (and now resolves as 'owner') can't rename
+    // it after being demoted. Matches the delete gate.
+    if (access.allianceId !== null && !isAllianceAdmin(req.session.role ?? 'readonly')) {
+      res.status(403).json({ error: 'Only an alliance admin can rename this map' }); return;
+    }
     const trimmed = String(name).slice(0, MAX_MAP_NAME_LEN);
     if (!trimmed) { res.status(400).json({ error: 'name cannot be empty' }); return; }
     sets.push(`name = $${vals.length + 1}`); vals.push(trimmed);
   }
   if (locked !== undefined) {
-    if (req.session.role !== 'admin') { res.status(403).json({ error: 'Admin access required' }); return; }
+    // Alliance maps lock with the alliance admin role; corp/personal maps with
+    // an ordinary admin. Alliance-map management never falls to a corp admin.
+    const role = req.session.role ?? 'readonly';
+    const allianceScoped = access.allianceId !== null;
+    if (allianceScoped ? !isAllianceAdmin(role) : !isAdmin(role)) {
+      res.status(403).json({ error: allianceScoped ? 'Alliance admin access required' : 'Admin access required' }); return;
+    }
     sets.push(`locked = $${vals.length + 1}`); vals.push(locked);
   }
   // Lazy WH-removal opt-in: a plain per-map behaviour toggle any editor can set
@@ -1373,17 +1693,30 @@ mapsRouter.patch('/:mapId', async (req, res) => {
     sets.push(`lazy_remove_wormholes = $${vals.length + 1}`); vals.push(lazyRemoveWormholes === true);
   }
 
+  // Per-map bookmark-name format: another plain per-map behaviour setting any
+  // editor can set. An empty/whitespace/null value clears the override so users
+  // fall back to their own global format. Stored trimmed and length-capped.
+  let normalizedBookmarkFmt: string | null | undefined;
+  if (bookmarkFormat !== undefined) {
+    const trimmed = typeof bookmarkFormat === 'string' ? bookmarkFormat.trim().slice(0, MAX_BOOKMARK_FMT_LEN) : '';
+    normalizedBookmarkFmt = trimmed === '' ? null : trimmed;
+    sets.push(`bookmark_format = $${vals.length + 1}`); vals.push(normalizedBookmarkFmt);
+  }
+
   if (sets.length === 1) { res.status(400).json({ error: 'Nothing to update' }); return; }
 
   await db.query(`UPDATE maps SET ${sets.join(', ')} WHERE id = $${vals.length + 1}`, [...vals, mapId]);
-  // Live-sync rename / lock to other viewers (the only map-level fields the
-  // canvas shows). Merge-source flags are sidebar-only, so not pushed.
-  if (name !== undefined || locked !== undefined) {
+  // Live-sync rename / lock / bookmark-format to other viewers. Rename + lock
+  // show on the canvas; the bookmark format must propagate live so everyone
+  // copying a hole gets the same name without a reload. Merge-source flags are
+  // sidebar-only, so not pushed.
+  if (name !== undefined || locked !== undefined || normalizedBookmarkFmt !== undefined) {
     publishToMap(mapId, {
       type: 'map.meta',
       actor: req.get('x-client-id') ?? null,
       ...(name !== undefined ? { name: String(name).slice(0, MAX_MAP_NAME_LEN) } : {}),
       ...(locked !== undefined ? { locked } : {}),
+      ...(normalizedBookmarkFmt !== undefined ? { bookmarkFormat: normalizedBookmarkFmt } : {}),
     });
   }
   res.json({ ok: true });
@@ -1395,13 +1728,18 @@ mapsRouter.delete('/:mapId', async (req, res) => {
   const access = await getMapAccess(mapId, req);
   if (!access) { res.status(404).json({ error: 'Map not found' }); return; }
 
-  const isOwner  = access.userId === req.session.userId;
-  const isCorpMap = access.corpId !== null;
+  const isOwner       = access.userId === req.session.userId;
+  const isCorpMap     = access.corpId !== null;
+  const isAllianceMap = access.allianceId !== null;
+  const role          = req.session.role ?? 'readonly';
 
-  if (isCorpMap && req.session.role !== 'admin') {
+  if (isAllianceMap && !isAllianceAdmin(role)) {
+    res.status(403).json({ error: 'Only an alliance admin can delete alliance maps' }); return;
+  }
+  if (isCorpMap && !isAdmin(role)) {
     res.status(403).json({ error: 'Only admins can delete corp maps' }); return;
   }
-  if (!isOwner && req.session.role !== 'admin') {
+  if (!isOwner && !isAdmin(role)) {
     res.status(403).json({ error: 'Not authorised' }); return;
   }
 
@@ -1524,6 +1862,17 @@ mapsRouter.patch('/:mapId/systems/:systemId', async (req, res) => {
     vals.push(v);
   }
 
+  // Single-character quick tag (one A-Z / 0-9 char), or null to clear. The
+  // strict charset stops a stale client stuffing arbitrary text into the badge.
+  if ('tag' in updates) {
+    const v = updates.tag;
+    if (v !== null && !(typeof v === 'string' && /^[A-Za-z0-9]$/.test(v))) {
+      res.status(400).json({ error: 'invalid tag' }); return;
+    }
+    sets.push(`tag = $${vals.length + 1}`);
+    vals.push(v);
+  }
+
   // Predefined labels — applied as coloured pills above the node. A subset of
   // the fixed id set; deduped before storing.
   if ('labels' in updates) {
@@ -1604,7 +1953,7 @@ mapsRouter.delete('/:mapId/systems/:systemId', async (req, res) => {
 
 mapsRouter.post('/:mapId/connections', async (req, res) => {
   const { mapId } = req.params;
-  const { id, sourceId, targetId, sourceHandle, targetHandle, connectionType, massStatus, timeStatus, size } = req.body;
+  const { id, sourceId, targetId, sourceHandle, targetHandle, connectionType, massStatus, timeStatus, size, sourceEveId, targetEveId } = req.body;
 
   const access = await requireMapWrite(res, mapId, req);
   if (!access) return;
@@ -1617,19 +1966,36 @@ mapsRouter.post('/:mapId/connections', async (req, res) => {
   let effectiveType: string = connectionType ?? 'standard';
   if (effectiveType === 'standard') {
     try {
-      const adj = await db.query(
-        `SELECT 1 FROM map_systems s, map_systems t
-          WHERE s.id = $1 AND t.id = $2
-            AND s.eve_system_id IS NOT NULL AND t.eve_system_id IS NOT NULL
-            AND EXISTS (
-              SELECT 1 FROM map_stargates g
-               WHERE (g.system_id = s.eve_system_id AND g.destination_system_id = t.eve_system_id)
-                  OR (g.system_id = t.eve_system_id AND g.destination_system_id = s.eve_system_id)
-            )
-          LIMIT 1`,
-        [sourceId, targetId],
-      );
-      if ((adj.rowCount ?? 0) > 0) effectiveType = 'gate';
+      let adjacent = false;
+      if (typeof sourceEveId === 'number' && typeof targetEveId === 'number') {
+        // Classify straight from the eve ids the client supplied — robust to the
+        // freshly-jumped-to system's row not being committed yet (a jump POSTs
+        // the new system and this connection near-simultaneously, and the old
+        // map_systems join could race the insert and mis-tag the gate as a hole).
+        const adj = await db.query(
+          `SELECT 1 FROM map_stargates g
+            WHERE (g.system_id = $1 AND g.destination_system_id = $2)
+               OR (g.system_id = $2 AND g.destination_system_id = $1)
+            LIMIT 1`,
+          [sourceEveId, targetEveId],
+        );
+        adjacent = (adj.rowCount ?? 0) > 0;
+      } else {
+        const adj = await db.query(
+          `SELECT 1 FROM map_systems s, map_systems t
+            WHERE s.id = $1 AND t.id = $2
+              AND s.eve_system_id IS NOT NULL AND t.eve_system_id IS NOT NULL
+              AND EXISTS (
+                SELECT 1 FROM map_stargates g
+                 WHERE (g.system_id = s.eve_system_id AND g.destination_system_id = t.eve_system_id)
+                    OR (g.system_id = t.eve_system_id AND g.destination_system_id = s.eve_system_id)
+              )
+            LIMIT 1`,
+          [sourceId, targetId],
+        );
+        adjacent = (adj.rowCount ?? 0) > 0;
+      }
+      if (adjacent) effectiveType = 'gate';
     } catch { /* stargate table absent / query failed — keep client's type */ }
   }
 
@@ -1752,16 +2118,24 @@ mapsRouter.post('/:mapId/routes', async (req, res) => {
   }
   const me = authUser(req);
   // New chains append to the bottom of the list (next sort_order for the map).
-  await db.query(
+  const ins = await db.query(
     `INSERT INTO map_routes (id, map_id, name, system_ids, connection_ids, created_by_user_id, sort_order)
      SELECT $1,$2,$3,$4,$5,$6, COALESCE(MAX(sort_order) + 1, 0) FROM map_routes WHERE map_id = $2
      ON CONFLICT (id) DO NOTHING`,
     [id, mapId, name, systemIds, connectionIds ?? [], me.userId],
   );
   await touchMap(mapId);
+  // Only a genuinely new row broadcasts — a retried POST hits ON CONFLICT DO
+  // NOTHING (rowCount 0), so we don't double-post the same chain to Discord.
+  const inserted = (ins.rowCount ?? 0) > 0;
   db.query(`${routeSelect} WHERE id = $1 AND map_id = $2`, [id, mapId])
     .then(({ rows }) => {
-      if (rows[0]) publishToMap(mapId, { type: 'route.add', actor: req.get('x-client-id') ?? null, route: rows[0] });
+      const route = rows[0] as { name: string; systemIds: string[]; connectionIds: string[] } | undefined;
+      if (!route) return;
+      publishToMap(mapId, { type: 'route.add', actor: req.get('x-client-id') ?? null, route });
+      // Notify Discord that a chain was saved (corp/alliance maps only; gated by
+      // the org's settings). Best-effort — never blocks or fails the save.
+      if (inserted) dispatchChainSaved(access, mapId, route, req.session.characterName ?? null);
     }).catch(console.error);
   res.status(201).json({ ok: true });
 });
@@ -2016,12 +2390,19 @@ async function requireShareAdmin(res: Response, mapId: string, req: Request): Pr
 
   const role = req.session.role ?? 'readonly';
   const userId = req.session.userId!;
-  const isCorpMap = config.corpMode
-    && access.corpId !== null
-    && config.corpIds.includes(access.corpId);
+  const isCorpMap = access.corpId !== null
+    && ((config.corpMode && config.corpIds.includes(access.corpId)) || config.allianceMode);
+  const isAllianceMap = config.allianceMode
+    && access.allianceId !== null
+    && config.allianceIds.includes(access.allianceId);
 
-  if (isCorpMap) {
-    if (role !== 'admin') {
+  if (isAllianceMap) {
+    if (!isAllianceAdmin(role)) {
+      res.status(403).json({ error: 'Only an alliance admin can share an alliance map' });
+      return null;
+    }
+  } else if (isCorpMap) {
+    if (!isAdmin(role)) {
       res.status(403).json({ error: 'Only an admin can share a corp map' });
       return null;
     }
@@ -2152,8 +2533,8 @@ mapsRouter.get('/:mapId/shares', async (req, res) => {
   const { mapId } = req.params;
   const access = await requireMapOwner(res, mapId, req);
   if (!access) return;
-  if (access.corpId !== null) {
-    res.status(400).json({ error: 'Corp maps cannot have per-character shares' });
+  if (access.corpId !== null || access.allianceId !== null) {
+    res.status(400).json({ error: 'Corp and alliance maps cannot have per-character shares' });
     return;
   }
 
@@ -2197,8 +2578,8 @@ mapsRouter.post('/:mapId/shares', async (req, res) => {
   const { mapId } = req.params;
   const access = await requireMapOwner(res, mapId, req);
   if (!access) return;
-  if (access.corpId !== null) {
-    res.status(400).json({ error: 'Corp maps cannot have per-character shares' });
+  if (access.corpId !== null || access.allianceId !== null) {
+    res.status(400).json({ error: 'Corp and alliance maps cannot have per-character shares' });
     return;
   }
 

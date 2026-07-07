@@ -3,9 +3,11 @@ import { charPortrait } from '../../utils/eveImages';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import { api } from '../../api/client';
-import { useAuth } from '../../context/AuthContext';
+import { useAuth, isAdminRole, isAllianceAdminRole, formatRole, ROLE_ORDER } from '../../context/AuthContext';
+import type { Role as AuthRole } from '../../context/AuthContext';
 import { useHashRoute } from '../../hooks/useHashRoute';
 import { useUserSetting } from '../../hooks/useUserSetting';
+import { useWormholeTypes } from '../../hooks/useWormholeTypes';
 import { cssVarToHex } from '../../utils/cssVar';
 import { timeAgo, europeanDate, DASH } from '../../i18n/format';
 import { ConfirmModal } from './ConfirmModal';
@@ -15,13 +17,45 @@ import {
   PointElement, LineElement, Tooltip, Legend, Filler,
 } from 'chart.js';
 import { Doughnut, Line } from 'react-chartjs-2';
-import { CaretUpIcon, CaretDownIcon } from '@phosphor-icons/react';
+import { CaretUpIcon, CaretDownIcon, XIcon } from '@phosphor-icons/react';
+import { createPortal } from 'react-dom';
 
 // Register only the chart pieces we actually use — keeps the bundle lean.
 ChartJS.register(ArcElement, CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Legend, Filler);
 
-type Role = 'admin' | 'full' | 'edit' | 'readonly';
-const ROLES: Role[] = ['admin', 'full', 'edit', 'readonly'];
+type Role = 'alliance_admin' | 'admin' | 'full' | 'edit' | 'readonly';
+const ROLES: Role[] = ['alliance_admin', 'admin', 'full', 'edit', 'readonly'];
+
+// Explainer modal for the role tiers, opened from the "Roles?" button on the
+// users tab. The alliance tier is only listed when the deployment uses it.
+function RolesInfoModal({ onClose }: { onClose: () => void }) {
+  const { t } = useTranslation();
+  const { user } = useAuth();
+  const roles = ROLE_ORDER.filter((r) => r !== 'alliance_admin' || user?.allianceMode);
+  return createPortal(
+    <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="modal roles-modal" role="dialog" aria-modal="true">
+        <div className="modal__header">
+          <h2 className="modal__title">{t('admin.roles.title')}</h2>
+          <button className="icon-btn" onClick={onClose} aria-label={t('actions.close')}>
+            <XIcon size={16} weight="bold" />
+          </button>
+        </div>
+        <div className="modal__body">
+          <dl className="roles-info">
+            {roles.map((r) => (
+              <div key={r} className="roles-info__row">
+                <dt><span className={`role-badge role-badge--${r}`}>{formatRole(r)}</span></dt>
+                <dd>{t(`admin.roles.desc.${r}`)}</dd>
+              </div>
+            ))}
+          </dl>
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
+}
 
 type Tab = 'users' | 'maps' | 'reports' | 'audit' | 'discord';
 
@@ -37,7 +71,7 @@ export function AdminPage() {
   const { t } = useTranslation();
   const [path, navigate] = useHashRoute();
   const { user } = useAuth();
-  const isAdmin = user?.role === 'admin';
+  const isAdmin = !!user && isAdminRole(user.role);
   const canSeeReports = !!user?.canViewReports;
   const tabs = useMemo(
     () => ALL_TABS.filter((t) => {
@@ -157,11 +191,15 @@ function compareUsers(a: AdminUser, b: AdminUser, sort: UserSort): number {
 function UsersTab() {
   const { t } = useTranslation();
   const { user: self } = useAuth();
-  const canEdit = self?.role === 'admin';
+  const canEdit = !!self && isAdminRole(self.role);
+  // Only an alliance admin may hand out (or modify) the alliance_admin tier.
+  const canGrantAllianceAdmin = !!self && isAllianceAdminRole(self.role);
   const [users, setUsers]     = useState<AdminUser[] | null>(null);
   const [error, setError]     = useState<string | null>(null);
   const [busyId, setBusyId]   = useState<number | null>(null);
   const [blockTarget, setBlockTarget] = useState<AdminUser | null>(null);
+  const [showRoles, setShowRoles] = useState(false);
+  const [query, setQuery] = useState('');
   // Default: alphabetical by character name.
   const [sort, setSort] = useState<UserSort>({ key: 'characterName', dir: 'asc' });
 
@@ -175,6 +213,17 @@ function UsersTab() {
     () => (users ? [...users].sort((a, b) => compareUsers(a, b, sort)) : null),
     [users, sort],
   );
+
+  // Case-insensitive substring filter over character name plus corp/alliance
+  // ticker + name, so an admin can jump to a member by any of those.
+  const visibleUsers = useMemo(() => {
+    const base = sortedUsers ?? [];
+    const q = query.trim().toLowerCase();
+    if (!q) return base;
+    return base.filter((u) => [
+      u.characterName, u.corpTicker, u.corpName, u.allianceTicker, u.allianceName,
+    ].some((v) => v?.toLowerCase().includes(q)));
+  }, [sortedUsers, query]);
 
   const load = useCallback(async () => {
     try {
@@ -235,7 +284,21 @@ function UsersTab() {
 
   return (
     <>
-      <h2 className="admin-page__section-title">{t('admin.users.title')}</h2>
+      <div className="admin-page__section-head">
+        <h2 className="admin-page__section-title">{t('admin.users.title')}</h2>
+        <input
+          type="search"
+          className="admin-users__search"
+          placeholder={t('admin.users.searchPlaceholder')}
+          aria-label={t('admin.users.searchPlaceholder')}
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+        />
+        <button type="button" className="btn btn--ghost btn--sm" onClick={() => setShowRoles(true)}>
+          {t('admin.roles.button')}
+        </button>
+      </div>
+      {showRoles && <RolesInfoModal onClose={() => setShowRoles(false)} />}
       {error && <div className="admin-page__error">{error}</div>}
       {!users && !error && <div className="admin-page__loading">{t('admin.loading')}</div>}
       {users && !users.length && <div className="admin-page__empty">{t('admin.users.none')}</div>}
@@ -254,7 +317,7 @@ function UsersTab() {
             </tr>
           </thead>
           <tbody>
-            {(sortedUsers ?? users).map((u) => {
+            {visibleUsers.map((u) => {
               const isSelf = self?.id === u.id;
               const isBusy = busyId === u.id;
               return (
@@ -283,13 +346,17 @@ function UsersTab() {
                       <select
                         className="admin-modal__role-select"
                         value={u.role}
-                        disabled={isBusy || isSelf}
+                        // A non-alliance-admin can't touch an alliance admin's
+                        // role, nor grant the tier (matches the server guard).
+                        disabled={isBusy || isSelf || (u.role === 'alliance_admin' && !canGrantAllianceAdmin)}
                         onChange={(e) => changeRole(u, e.target.value as Role)}
                       >
-                        {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
+                        {ROLES
+                          .filter((r) => r !== 'alliance_admin' || canGrantAllianceAdmin)
+                          .map((r) => <option key={r} value={r}>{formatRole(r)}</option>)}
                       </select>
                     ) : (
-                      <span className="admin-modal__mono">{u.role}</span>
+                      <span className="admin-modal__mono">{formatRole(u.role as AuthRole)}</span>
                     )}
                   </td>
                   <td>
@@ -332,10 +399,15 @@ function UsersTab() {
           </tbody>
         </table>
       )}
+      {users && users.length > 0 && query.trim() && visibleUsers.length === 0 && (
+        <div className="admin-page__empty">{t('admin.users.noMatch', { query: query.trim() })}</div>
+      )}
 
       {blockTarget && (
         <ConfirmModal
           message={t('admin.users.blockConfirm', { name: blockTarget.characterName })}
+          confirmLabel={t('admin.users.block')}
+          danger
           onCancel={() => setBlockTarget(null)}
           onConfirm={() => setBlocked(blockTarget, true)}
         />
@@ -1344,15 +1416,33 @@ function csvEscape(value: string): string {
 
 // ── Discord tab ───────────────────────────────────────────────────────────────
 interface DiscordSettings {
-  corpId:     number | null;
-  allRegions: boolean;
-  regions:    string[];
-  maps:       { id: string; name: string; excluded: boolean }[];
+  scope:        'corp' | 'alliance' | null;
+  allRegions:   boolean;
+  regions:      string[];
+  notifyChains: boolean;
+  whTypes:      string[];
+  whClasses:    string[];
+  whSizes:      string[];
+  connectionsWebhook: string;
+  chainsWebhook:      string;
+  maps:         { id: string; name: string; excluded: boolean }[];
 }
 interface RegionOption { id: number; name: string }
 
+// Fixed vocab for the wormhole filters (mirrors the server). Empty = all.
+// Class chips show the raw EVE class code (no translation needed); size chips
+// reuse the existing connection-panel size labels.
+const WH_CLASS_OPTS = ['C1', 'C2', 'C3', 'C4', 'C5', 'C6', 'C13', 'HS', 'LS', 'NS', 'Thera', 'Pochven', 'Drifter', 'Turnur'];
+const WH_SIZE_OPTS = [
+  { key: 'small',  labelKey: 'connPanel.sizeSmall'  },
+  { key: 'medium', labelKey: 'connPanel.sizeMedium' },
+  { key: 'large',  labelKey: 'connPanel.sizeLarge'  },
+  { key: 'xl',     labelKey: 'connPanel.sizeXl'     },
+] as const;
+
 function DiscordTab() {
   const { t } = useTranslation();
+  const whCatalog = useWormholeTypes();
   const [data, setData]           = useState<DiscordSettings | null>(null);
   const [regionOpts, setRegionOpts] = useState<RegionOption[]>([]);
   const [error, setError]         = useState<string | null>(null);
@@ -1363,6 +1453,14 @@ function DiscordTab() {
   const [allRegions, setAllRegions] = useState(true);
   const [regions, setRegions]       = useState<string[]>([]);
   const [query, setQuery]           = useState('');
+  // Editable copies of the wormhole filters (empty list = all).
+  const [whTypes, setWhTypes]     = useState<string[]>([]);
+  const [whClasses, setWhClasses] = useState<string[]>([]);
+  const [whSizes, setWhSizes]     = useState<string[]>([]);
+  const [whQuery, setWhQuery]     = useState('');
+  // Editable copies of the per-event webhook URLs (empty = off).
+  const [connWebhook, setConnWebhook]   = useState('');
+  const [chainWebhook, setChainWebhook] = useState('');
 
   const load = useCallback(async () => {
     try {
@@ -1373,6 +1471,11 @@ function DiscordTab() {
       setData(s);
       setAllRegions(s.allRegions);
       setRegions(s.regions);
+      setWhTypes(s.whTypes ?? []);
+      setWhClasses(s.whClasses ?? []);
+      setWhSizes(s.whSizes ?? []);
+      setConnWebhook(s.connectionsWebhook ?? '');
+      setChainWebhook(s.chainsWebhook ?? '');
       setRegionOpts(r.regions);
       setError(null);
     } catch (e) {
@@ -1385,11 +1488,14 @@ function DiscordTab() {
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { load(); }, [load]);
 
-  async function saveRegions() {
+  async function saveFilters() {
+    if (!data) return;
     setSaving(true); setSaved(false);
     try {
-      await api('/api/admin/discord', { method: 'PUT', body: JSON.stringify({ allRegions, regions }) });
-      setData((d) => (d ? { ...d, allRegions, regions } : d));
+      // Send every field the PUT can wipe (it defaults absent flags/lists), so a
+      // save never silently resets the chain toggle or another filter dimension.
+      await api('/api/admin/discord', { method: 'PUT', body: JSON.stringify({ allRegions, regions, notifyChains: data.notifyChains, whTypes, whClasses, whSizes, connectionsWebhook: connWebhook.trim(), chainsWebhook: chainWebhook.trim() }) });
+      setData((d) => (d ? { ...d, allRegions, regions, whTypes, whClasses, whSizes, connectionsWebhook: connWebhook.trim(), chainsWebhook: chainWebhook.trim() } : d));
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
     } catch (e) {
@@ -1398,6 +1504,23 @@ function DiscordTab() {
       setSaving(false);
     }
   }
+
+  // Broadcast toggles persist immediately, using the last-saved filters so an
+  // unsaved draft isn't dragged along and no other filter is wiped.
+  async function toggleChains(next: boolean) {
+    if (!data) return;
+    const prev = data.notifyChains;
+    setData((d) => (d ? { ...d, notifyChains: next } : d));
+    try {
+      await api('/api/admin/discord', { method: 'PUT', body: JSON.stringify({ allRegions: data.allRegions, regions: data.regions, notifyChains: next, whTypes: data.whTypes, whClasses: data.whClasses, whSizes: data.whSizes, connectionsWebhook: data.connectionsWebhook, chainsWebhook: data.chainsWebhook }) });
+    } catch (e) {
+      setData((d) => (d ? { ...d, notifyChains: prev } : d));
+      setError(e instanceof Error ? e.message : t('admin.discord.saveFailed'));
+    }
+  }
+
+  const toggleIn = (list: string[], set: (v: string[]) => void, val: string) =>
+    set(list.includes(val) ? list.filter((x) => x !== val) : [...list, val]);
 
   async function toggleMap(id: string, excluded: boolean) {
     setData((d) => (d ? { ...d, maps: d.maps.map((m) => (m.id === id ? { ...m, excluded } : m)) } : d));
@@ -1417,20 +1540,57 @@ function DiscordTab() {
     ? regionOpts.filter((o) => o.name.toLowerCase().includes(q) && !regions.includes(o.name)).slice(0, 8)
     : [];
 
+  const wq = whQuery.trim().toUpperCase();
+  const whMatches = wq
+    ? Object.keys(whCatalog).filter((c) => c.includes(wq) && !whTypes.includes(c)).sort().slice(0, 8)
+    : [];
+
   if (!data && error) return (<><h2 className="admin-page__section-title">{t('admin.discord.title')}</h2><div className="admin-page__error">{error}</div></>);
   if (!data)          return (<><h2 className="admin-page__section-title">{t('admin.discord.title')}</h2><div className="admin-page__loading">{t('admin.loading')}</div></>);
-  if (data.corpId == null) {
+  if (data.scope == null) {
     return (<><h2 className="admin-page__section-title">{t('admin.discord.title')}</h2>
       <div className="admin-page__empty">{t('admin.discord.noCorp')}</div></>);
   }
 
-  const dirty = allRegions !== data.allRegions || regions.slice().sort().join('|') !== data.regions.slice().sort().join('|');
+  const sortJoin = (a: string[]) => a.slice().sort().join('|');
+  const dirty = allRegions !== data.allRegions
+    || sortJoin(regions)   !== sortJoin(data.regions)
+    || sortJoin(whTypes)   !== sortJoin(data.whTypes)
+    || sortJoin(whClasses) !== sortJoin(data.whClasses)
+    || sortJoin(whSizes)   !== sortJoin(data.whSizes)
+    || connWebhook.trim()  !== data.connectionsWebhook
+    || chainWebhook.trim() !== data.chainsWebhook;
 
   return (
     <>
       <h2 className="admin-page__section-title">{t('admin.discord.titleNotifications')}</h2>
       {error && <div className="admin-page__error">{error}</div>}
       <p className="discord-admin__hint">{t('admin.discord.hint')}</p>
+
+      <section className="discord-admin__section">
+        <h3 className="discord-admin__heading">{t('admin.discord.webhooks')}</h3>
+        <p className="discord-admin__hint">{t('admin.discord.webhooksHint')}</p>
+        <label className="discord-admin__sublabel" htmlFor="conn-webhook">{t('admin.discord.connectionsWebhook')}</label>
+        <input
+          id="conn-webhook"
+          type="url"
+          className="discord-admin__search discord-admin__search--wide"
+          placeholder="https://discord.com/api/webhooks/…"
+          value={connWebhook}
+          spellCheck={false}
+          onChange={(e) => setConnWebhook(e.target.value)}
+        />
+        <label className="discord-admin__sublabel" htmlFor="chain-webhook">{t('admin.discord.chainsWebhook')}</label>
+        <input
+          id="chain-webhook"
+          type="url"
+          className="discord-admin__search discord-admin__search--wide"
+          placeholder="https://discord.com/api/webhooks/…"
+          value={chainWebhook}
+          spellCheck={false}
+          onChange={(e) => setChainWebhook(e.target.value)}
+        />
+      </section>
 
       <section className="discord-admin__section">
         <h3 className="discord-admin__heading">{t('admin.discord.regions')}</h3>
@@ -1472,12 +1632,78 @@ function DiscordTab() {
           </div>
         )}
 
+        {/* ── Wormhole filters (type code / dest class / size) — empty = all ── */}
+        <h4 className="discord-admin__subheading">{t('admin.discord.whFilters')}</h4>
+        <p className="discord-admin__hint">{t('admin.discord.whFiltersHint')}</p>
+
+        <label className="discord-admin__sublabel">{t('admin.discord.whTypeLabel')}</label>
+        <div className="discord-admin__chips">
+          {whTypes.length === 0
+            ? <span className="admin-page__empty">{t('admin.discord.whAll')}</span>
+            : whTypes.map((c) => (
+                <span key={c} className="discord-admin__chip">{c}
+                  <button type="button" onClick={() => setWhTypes(whTypes.filter((x) => x !== c))} aria-label={t('admin.discord.removeType', { name: c })}>×</button>
+                </span>
+              ))}
+        </div>
+        <input
+          type="text"
+          className="discord-admin__search"
+          placeholder={t('admin.discord.whTypePlaceholder')}
+          value={whQuery}
+          onChange={(e) => setWhQuery(e.target.value.toUpperCase())}
+        />
+        {whMatches.length > 0 && (
+          <ul className="discord-admin__results">
+            {whMatches.map((c) => (
+              <li key={c}>
+                <button type="button" onClick={() => { setWhTypes([...whTypes, c]); setWhQuery(''); }}>
+                  {c}<span className="discord-admin__result-meta"> → {whCatalog[c]?.dest ?? '?'}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+
+        <label className="discord-admin__sublabel">{t('admin.discord.whClassLabel')}</label>
+        <div className="discord-admin__togglechips">
+          {WH_CLASS_OPTS.map((c) => (
+            <button
+              key={c}
+              type="button"
+              className={`discord-admin__togglechip${whClasses.includes(c) ? ' discord-admin__togglechip--on' : ''}`}
+              onClick={() => toggleIn(whClasses, setWhClasses, c)}
+            >{c}</button>
+          ))}
+        </div>
+
+        <label className="discord-admin__sublabel">{t('admin.discord.whSizeLabel')}</label>
+        <div className="discord-admin__togglechips">
+          {WH_SIZE_OPTS.map((o) => (
+            <button
+              key={o.key}
+              type="button"
+              className={`discord-admin__togglechip${whSizes.includes(o.key) ? ' discord-admin__togglechip--on' : ''}`}
+              onClick={() => toggleIn(whSizes, setWhSizes, o.key)}
+            >{t(o.labelKey)}</button>
+          ))}
+        </div>
+
         <div className="discord-admin__actions">
-          <button className="btn btn--primary" disabled={!dirty || saving} onClick={saveRegions}>
-            {saving ? t('admin.discord.saving') : t('admin.discord.saveRegions')}
+          <button className="btn btn--primary" disabled={!dirty || saving} onClick={saveFilters}>
+            {saving ? t('admin.discord.saving') : t('actions.save')}
           </button>
           {saved && <span className="discord-admin__saved">{t('admin.discord.saved')}</span>}
         </div>
+      </section>
+
+      <section className="discord-admin__section">
+        <h3 className="discord-admin__heading">{t('admin.discord.events')}</h3>
+        <label className="discord-admin__radio">
+          <input type="checkbox" checked={data.notifyChains} onChange={(e) => toggleChains(e.target.checked)} />
+          {t('admin.discord.broadcastChains')}
+        </label>
+        <p className="discord-admin__hint">{t('admin.discord.broadcastChainsHint')}</p>
       </section>
 
       <section className="discord-admin__section">

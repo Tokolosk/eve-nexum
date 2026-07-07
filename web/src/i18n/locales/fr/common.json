@@ -50,7 +50,7 @@
     "switchTo": "Basculer vers {{name}}",
     "focusLocation": "Centrer et router depuis {{name}}",
     "noLocation": "Aucune position connue pour {{name}}",
-    "linkFailedNotInCorp": "Impossible d'ajouter ce personnage — il n'est pas dans la corporation.",
+    "linkFailedNotInCorp": "Impossible d'ajouter ce personnage — il n'est dans aucune corporation ou alliance autorisée.",
     "linkFailed": "Impossible d'ajouter ce personnage. Veuillez réessayer.",
     "remove": "Retirer",
     "removeCharacter": "Retirer {{name}}",
@@ -109,7 +109,9 @@
       "loadFailed": "Échec du chargement des utilisateurs",
       "roleChangeFailed": "Échec du changement de rôle",
       "blockChangeFailed": "Échec du changement de blocage",
-      "recheckFailed": "Échec de la revérification"
+      "recheckFailed": "Échec de la revérification",
+      "searchPlaceholder": "Rechercher des membres…",
+      "noMatch": "Aucun membre ne correspond à « {{query}} »."
     },
     "maps": {
       "title": "Cartes",
@@ -242,11 +244,37 @@
       "saving": "Enregistrement…",
       "saveRegions": "Enregistrer les régions",
       "saved": "Enregistré",
+      "events": "Diffusions",
+      "broadcastChains": "Diffuser les chaînes enregistrées",
+      "broadcastChainsHint": "Lorsque activé, l'enregistrement d'une chaîne de trous de ver la publie sur Discord avec son nom, ses systèmes de départ et d'arrivée, la taille de vaisseau maximale et le nombre de sauts.",
+      "webhooks": "Webhooks",
+      "webhooksHint": "Où les notifications sont publiées. Collez une URL de webhook Discord pour chaque canal ; laissez un champ vide pour désactiver ce type.",
+      "connectionsWebhook": "Connexions (K162 + nouvelles connexions)",
+      "chainsWebhook": "Chaînes (chaînes enregistrées)",
+      "whFilters": "Filtres de trou de ver",
+      "whFiltersHint": "Filtrez quelles notifications de nouvelle connexion sont envoyées. Laissez un filtre vide pour tout autoriser ; un trou doit correspondre à tous les filtres définis.",
+      "whTypeLabel": "Type",
+      "whTypePlaceholder": "Ajouter un type de trou (p. ex. C247)…",
+      "whClassLabel": "Classe de destination",
+      "whSizeLabel": "Taille",
+      "whAll": "Tous",
+      "removeType": "Retirer {{name}}",
       "excludedMaps": "Cartes exclues",
       "excludedHint": "Toutes les cartes notifient par défaut. Cochez une carte pour l'exclure de Discord.",
       "noCorpMaps": "Aucune carte de corp pour l'instant.",
       "colMap": "Carte",
       "colExclude": "Exclure"
+    },
+    "roles": {
+      "button": "Rôles ?",
+      "title": "Ce que permet chaque rôle",
+      "desc": {
+        "alliance_admin": "Contrôle total sur toute l'alliance — gère les cartes d'alliance et le rôle de chaque membre. Inclut tout ce que peut faire un Admin.",
+        "admin": "Administration de corporation — gère les utilisateurs de votre corpo (changer les rôles, bloquer), verrouille les cartes et tout ce que peut faire Full.",
+        "full": "Créer, supprimer et verrouiller les cartes de corpo et d'alliance, en plus de toute l'édition.",
+        "edit": "Modifier les cartes — systèmes, connexions, signatures, structures et notes — mais pas créer, supprimer ni verrouiller de cartes.",
+        "readonly": "Lecture seule. Peut voir les cartes mais rien modifier."
+      }
     }
   },
   "proximityOptIn": {
@@ -279,11 +307,13 @@
     "type": "Type",
     "personal": "Personnelle",
     "corp": "Corp",
+    "alliance": "Alliance",
     "regionLabel": "Région (optionnel — vide pour une carte vierge)",
     "regionPlaceholder": "Tapez pour rechercher des régions…",
     "clearRegion": "Effacer la région",
     "regionHint": "Génère {{count}} systèmes depuis {{region}}, positionnés selon leurs coordonnées en jeu avec tous les liens de portail stellaire.",
     "corpLimit": "Limite de cartes de corp atteinte ({{max}}).",
+    "allianceLimit": "Limite de cartes d'alliance atteinte ({{max}}).",
     "personalLimit": "Limite de cartes personnelles atteinte ({{max}}).",
     "createFailed": "Échec de la création de la carte",
     "created": "« {{name}} » créée depuis {{region}}",
@@ -374,6 +404,9 @@
     },
     "fontSize": "Taille de police",
     "placement": "Placement des nouveaux systèmes",
+    "mapBookmark": "Format de favori de la carte (partagé)",
+    "mapBookmarkPlaceholder": "Utiliser le format propre à chaque utilisateur",
+    "mapBookmarkHelp": "Si défini, tout le monde sur cette carte copie les favoris dans ce format. Laissez vide pour que chaque utilisateur utilise son propre format ci-dessous.",
     "sigBookmark": "Nom de favori de signature",
     "bookmarkHelp": "Sur la ligne d'une signature de trou de ver, cliquez sur l'icône de copie pour copier un nom de favori prêt à coller, puis collez-le dans le favori en jeu. Composez le nom avec ces variables :",
     "crossMapSync": "Synchroniser les données système entre mes cartes",
@@ -444,6 +477,7 @@
     "fleetHeatmap": "Carte de chaleur de flotte",
     "showAccountChars": "Afficher mes personnages",
     "staleHint": "Atténue visuellement les systèmes non mis à jour depuis l'intervalle choisi, pour repérer d'un coup d'œil les résidus de chaîne.",
+    "staleNever": "Jamais",
     "exportJson": "↓ Exporter en JSON",
     "importJson": "↑ Importer depuis JSON",
     "exportPng": "⎙ Exporter en PNG",
@@ -499,7 +533,12 @@
     "notifColSound": "Son",
     "notifK162": "K162 entrant",
     "notifProximity": "Menaces de proximité",
-    "notifWatchlist": "Correspondance de liste de surveillance"
+    "notifWatchlist": "Correspondance de liste de surveillance",
+    "routeIncludeThera": "Inclure les connexions Thera",
+    "routeIncludeTurnur": "Inclure les connexions Turnur",
+    "routeIncludeWormholes": "Inclure la chaîne de trous de ver",
+    "routeShortcutNote": "Les itinéraires passant par un trou de ver, Thera, Turnur ou une porte de saut ne peuvent pas être définis comme destination ou point de passage en jeu — faites un clic droit sur un système k-space de l’itinéraire pour vous y rendre.",
+    "routeIncludeAnsiblex": "Inclure les portes Ansiblex"
   },
   "customIntel": {
     "title": "Intel personnalisée",
@@ -543,7 +582,8 @@
     "max": "Maximum {{count}} entrées dans la liste de surveillance",
     "add": "Ajouter à la liste de surveillance",
     "appeared": "Liste de surveillance : {{name}} ({{marker}}) est sur la carte",
-    "notifTitle": "Correspondance de liste de surveillance"
+    "notifTitle": "Correspondance de liste de surveillance",
+    "duplicate": "Déjà dans la liste de surveillance"
   },
   "chainExits": {
     "noExits": "Aucune sortie K-space dans cette chaîne.",
@@ -646,7 +686,9 @@
     "removeConnection": "Retirer la connexion",
     "brokenNotice": "Connexion rompue — la sig de trou de ver qui la soutenait a été supprimée. Conservée sur la carte mais mise en quarantaine du routage.",
     "restore": "Rétablir",
-    "restoreTitle": "Effacer le marqueur de rupture et traiter à nouveau comme une connexion active"
+    "restoreTitle": "Effacer le marqueur de rupture et traiter à nouveau comme une connexion active",
+    "gateNote": "Stargate classique — aucune donnée de trou de ver.",
+    "jumpgateNote": "Pont Ansiblex — aucune donnée de trou de ver."
   },
   "mapControls": {
     "panel": "Panneau de contrôle",
@@ -714,7 +756,9 @@
     "labels": "Labels",
     "customLabel": "Label personnalisé",
     "clearLabels": "Effacer",
-    "labelNamed": "Label {{name}}"
+    "labelNamed": "Label {{name}}",
+    "tag": "Marqueur",
+    "clearTag": "Effacer le marqueur"
   },
   "panel": {
     "notes": "Notes",
@@ -723,7 +767,9 @@
     "structures": "Structures",
     "npcStations": "Stations PNJ",
     "killboard": "zKillboard",
-    "activity": "Activité"
+    "activity": "Activité",
+    "undock": "Détacher dans une fenêtre flottante",
+    "redock": "Réancrer"
   },
   "systemPanel": {
     "unknownSystem": "Système inconnu",
@@ -801,7 +847,7 @@
     "home": "Origine",
     "noJumps": "— sauts",
     "removeFromList": "Retirer de la liste",
-    "signIn": "Connectez-vous et arrimez en K-space pour voir les sauts vers les hubs.",
+    "signIn": "Connectez-vous et arrimez en K-space pour voir les sauts vers les hubs, ou activez les options de raccourcis d'itinéraire pour calculer un itinéraire depuis un trou de ver ou Thera.",
     "searchPlaceholder": "Rechercher un nom de système…",
     "onList": "dans la liste",
     "noMatch": "Aucun système ne correspond à « {{query}} »"
@@ -826,7 +872,15 @@
   },
   "route": {
     "fromLastKnown": "Sauts depuis {{system}} (dernière position connue)",
-    "fromCharacter": "Sauts depuis {{character}} — {{system}}"
+    "fromCharacter": "Sauts depuis {{character}} — {{system}}",
+    "viaWormhole": "Saut par trou de ver",
+    "viaThera": "Via Thera",
+    "viaTurnur": "Via Turnur",
+    "riskEol": "EOL",
+    "riskCritical": "Masse critique",
+    "riskFrig": "Trou frégate",
+    "shortcutNoWaypoint": "Cet itinéraire passe par un trou de ver/Thera/Turnur/porte de saut et ne peut pas être défini comme destination du pilote automatique — faites un clic droit sur un système k-space de l’itinéraire.",
+    "viaAnsiblex": "Porte de saut Ansiblex"
   },
   "activity": {
     "thisHour": "cette heure",
@@ -871,6 +925,8 @@
     "showNpcKills": "Afficher les kills PNJ",
     "loading": "Chargement des kills…",
     "noKills": "Aucun kill ces dernières 24 h.",
+    "lastKillAgo": "Aucun kill ces dernières 24h — le dernier {{time}}.",
+    "noKillsOnRecord": "Aucun kill enregistré.",
     "noKillsNpc": "Aucun kill ces dernières 24 h — {{count}} PNJ uniquement masqués.",
     "showThem": "Les afficher",
     "loadMore": "Charger plus ({{count}} restants)"
@@ -926,6 +982,7 @@
     "colNotes": "Notes",
     "colAge": "Âge",
     "colUpdated": "Mis à jour",
+    "columns": "Colonnes",
     "namePlaceholder": "Nom du site"
   },
   "anomalies": {
@@ -958,6 +1015,7 @@
     "colNotes": "Notes",
     "colAge": "Âge",
     "colUpdated": "Mis à jour",
+    "columns": "Colonnes",
     "namePlaceholder": "Nom de l'anomalie"
   },
   "stats": {
@@ -1007,6 +1065,7 @@
     "mapType": {
       "shared": "Partagée",
       "corp": "Corp",
+      "alliance": "Alliance",
       "solo": "Solo"
     },
     "lockedTooltip": "La carte est verrouillée — les systèmes et connexions sont gelés. Les signatures, structures et notes restent modifiables.",
@@ -1050,7 +1109,8 @@
       "threat": "Menace",
       "closest": "Système {{label}} le plus proche"
     },
-    "resetLayout": "Réinitialiser la disposition de la barre d'outils"
+    "resetLayout": "Réinitialiser la disposition de la barre d'outils",
+    "copyThisMap": "Copier cette carte"
   },
   "landing": {
     "tagline": "Cartographie de chaînes de trous de ver pour EVE Online",
@@ -1064,17 +1124,17 @@
       "joinDiscord": "Rejoindre le Discord Nexum"
     },
     "errors": {
-      "not_in_corp": "Votre personnage n'est pas membre de la corporation qui gère cette instance Nexum. L'accès est réservé aux membres de la corp.",
+      "not_in_corp": "Votre personnage n'appartient à aucune corporation ou alliance autorisée à accéder à cette instance Nexum. L'accès est réservé aux membres autorisés.",
       "corp_check_failed": "Impossible de vérifier votre appartenance à la corporation en raison d'une erreur ESI. Veuillez réessayer dans un instant.",
       "unknown": "Une erreur inconnue s'est produite. Veuillez réessayer."
     },
     "sections": {
       "mapping": "Cartographie",
-      "personalCorp": "Cartes perso & corp",
+      "personalCorp": "Cartes personnelles, de corpo et d'alliance",
       "sysIntel": "Renseignement système",
       "liveOps": "Ops en direct",
       "productivity": "Productivité & UX",
-      "forCorps": "Pour les corporations",
+      "forCorps": "Pour les corporations et alliances",
       "compare": "Comment se compare Nexum ?",
       "languages": "Disponible dans votre langue",
       "discordCta": "Des questions, des idées ou des bugs ?",
@@ -1289,6 +1349,14 @@
       "multiCorp": {
         "title": "Déploiements multi-corp",
         "desc": "CORP_ID accepte une liste d'IDs de corporation séparés par des virgules. Une instance Nexum peut héberger plusieurs corps ; les cartes de chaque corp restent limitées à ses propres membres sauf si CORP_MAP_SHARED=true."
+      },
+      "allianceMaps": {
+        "title": "Cartes à l'échelle de l'alliance",
+        "desc": "ALLIANCE_ID ajoute un troisième niveau de cartes au-dessus de la corpo : des cartes d'alliance visibles par tous les membres. Avec ALLIANCE_MAP_SHARED=true, elles sont partagées au sein d'une coalition d'alliances."
+      },
+      "allianceRoles": {
+        "title": "Rôle d'admin d'alliance",
+        "desc": "Un niveau dédié alliance_admin gère les cartes d'alliance et le rôle de chaque membre dans toute l'alliance — un sur-ensemble de l'admin de corpo. Chaque corpo de l'alliance peut garder ses propres cartes privées, sans liste CORP_ID."
       },
       "adminDash": {
         "title": "Tableau de bord d'administration",
@@ -1531,5 +1599,20 @@
     "remove": "Supprimer",
     "colour": "Couleur",
     "maxReached": "Maximum de {{n}} labels personnalisés atteint — supprimez-en un pour en ajouter."
+  },
+  "copyMap": {
+    "title": "Copier la carte",
+    "sourceLabel": "Copie depuis",
+    "nameLabel": "Nom de la nouvelle carte",
+    "namePlaceholder": "Nom de la nouvelle carte",
+    "include": "Copier",
+    "copyNotes": "Notes",
+    "copySignatures": "Signatures",
+    "copyStructures": "Structures",
+    "copyAnomalies": "Anomalies",
+    "submit": "Créer la copie",
+    "copying": "Copie…",
+    "success": "Copié vers {{name}}",
+    "failed": "Échec de la copie"
   }
 }

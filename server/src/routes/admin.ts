@@ -1,10 +1,12 @@
-import { Router } from 'express';
+import { Router, type Request } from 'express';
 import { esiFetch } from '../utils/esi.js';
 import { db } from '../db.js';
 import { requireAdmin } from '../middleware/requireAdmin.js';
 import { requireAdminRead } from '../middleware/requireAdminRead.js';
 import { requireReportsAccess, isReportsCharacter, corpScopeFor } from '../middleware/requireReportsAccess.js';
+import { isAdmin, isAllianceAdmin } from '../middleware/authContext.js';
 import { config } from '../config.js';
+import { isDiscordWebhookUrl } from '../services/discord.js';
 import { createLogger } from '../utils/logger.js';
 import { invalidateSessionsForUser } from '../utils/sessionInvalidate.js';
 import { audit } from '../services/audit.js';
@@ -20,7 +22,7 @@ adminReadRouter.use(requireAdminRead);
 export const reportsRouter = Router();
 reportsRouter.use(requireReportsAccess);
 
-const ROLES = ['admin', 'full', 'edit', 'readonly'] as const;
+const ROLES = ['alliance_admin', 'admin', 'full', 'edit', 'readonly'] as const;
 type Role = (typeof ROLES)[number];
 
 // Small in-memory cache for ESI corporation lookups. Tickers don't change
@@ -187,10 +189,14 @@ adminRouter.patch('/users/:id/role', async (req, res) => {
     return;
   }
 
+  const actorRole = req.session.role ?? 'readonly';
+  const newRoleReq = role as Role;
+
   // Block self-demote — an admin removing their own admin role mid-session
   // would lock themselves out unless another admin exists. Forcing them to
-  // go through another admin avoids accidental lockout.
-  if (userId === req.session.userId && role !== 'admin') {
+  // go through another admin avoids accidental lockout. (alliance_admin ->
+  // admin is not a lockout, so it's allowed.)
+  if (userId === req.session.userId && !isAdmin(newRoleReq)) {
     res.status(400).json({ error: 'You cannot demote yourself' });
     return;
   }
@@ -202,9 +208,17 @@ adminRouter.patch('/users/:id/role', async (req, res) => {
   if (!targetRows.rows.length) { res.status(404).json({ error: 'User not found' }); return; }
   const target = targetRows.rows[0];
 
-  // The configured ADMIN_CHAR_ID is auto-promoted to admin on every login,
-  // so demoting them here just creates confusing churn next login.
-  if (config.adminCharId !== null && target.character_id === config.adminCharId && role !== 'admin') {
+  // Privilege-escalation guard: only an alliance admin can grant the
+  // alliance_admin role or alter someone who already holds it. Stops a corp
+  // admin from minting an alliance admin (themselves or anyone else).
+  if ((newRoleReq === 'alliance_admin' || target.role === 'alliance_admin') && !isAllianceAdmin(actorRole)) {
+    res.status(403).json({ error: 'Only an alliance admin can manage the alliance admin role' });
+    return;
+  }
+
+  // The configured ADMIN_CHAR_ID is auto-promoted on every login, so demoting
+  // them below admin here just creates confusing churn next login.
+  if (config.adminCharId !== null && target.character_id === config.adminCharId && !isAdmin(newRoleReq)) {
     res.status(400).json({ error: 'Cannot demote the configured ADMIN_CHAR_ID' });
     return;
   }
@@ -230,12 +244,19 @@ adminRouter.post('/users/:id/block', async (req, res) => {
     return;
   }
 
-  const { rows } = await db.query<{ character_id: number; blocked: boolean }>(
-    `SELECT character_id, blocked FROM users WHERE id = $1`,
+  const { rows } = await db.query<{ character_id: number; blocked: boolean; role: string }>(
+    `SELECT character_id, blocked, role FROM users WHERE id = $1`,
     [userId],
   );
   if (!rows.length) { res.status(404).json({ error: 'User not found' }); return; }
   const target = rows[0];
+
+  // An alliance admin can only be blocked by another alliance admin — a corp
+  // admin must not be able to lock one out.
+  if (target.role === 'alliance_admin' && !isAllianceAdmin(req.session.role ?? 'readonly')) {
+    res.status(403).json({ error: 'Only an alliance admin can block an alliance admin' });
+    return;
+  }
 
   if (config.adminCharId !== null && target.character_id === config.adminCharId) {
     res.status(400).json({ error: 'Cannot block the configured ADMIN_CHAR_ID' });
@@ -458,44 +479,105 @@ adminRouter.delete('/maps/:id', async (req, res) => {
 });
 
 // ── Discord notification settings ─────────────────────────────────────────────
-// Per-corp region filter + per-map exclusions for the Discord webhook
-// notifications. Scoped to the admin's own corp (req.session.userCorpId). See
-// discord_filters_feature.md.
+// Region filter + per-event-type toggles + per-map exclusions for the Discord
+// webhook notifications. Scoped to the admin's own org — corp OR alliance. An
+// alliance deployment's admin (alliance_admin) manages the alliance's settings;
+// otherwise the admin's corp. See discord_filters_feature.md.
 
-// GET /api/admin/discord — current settings + this corp's maps with their
+type DiscordScope = { kind: 'corp' | 'alliance'; id: number };
+
+// Which org's Discord settings this admin manages. Alliance takes precedence in
+// an alliance-mode deployment when the caller is an alliance admin; otherwise
+// the caller's corp. null when the caller has no org (personal deployment).
+function resolveDiscordScope(req: Request): DiscordScope | null {
+  const role       = req.session.role ?? 'readonly';
+  const allianceId = req.session.userAllianceId ?? null;
+  const corpId     = req.session.userCorpId ?? null;
+  if (config.allianceMode && allianceId != null && isAllianceAdmin(role)) return { kind: 'alliance', id: allianceId };
+  if (corpId != null) return { kind: 'corp', id: corpId };
+  return null;
+}
+
+// Vocab for the wormhole notification filters. Classes/sizes are validated
+// against these; type codes are validated by shape (letter + 3 digits, incl.
+// K162) since the catalog is dynamic.
+const WH_CLASSES = new Set(['C1', 'C2', 'C3', 'C4', 'C5', 'C6', 'C13', 'HS', 'LS', 'NS', 'Thera', 'Pochven', 'Drifter', 'Turnur']);
+const WH_SIZES   = new Set(['small', 'medium', 'large', 'xl']);
+const WH_TYPE_RE = /^[A-Z][0-9]{3}$/;
+
+interface WhSettingsRow {
+  allRegions: boolean; regions: string[]; notifyChains: boolean;
+  whTypes: string[]; whClasses: string[]; whSizes: string[];
+  connectionsWebhook: string | null; chainsWebhook: string | null;
+}
+const WH_SETTINGS_COLS = `all_regions AS "allRegions", regions, notify_chains AS "notifyChains",
+                          wh_types AS "whTypes", wh_classes AS "whClasses", wh_sizes AS "whSizes",
+                          connections_webhook AS "connectionsWebhook", chains_webhook AS "chainsWebhook"`;
+
+// GET /api/admin/discord — current settings + this org's maps with their
 // excluded state (excluded = NOT discord_notify).
 adminRouter.get('/discord', async (req, res) => {
-  const corpId = req.session.userCorpId ?? null;
-  if (corpId == null) {
-    res.json({ corpId: null, allRegions: true, regions: [], maps: [] });
+  const scope = resolveDiscordScope(req);
+  if (!scope) {
+    res.json({ scope: null, allRegions: true, regions: [], notifyChains: true, whTypes: [], whClasses: [], whSizes: [], connectionsWebhook: '', chainsWebhook: '', maps: [] });
     return;
   }
-  const [settings, maps] = await Promise.all([
-    db.query<{ allRegions: boolean; regions: string[] }>(
-      `SELECT all_regions AS "allRegions", regions FROM corp_discord_settings WHERE corp_id = $1`,
-      [corpId],
-    ),
-    db.query<{ id: string; name: string; excluded: boolean }>(
-      `SELECT id, name, NOT discord_notify AS excluded FROM maps WHERE corp_id = $1 ORDER BY name`,
-      [corpId],
-    ),
-  ]);
+  // Literal SQL per branch (no interpolated identifiers) so the settings table /
+  // scope column are never string-built from a variable.
+  const settingsP = scope.kind === 'alliance'
+    ? db.query<WhSettingsRow>(`SELECT ${WH_SETTINGS_COLS} FROM alliance_discord_settings WHERE alliance_id = $1`, [scope.id])
+    : db.query<WhSettingsRow>(`SELECT ${WH_SETTINGS_COLS} FROM corp_discord_settings WHERE corp_id = $1`, [scope.id]);
+  const mapsP = scope.kind === 'alliance'
+    ? db.query<{ id: string; name: string; excluded: boolean }>(
+        `SELECT id, name, NOT discord_notify AS excluded FROM maps WHERE alliance_id = $1 ORDER BY name`, [scope.id])
+    : db.query<{ id: string; name: string; excluded: boolean }>(
+        `SELECT id, name, NOT discord_notify AS excluded FROM maps WHERE corp_id = $1 ORDER BY name`, [scope.id]);
+  const [settings, maps] = await Promise.all([settingsP, mapsP]);
   const row = settings.rows[0];
   res.json({
-    corpId,
-    allRegions: row?.allRegions ?? true,
-    regions:    row?.regions ?? [],
-    maps:       maps.rows,
+    scope:        scope.kind,
+    allRegions:   row?.allRegions ?? true,
+    regions:      row?.regions ?? [],
+    notifyChains: row?.notifyChains ?? true,
+    whTypes:      row?.whTypes ?? [],
+    whClasses:    row?.whClasses ?? [],
+    whSizes:      row?.whSizes ?? [],
+    connectionsWebhook: row?.connectionsWebhook ?? '',
+    chainsWebhook:      row?.chainsWebhook ?? '',
+    maps:         maps.rows,
   });
 });
 
-// PUT /api/admin/discord — set the region filter for the admin's corp.
+// PUT /api/admin/discord — set the region filter + event toggles for the org.
 adminRouter.put('/discord', async (req, res) => {
-  const corpId = req.session.userCorpId ?? null;
-  if (corpId == null) { res.status(400).json({ error: 'No corp context' }); return; }
+  const scope = resolveDiscordScope(req);
+  if (!scope) { res.status(400).json({ error: 'No org context' }); return; }
 
-  const body = req.body as { allRegions?: unknown; regions?: unknown };
-  const allRegions = body.allRegions !== false; // default true
+  const body = req.body as {
+    allRegions?: unknown; regions?: unknown; notifyChains?: unknown;
+    whTypes?: unknown; whClasses?: unknown; whSizes?: unknown;
+    connectionsWebhook?: unknown; chainsWebhook?: unknown;
+  };
+  const allRegions   = body.allRegions !== false;   // default true
+  const notifyChains = body.notifyChains !== false; // default true
+
+  // Webhook URLs. A field that's PRESENT sets the value: empty string clears
+  // (NULL), a non-empty value MUST be a real Discord webhook (SSRF guard) or the
+  // whole request is rejected. A field that's ABSENT leaves the stored value
+  // unchanged (so a partial PUT — e.g. a future API client that doesn't know
+  // about webhooks — can't wipe them). `provided` distinguishes the two.
+  const resolveWebhook = (v: unknown): { provided: boolean; value: string | null; bad: boolean } => {
+    if (typeof v !== 'string') return { provided: false, value: null, bad: false };
+    const s = v.trim();
+    if (s === '') return { provided: true, value: null, bad: false };
+    return isDiscordWebhookUrl(s) ? { provided: true, value: s, bad: false } : { provided: true, value: null, bad: true };
+  };
+  const conn  = resolveWebhook(body.connectionsWebhook);
+  const chain = resolveWebhook(body.chainsWebhook);
+  if (conn.bad || chain.bad) {
+    res.status(400).json({ error: 'Webhook must be a Discord webhook URL (https://discord.com/api/webhooks/…)' });
+    return;
+  }
   let regions = Array.isArray(body.regions)
     ? body.regions.filter((r): r is string => typeof r === 'string')
     : [];
@@ -509,30 +591,63 @@ adminRouter.put('/discord', async (req, res) => {
     regions = [...new Set(regions.filter((r) => valid.has(r)))];
   }
 
-  await db.query(
-    `INSERT INTO corp_discord_settings (corp_id, all_regions, regions, updated_at)
-     VALUES ($1, $2, $3, NOW())
-     ON CONFLICT (corp_id) DO UPDATE
-       SET all_regions = EXCLUDED.all_regions, regions = EXCLUDED.regions, updated_at = NOW()`,
-    [corpId, allRegions, regions],
-  );
-  res.json({ ok: true, allRegions, regions });
+  // Wormhole filters — empty array = "all". Sanitise against the known vocab so a
+  // bogus code/class/size can never be stored (or later matched against).
+  const asStrings = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []);
+  const whTypes   = [...new Set(asStrings(body.whTypes).map((s) => s.trim().toUpperCase()).filter((s) => WH_TYPE_RE.test(s)))];
+  const whClasses = [...new Set(asStrings(body.whClasses).map((s) => s.trim()).filter((s) => WH_CLASSES.has(s)))];
+  const whSizes   = [...new Set(asStrings(body.whSizes).map((s) => s.trim().toLowerCase()).filter((s) => WH_SIZES.has(s)))];
+
+  // On an existing row, only overwrite a webhook column when the field was
+  // provided (CASE on the `provided` flag); otherwise keep the stored value.
+  const params = [scope.id, allRegions, regions, notifyChains, whTypes, whClasses, whSizes, conn.value, chain.value, conn.provided, chain.provided];
+  if (scope.kind === 'alliance') {
+    await db.query(
+      `INSERT INTO alliance_discord_settings (alliance_id, all_regions, regions, notify_chains, wh_types, wh_classes, wh_sizes, connections_webhook, chains_webhook, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
+       ON CONFLICT (alliance_id) DO UPDATE
+         SET all_regions = EXCLUDED.all_regions, regions = EXCLUDED.regions,
+             notify_chains = EXCLUDED.notify_chains, wh_types = EXCLUDED.wh_types,
+             wh_classes = EXCLUDED.wh_classes, wh_sizes = EXCLUDED.wh_sizes,
+             connections_webhook = CASE WHEN $10 THEN EXCLUDED.connections_webhook ELSE alliance_discord_settings.connections_webhook END,
+             chains_webhook      = CASE WHEN $11 THEN EXCLUDED.chains_webhook      ELSE alliance_discord_settings.chains_webhook END,
+             updated_at = NOW()`,
+      params,
+    );
+  } else {
+    await db.query(
+      `INSERT INTO corp_discord_settings (corp_id, all_regions, regions, notify_chains, wh_types, wh_classes, wh_sizes, connections_webhook, chains_webhook, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
+       ON CONFLICT (corp_id) DO UPDATE
+         SET all_regions = EXCLUDED.all_regions, regions = EXCLUDED.regions,
+             notify_chains = EXCLUDED.notify_chains, wh_types = EXCLUDED.wh_types,
+             wh_classes = EXCLUDED.wh_classes, wh_sizes = EXCLUDED.wh_sizes,
+             connections_webhook = CASE WHEN $10 THEN EXCLUDED.connections_webhook ELSE corp_discord_settings.connections_webhook END,
+             chains_webhook      = CASE WHEN $11 THEN EXCLUDED.chains_webhook      ELSE corp_discord_settings.chains_webhook END,
+             updated_at = NOW()`,
+      params,
+    );
+  }
+  res.json({ ok: true, allRegions, regions, notifyChains, whTypes, whClasses, whSizes });
 });
 
-// PATCH /api/admin/maps/:id/discord — exclude / re-include one of the corp's
+// PATCH /api/admin/maps/:id/discord — exclude / re-include one of the org's
 // maps from Discord notifications. Maps notify by default, so this manages the
-// exceptions. Scoped to the admin's corp.
+// exceptions. Scoped to the admin's org so an admin can't toggle another org's map.
 adminRouter.patch('/maps/:id/discord', async (req, res) => {
-  const mapId  = req.params.id;
-  const corpId = req.session.userCorpId ?? null;
-  if (!mapId)            { res.status(400).json({ error: 'invalid map id' }); return; }
-  if (corpId == null)    { res.status(400).json({ error: 'No corp context' }); return; }
+  const mapId = req.params.id;
+  const scope = resolveDiscordScope(req);
+  if (!mapId) { res.status(400).json({ error: 'invalid map id' }); return; }
+  if (!scope) { res.status(400).json({ error: 'No org context' }); return; }
   const excluded = (req.body as { excluded?: unknown }).excluded === true;
 
-  const { rowCount } = await db.query(
-    `UPDATE maps SET discord_notify = $1, updated_at = NOW() WHERE id = $2 AND corp_id = $3`,
-    [!excluded, mapId, corpId],
-  );
+  const { rowCount } = scope.kind === 'alliance'
+    ? await db.query(
+        `UPDATE maps SET discord_notify = $1, updated_at = NOW() WHERE id = $2 AND alliance_id = $3`,
+        [!excluded, mapId, scope.id])
+    : await db.query(
+        `UPDATE maps SET discord_notify = $1, updated_at = NOW() WHERE id = $2 AND corp_id = $3`,
+        [!excluded, mapId, scope.id]);
   if (!rowCount) { res.status(404).json({ error: 'Map not found' }); return; }
   res.json({ ok: true, excluded });
 });
@@ -574,8 +689,13 @@ reportsRouter.get('/users', async (req, res) => {
   // immediately after.
   const params: unknown[] = scope.param !== null ? [scope.param] : [];
   const corpSql = scope.sql(1);
-  // Admins additionally only see users in their corp; reports char sees all.
-  const userScope = scope.param !== null ? `u.corp_id = $1` : null;
+  // Admins additionally only see users in their scope; reports char sees all.
+  // An alliance admin scopes by alliance (matching corpScopeFor's map filter),
+  // a corp admin by corp — otherwise the alliance id would be tested against
+  // u.corp_id and match nobody.
+  const userScope = scope.param !== null
+    ? (req.session.role === 'alliance_admin' ? `u.alliance_id = $1` : `u.corp_id = $1`)
+    : null;
 
   // Row-inclusion conditions (user-scope + filter EXISTS). Joined with AND.
   const conditions: string[] = [];

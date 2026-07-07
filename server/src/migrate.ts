@@ -94,6 +94,12 @@ export async function migrate() {
     ALTER TABLE maps ADD COLUMN IF NOT EXISTS corp_id        INTEGER;
     ALTER TABLE maps ADD COLUMN IF NOT EXISTS locked         BOOLEAN     NOT NULL DEFAULT FALSE;
     ALTER TABLE maps ADD COLUMN IF NOT EXISTS last_active_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+    -- Alliance-scoped maps (a third scope above corp: personal -> corp ->
+    -- alliance). alliance_id NOT NULL means the map is visible to the whole
+    -- alliance (or every listed alliance when ALLIANCE_MAP_SHARED). Scope is
+    -- exclusive: a corp map has corp_id, an alliance map has alliance_id.
+    -- Managed only by alliance_admin. NULL for personal + corp maps.
+    ALTER TABLE maps ADD COLUMN IF NOT EXISTS alliance_id    INTEGER;
     -- Read-only share links. Token is the only thing in the URL; the
     -- expiry column is the source of truth for "still valid" — a NULL
     -- token means sharing has been revoked outright.
@@ -132,6 +138,12 @@ export async function migrate() {
     -- DEFAULT FALSE — purely opt-in, nothing auto-deletes until enabled.
     ALTER TABLE maps ADD COLUMN IF NOT EXISTS lazy_remove_wormholes BOOLEAN NOT NULL DEFAULT FALSE;
 
+    -- Per-map bookmark-name format override. NULL (the default) means "no map
+    -- policy" and each user falls back to their own nexum.sig.bookmarkFormat.
+    -- When set, every user copying a bookmark on this map gets the same format,
+    -- so shared bookmarks stay consistent across the group.
+    ALTER TABLE maps ADD COLUMN IF NOT EXISTS bookmark_format TEXT;
+
     -- Per-corp Discord notification settings (region filter). No row => the
     -- defaults below => notify for every region. The regions column holds
     -- region NAMES, matched directly against map_systems.region_name.
@@ -141,6 +153,41 @@ export async function migrate() {
       regions     TEXT[]      NOT NULL DEFAULT '{}',
       updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
+
+    -- Per-event-type broadcast opt-outs, added alongside the region filter.
+    -- DEFAULT TRUE keeps existing behaviour (chain saves broadcast) until an
+    -- admin turns them off.
+    ALTER TABLE corp_discord_settings ADD COLUMN IF NOT EXISTS notify_chains BOOLEAN NOT NULL DEFAULT TRUE;
+
+    -- Alliance mirror of corp_discord_settings, so alliance maps get the same
+    -- region filter + per-event-type toggles. A map is corp- OR alliance-scoped,
+    -- never both, so its dispatch reads exactly one of these tables.
+    CREATE TABLE IF NOT EXISTS alliance_discord_settings (
+      alliance_id   INTEGER     PRIMARY KEY,
+      all_regions   BOOLEAN     NOT NULL DEFAULT TRUE,
+      regions       TEXT[]      NOT NULL DEFAULT '{}',
+      notify_chains BOOLEAN     NOT NULL DEFAULT TRUE,
+      updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    -- Wormhole filters for the new-connection notification: type code, dest
+    -- class and hole size. Empty array = "all" (the default), otherwise the
+    -- notification fires only when the hole matches. Applied to both scopes.
+    ALTER TABLE corp_discord_settings     ADD COLUMN IF NOT EXISTS wh_types   TEXT[] NOT NULL DEFAULT '{}';
+    ALTER TABLE corp_discord_settings     ADD COLUMN IF NOT EXISTS wh_classes TEXT[] NOT NULL DEFAULT '{}';
+    ALTER TABLE corp_discord_settings     ADD COLUMN IF NOT EXISTS wh_sizes   TEXT[] NOT NULL DEFAULT '{}';
+    ALTER TABLE alliance_discord_settings ADD COLUMN IF NOT EXISTS wh_types   TEXT[] NOT NULL DEFAULT '{}';
+    ALTER TABLE alliance_discord_settings ADD COLUMN IF NOT EXISTS wh_classes TEXT[] NOT NULL DEFAULT '{}';
+    ALTER TABLE alliance_discord_settings ADD COLUMN IF NOT EXISTS wh_sizes   TEXT[] NOT NULL DEFAULT '{}';
+
+    -- Per-org, per-event-type webhook URLs (replaces the single DISCORD_WEBHOOK_URL
+    -- env). NULL = that event type is off for the org. Connections = inbound K162
+    -- + new-connection alerts; chains = saved-chain broadcasts. Seeded once from
+    -- the old env value on boot (see seedDiscordWebhooksFromEnv), then env-free.
+    ALTER TABLE corp_discord_settings     ADD COLUMN IF NOT EXISTS connections_webhook TEXT;
+    ALTER TABLE corp_discord_settings     ADD COLUMN IF NOT EXISTS chains_webhook      TEXT;
+    ALTER TABLE alliance_discord_settings ADD COLUMN IF NOT EXISTS connections_webhook TEXT;
+    ALTER TABLE alliance_discord_settings ADD COLUMN IF NOT EXISTS chains_webhook      TEXT;
 
     CREATE TABLE IF NOT EXISTS map_systems (
       id            UUID        PRIMARY KEY,
@@ -194,6 +241,11 @@ export async function migrate() {
     -- 3 user entries, each prefixed 't:<text>' or 'i:<IconName>'.
     ALTER TABLE map_systems     ADD COLUMN IF NOT EXISTS labels        TEXT[] NOT NULL DEFAULT '{}';
     ALTER TABLE map_systems     ADD COLUMN IF NOT EXISTS custom_labels TEXT[] NOT NULL DEFAULT '{}';
+
+    -- Single-character quick tag (A-Z / 0-9), shown as a prominent badge before
+    -- the system name. A scalar like intel (not the labels array): one tag per
+    -- system, NULL means untagged. Used for ad-hoc "system A / B / 1 / 2" marking.
+    ALTER TABLE map_systems     ADD COLUMN IF NOT EXISTS tag           TEXT;
 
     CREATE TABLE IF NOT EXISTS map_signatures (
       id          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -299,12 +351,16 @@ export async function migrate() {
     -- stargate-adjacent in the SDE and which carries no wormhole type is a
     -- gate. Only 'standard' rows are touched — connections the user marked
     -- 'jumpgate' stay Ansiblex, and an explicit wormhole type is preserved.
-    -- Guarded by applied_migrations so it runs once and never re-flips a manual
-    -- correction. New connections are classified the same way at creation time.
+    -- Guarded by applied_migrations so it runs once per version and never
+    -- re-flips a manual correction. New connections are classified the same way
+    -- at creation time. Bumped to v3 to re-sweep gates that a create-time race
+    -- (connection classified before the just-jumped-to system row committed)
+    -- left mis-tagged as 'standard'; the race itself is fixed by passing the
+    -- endpoints' eve ids on the connection POST.
     DO $gateclassify$
     BEGIN
       IF to_regclass('public.map_stargates') IS NOT NULL
-         AND NOT EXISTS (SELECT 1 FROM applied_migrations WHERE name = 'gate_classify_v2') THEN
+         AND NOT EXISTS (SELECT 1 FROM applied_migrations WHERE name = 'gate_classify_v3') THEN
         UPDATE map_connections c
            SET connection_type = 'gate'
           FROM map_systems s, map_systems t
@@ -317,7 +373,7 @@ export async function migrate() {
               WHERE (g.system_id = s.eve_system_id AND g.destination_system_id = t.eve_system_id)
                  OR (g.system_id = t.eve_system_id AND g.destination_system_id = s.eve_system_id)
            );
-        INSERT INTO applied_migrations(name) VALUES ('gate_classify_v2');
+        INSERT INTO applied_migrations(name) VALUES ('gate_classify_v3');
       END IF;
     END
     $gateclassify$;
@@ -490,7 +546,7 @@ export async function migrate() {
     CREATE INDEX IF NOT EXISTS idx_user_events_user      ON user_events (user_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_system_activity       ON system_activity (eve_system_id, hour DESC);
     CREATE INDEX IF NOT EXISTS idx_system_activity_hour  ON system_activity (hour);
-    CREATE INDEX IF NOT EXISTS idx_maps_last_active      ON maps (last_active_at) WHERE corp_id IS NOT NULL;
+    CREATE INDEX IF NOT EXISTS idx_maps_last_active      ON maps (last_active_at) WHERE corp_id IS NOT NULL OR alliance_id IS NOT NULL;
     -- Per-creator attribution (stats dashboard + admin reports) and corp-scoped
     -- lookups (quota counts, corp map listing) hit these columns; without an
     -- index they sequential-scan the whole table.
@@ -500,6 +556,7 @@ export async function migrate() {
     CREATE INDEX IF NOT EXISTS idx_map_anomalies_creator ON map_anomalies (created_by_user_id);
     CREATE INDEX IF NOT EXISTS idx_user_events_map         ON user_events (map_id);
     CREATE INDEX IF NOT EXISTS idx_maps_corp               ON maps (corp_id);
+    CREATE INDEX IF NOT EXISTS idx_maps_alliance           ON maps (alliance_id);
 
     CREATE TABLE IF NOT EXISTS admin_audit (
       id                  BIGSERIAL   PRIMARY KEY,

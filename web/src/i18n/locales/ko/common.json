@@ -50,7 +50,7 @@
     "switchTo": "{{name}}(으)로 전환",
     "focusLocation": "{{name}} 위치로 이동하고 경로 계산",
     "noLocation": "{{name}}의 알려진 위치 없음",
-    "linkFailedNotInCorp": "해당 캐릭터를 추가할 수 없습니다 — 군단에 속해 있지 않습니다.",
+    "linkFailedNotInCorp": "해당 캐릭터를 추가할 수 없습니다 — 승인된 코퍼레이션 또는 얼라이언스에 속해 있지 않습니다.",
     "linkFailed": "해당 캐릭터를 추가할 수 없습니다. 다시 시도해 주세요.",
     "remove": "제거",
     "removeCharacter": "{{name}} 제거",
@@ -109,7 +109,9 @@
       "loadFailed": "사용자를 불러오지 못했습니다",
       "roleChangeFailed": "권한 변경 실패",
       "blockChangeFailed": "차단 상태 변경 실패",
-      "recheckFailed": "다시 확인 실패"
+      "recheckFailed": "다시 확인 실패",
+      "searchPlaceholder": "멤버 검색…",
+      "noMatch": "\"{{query}}\"와 일치하는 멤버가 없습니다."
     },
     "maps": {
       "title": "지도",
@@ -242,11 +244,37 @@
       "saving": "저장 중…",
       "saveRegions": "지역 저장",
       "saved": "저장됨",
+      "events": "브로드캐스트",
+      "broadcastChains": "저장된 체인 브로드캐스트",
+      "broadcastChainsHint": "켜면 웜홀 체인을 저장할 때 이름, 시작/종료 성계, 최대 함선 크기, 홉 수와 함께 Discord에 게시합니다.",
+      "webhooks": "웹훅",
+      "webhooksHint": "알림이 게시되는 위치입니다. 각 채널의 Discord 웹훅 URL을 붙여넣으세요. 비워 두면 해당 유형이 꺼집니다.",
+      "connectionsWebhook": "연결 (K162 + 새 연결)",
+      "chainsWebhook": "체인 (저장된 체인)",
+      "whFilters": "웜홀 필터",
+      "whFiltersHint": "어떤 새 연결 알림을 보낼지 필터링합니다. 필터를 비우면 모두 허용됩니다. 홀은 설정한 모든 필터와 일치해야 합니다.",
+      "whTypeLabel": "유형",
+      "whTypePlaceholder": "웜홀 유형 추가 (예: C247)…",
+      "whClassLabel": "목적지 등급",
+      "whSizeLabel": "크기",
+      "whAll": "전체",
+      "removeType": "{{name}} 제거",
       "excludedMaps": "제외된 지도",
       "excludedHint": "모든 지도가 기본적으로 알림을 보냅니다. 지도를 체크하면 Discord에서 제외됩니다.",
       "noCorpMaps": "아직 군단 지도가 없습니다.",
       "colMap": "지도",
       "colExclude": "제외"
+    },
+    "roles": {
+      "button": "역할이란?",
+      "title": "각 역할이 할 수 있는 일",
+      "desc": {
+        "alliance_admin": "얼라이언스 전체를 완전히 관리 — 얼라이언스 맵과 모든 구성원의 역할을 관리합니다. 관리자(Admin)가 할 수 있는 모든 것을 포함합니다.",
+        "admin": "코퍼레이션 관리 — 자기 코퍼의 사용자 관리(역할 변경, 차단), 맵 잠금, 그리고 Full이 할 수 있는 모든 것.",
+        "full": "코퍼/얼라이언스 맵 생성, 삭제, 잠금과 모든 편집.",
+        "edit": "맵 편집 — 시스템, 연결, 시그니처, 구조물, 메모 — 하지만 맵을 생성, 삭제, 잠글 수는 없습니다.",
+        "readonly": "보기 전용. 맵을 볼 수 있지만 아무것도 변경할 수 없습니다."
+      }
     }
   },
   "proximityOptIn": {
@@ -279,11 +307,13 @@
     "type": "유형",
     "personal": "개인",
     "corp": "군단",
+    "alliance": "얼라이언스",
     "regionLabel": "지역 (선택 — 비워두면 빈 지도)",
     "regionPlaceholder": "지역을 검색하려면 입력하세요…",
     "clearRegion": "지역 지우기",
     "regionHint": "{{region}}에서 {{count}}개 성계를 생성하며, 게임 내 좌표에 따라 배치하고 모든 스타게이트 연결을 그립니다.",
     "corpLimit": "군단 지도 한도에 도달했습니다 ({{max}}).",
+    "allianceLimit": "얼라이언스 맵 한도에 도달했습니다 ({{max}}).",
     "personalLimit": "개인 지도 한도에 도달했습니다 ({{max}}).",
     "createFailed": "지도 생성 실패",
     "created": "{{region}}에서 “{{name}}” 생성됨",
@@ -374,6 +404,9 @@
     },
     "fontSize": "글꼴 크기",
     "placement": "새 시스템 배치",
+    "mapBookmark": "맵 북마크 형식 (공유)",
+    "mapBookmarkPlaceholder": "각 사용자 고유 형식 사용",
+    "mapBookmarkHelp": "설정하면 이 맵의 모든 사용자가 이 형식으로 북마크를 복사합니다. 비워 두면 각 사용자가 아래 자신의 형식을 사용합니다.",
     "sigBookmark": "시그니처 북마크",
     "bookmarkHelp": "웜홀 시그니처 행에서 복사 아이콘을 클릭하면 붙여넣기용 북마크 이름이 복사됩니다. 게임 내 북마크에 붙여넣으세요. 다음 토큰으로 이름을 구성합니다:",
     "crossMapSync": "내 맵 간에 시스템 데이터 동기화",
@@ -444,6 +477,7 @@
     "fleetHeatmap": "플릿 히트맵",
     "showAccountChars": "내 캐릭터 표시",
     "staleHint": "선택한 간격 동안 업데이트되지 않은 성계를 시각적으로 흐리게 하여, 오래된 체인 잔재를 한눈에 알아볼 수 있게 합니다.",
+    "staleNever": "안 함",
     "exportJson": "↓ JSON으로 내보내기",
     "importJson": "↑ JSON에서 가져오기",
     "exportPng": "⎙ PNG로 내보내기",
@@ -499,7 +533,12 @@
     "notifColSound": "소리",
     "notifK162": "수신 K162",
     "notifProximity": "근접 위협",
-    "notifWatchlist": "워치리스트 일치"
+    "notifWatchlist": "워치리스트 일치",
+    "routeIncludeThera": "Thera 연결 포함",
+    "routeIncludeTurnur": "Turnur 연결 포함",
+    "routeIncludeWormholes": "웜홀 체인 포함",
+    "routeShortcutNote": "웜홀, Thera, Turnur 또는 점프 게이트를 사용하는 경로는 게임 내 목적지나 경유지로 설정할 수 없습니다 — 경로의 K-스페이스 시스템을 우클릭하여 그곳으로 이동하세요.",
+    "routeIncludeAnsiblex": "Ansiblex 점프 게이트 포함"
   },
   "customIntel": {
     "title": "사용자 지정 인텔",
@@ -543,7 +582,8 @@
     "max": "관심 목록 항목 최대 {{count}}개",
     "add": "관심 목록에 추가",
     "appeared": "관심 목록: {{name}}({{marker}})이(가) 맵에 있습니다",
-    "notifTitle": "워치리스트 일치"
+    "notifTitle": "워치리스트 일치",
+    "duplicate": "이미 관심 목록에 있음"
   },
   "chainExits": {
     "noExits": "이 체인에 K-스페이스 출구가 없습니다.",
@@ -646,7 +686,9 @@
     "removeConnection": "연결 제거",
     "brokenNotice": "연결 끊김 — 이를 지탱하던 웜홀 시그니처가 삭제되었습니다. 맵에는 남아 있지만 라우팅에서 격리됩니다.",
     "restore": "복원",
-    "restoreTitle": "끊김 플래그를 해제하고 다시 활성 연결로 처리합니다"
+    "restoreTitle": "끊김 플래그를 해제하고 다시 활성 연결로 처리합니다",
+    "gateNote": "일반 스타게이트 — 추적할 웜홀 데이터 없음.",
+    "jumpgateNote": "Ansiblex 점프 브리지 — 추적할 웜홀 데이터 없음."
   },
   "mapControls": {
     "panel": "제어판",
@@ -714,7 +756,9 @@
     "labels": "라벨",
     "customLabel": "사용자 라벨",
     "clearLabels": "지우기",
-    "labelNamed": "라벨 {{name}}"
+    "labelNamed": "라벨 {{name}}",
+    "tag": "태그",
+    "clearTag": "태그 지우기"
   },
   "panel": {
     "notes": "노트",
@@ -723,7 +767,9 @@
     "structures": "구조물",
     "npcStations": "NPC 정거장",
     "killboard": "zKillboard",
-    "activity": "활동"
+    "activity": "활동",
+    "undock": "플로팅 창으로 분리",
+    "redock": "다시 도킹"
   },
   "systemPanel": {
     "unknownSystem": "알 수 없는 성계",
@@ -801,7 +847,7 @@
     "home": "홈",
     "noJumps": "— 점프",
     "removeFromList": "목록에서 제거",
-    "signIn": "로그인하고 K-스페이스에 도킹하면 허브까지의 점프 수를 볼 수 있습니다.",
+    "signIn": "로그인하고 K-스페이스에 도킹하면 허브까지의 점프 수를 볼 수 있습니다. 웜홀이나 Thera에서 경로를 계산하려면 경로 지름길 옵션을 활성화하세요.",
     "searchPlaceholder": "성계 이름 검색…",
     "onList": "목록에 있음",
     "noMatch": "“{{query}}”와 일치하는 성계가 없습니다"
@@ -826,7 +872,15 @@
   },
   "route": {
     "fromLastKnown": "{{system}}에서의 점프 (마지막으로 확인된 위치)",
-    "fromCharacter": "{{character}}에서의 점프 — {{system}}"
+    "fromCharacter": "{{character}}에서의 점프 — {{system}}",
+    "viaWormhole": "웜홀 점프",
+    "viaThera": "Thera 경유",
+    "viaTurnur": "Turnur 경유",
+    "riskEol": "EOL",
+    "riskCritical": "임계 질량",
+    "riskFrig": "프리깃 홀",
+    "shortcutNoWaypoint": "이 경로는 웜홀/Thera/Turnur/점프 게이트를 사용하므로 자동 조종 목적지로 설정할 수 없습니다 — 경로의 K-스페이스 시스템을 우클릭하세요.",
+    "viaAnsiblex": "Ansiblex 점프 게이트"
   },
   "activity": {
     "thisHour": "이번 시간",
@@ -871,6 +925,8 @@
     "showNpcKills": "NPC 킬 표시",
     "loading": "킬 불러오는 중…",
     "noKills": "지난 24시간 내 킬 없음.",
+    "lastKillAgo": "지난 24시간 동안 킬 없음 — 마지막 {{time}}.",
+    "noKillsOnRecord": "기록된 킬이 없습니다.",
     "noKillsNpc": "지난 24시간 내 킬 없음 — NPC 전용 {{count}}개 숨김.",
     "showThem": "표시",
     "loadMore": "더 불러오기 ({{count}}개 남음)"
@@ -926,6 +982,7 @@
     "colNotes": "노트",
     "colAge": "경과",
     "colUpdated": "업데이트",
+    "columns": "열",
     "namePlaceholder": "사이트 이름"
   },
   "anomalies": {
@@ -958,6 +1015,7 @@
     "colNotes": "노트",
     "colAge": "경과",
     "colUpdated": "업데이트",
+    "columns": "열",
     "namePlaceholder": "어노말리 이름"
   },
   "stats": {
@@ -1007,6 +1065,7 @@
     "mapType": {
       "shared": "공유",
       "corp": "군단",
+      "alliance": "얼라이언스",
       "solo": "개인"
     },
     "lockedTooltip": "지도가 잠겨 있습니다 — 성계와 연결이 동결되었습니다. 시그니처, 구조물, 노트는 여전히 편집할 수 있습니다.",
@@ -1050,7 +1109,8 @@
       "threat": "위협",
       "closest": "가장 가까운 {{label}} 성계"
     },
-    "resetLayout": "툴바 레이아웃 초기화"
+    "resetLayout": "툴바 레이아웃 초기화",
+    "copyThisMap": "이 지도 복사"
   },
   "landing": {
     "tagline": "EVE Online을 위한 웜홀 체인 지도 작성",
@@ -1064,17 +1124,17 @@
       "joinDiscord": "Nexum Discord 참여"
     },
     "errors": {
-      "not_in_corp": "당신의 캐릭터는 이 Nexum 인스턴스를 운영하는 군단의 구성원이 아닙니다. 접근은 군단 구성원으로 제한됩니다.",
+      "not_in_corp": "당신의 캐릭터는 이 Nexum 인스턴스에 접근이 허용된 코퍼레이션 또는 얼라이언스에 속해 있지 않습니다. 접근은 승인된 멤버로 제한됩니다.",
       "corp_check_failed": "ESI 오류로 인해 군단 구성원 여부를 확인할 수 없습니다. 잠시 후 다시 시도하세요.",
       "unknown": "알 수 없는 오류가 발생했습니다. 다시 시도하세요."
     },
     "sections": {
       "mapping": "지도 작성",
-      "personalCorp": "개인 및 군단 지도",
+      "personalCorp": "개인, 코퍼레이션 & 얼라이언스 맵",
       "sysIntel": "성계 인텔리전스",
       "liveOps": "실시간 작전",
       "productivity": "생산성 및 UX",
-      "forCorps": "군단용",
+      "forCorps": "코퍼레이션 & 얼라이언스용",
       "compare": "Nexum은 어떻게 비교되나요?",
       "languages": "당신의 언어로 제공됩니다",
       "discordCta": "질문, 아이디어 또는 버그가 있나요?",
@@ -1289,6 +1349,14 @@
       "multiCorp": {
         "title": "다중 군단 배포",
         "desc": "CORP_ID는 쉼표로 구분된 군단 ID 목록을 받습니다. 하나의 Nexum 인스턴스가 여러 군단을 호스팅할 수 있으며; CORP_MAP_SHARED=true가 아닌 한 각 군단의 지도는 자기 구성원으로 한정됩니다."
+      },
+      "allianceMaps": {
+        "title": "얼라이언스 전체 맵",
+        "desc": "ALLIANCE_ID는 코퍼레이션 위에 세 번째 맵 범위를 추가합니다. 얼라이언스의 모든 구성원이 볼 수 있는 얼라이언스 맵입니다. ALLIANCE_MAP_SHARED=true로 설정하면 여러 얼라이언스 연합에서 공유됩니다."
+      },
+      "allianceRoles": {
+        "title": "얼라이언스 관리자 역할",
+        "desc": "전용 alliance_admin 등급이 얼라이언스 전체의 얼라이언스 맵과 모든 구성원의 역할을 관리합니다 — 코퍼레이션 관리자의 상위. 얼라이언스 내 각 코퍼레이션은 CORP_ID 목록 없이도 자체 코퍼 전용 맵을 유지할 수 있습니다."
       },
       "adminDash": {
         "title": "관리 대시보드",
@@ -1531,5 +1599,20 @@
     "remove": "제거",
     "colour": "색상",
     "maxReached": "사용자 라벨 최대 {{n}}개에 도달했습니다 — 추가하려면 하나를 제거하세요."
+  },
+  "copyMap": {
+    "title": "지도 복사",
+    "sourceLabel": "복사 원본",
+    "nameLabel": "새 지도 이름",
+    "namePlaceholder": "새 지도 이름",
+    "include": "복사",
+    "copyNotes": "메모",
+    "copySignatures": "시그니처",
+    "copyStructures": "구조물",
+    "copyAnomalies": "변칙",
+    "submit": "복사본 생성",
+    "copying": "복사 중…",
+    "success": "{{name}}(으)로 복사됨",
+    "failed": "복사 실패"
   }
 }

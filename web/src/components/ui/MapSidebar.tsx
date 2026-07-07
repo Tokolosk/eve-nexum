@@ -18,6 +18,7 @@ import {
   type MinimapPosition,
 } from "../../hooks/useMinimapPosition";
 import { useUserSetting } from "../../hooks/useUserSetting";
+import { useCanEditContent } from "../../hooks/useCanEditContent";
 import { normalizePlacement } from "../../hooks/useLocationTracking";
 import { NOTIFY } from "../../utils/notificationPrefs";
 import { useResettableState } from "../../hooks/useResettableState";
@@ -491,6 +492,63 @@ function LazyWhSweepToggle() {
   );
 }
 
+// Per-map bookmark-name format. When set it overrides every user's own global
+// format for holes on this map, so a group's bookmarks stay consistent. Blank
+// clears the override (fall back to each user's global). Any editor can set it;
+// commits on blur with the same optimistic-PATCH-with-revert pattern as the
+// lazy-sweep toggle. Live-synced to other viewers via map.meta.
+function MapBookmarkFormat() {
+  const { t } = useTranslation();
+  const map = useMapStore((s) => s.map);
+  const canEdit = useCanEditContent();
+  const [value, setValue] = useResettableState(map.bookmarkFormat ?? "");
+  const [saving, setSaving] = useState(false);
+
+  function setInStore(v: string | null) {
+    useMapStore.setState((s) => ({
+      map: { ...s.map, bookmarkFormat: v },
+      maps: s.maps.map((m) => (m.id === map.id ? { ...m, bookmarkFormat: v } : m)),
+    }));
+  }
+
+  async function commit() {
+    const trimmed = value.trim();
+    const next = trimmed === "" ? null : trimmed;
+    const prev = map.bookmarkFormat ?? null;
+    if (next === prev) return;
+    setSaving(true);
+    setInStore(next);
+    try {
+      await api(`/api/maps/${map.id}`, { method: "PATCH", body: JSON.stringify({ bookmarkFormat: next }) });
+    } catch (e) {
+      setInStore(prev);
+      setValue(prev ?? "");
+      toast.error(e instanceof Error ? e.message : t("mapSidebar.updateSettingFailed"));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="map-sidebar__field">
+      <label className="map-sidebar__label" htmlFor="map-bookmark-fmt">{t("mapSidebar.mapBookmark")}</label>
+      <input
+        id="map-bookmark-fmt"
+        className="map-sidebar__select map-sidebar__select--full"
+        type="text"
+        spellCheck={false}
+        value={value}
+        disabled={saving || !canEdit}
+        placeholder={t("mapSidebar.mapBookmarkPlaceholder")}
+        onChange={(e) => setValue(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+      />
+      <p className="map-sidebar__help">{t("mapSidebar.mapBookmarkHelp")}</p>
+    </div>
+  );
+}
+
 function MergeSection() {
   const { t } = useTranslation();
   const map = useMapStore((s) => s.map);
@@ -925,6 +983,29 @@ export function MapSidebar() {
           <p className="map-sidebar__hint">
             {t("mapSidebar.routeHint")}
           </p>
+          <SettingToggle
+            settingKey="nexum.route.includeThera"
+            label={t("mapSidebar.routeIncludeThera")}
+            defaultOn={false}
+          />
+          <SettingToggle
+            settingKey="nexum.route.includeTurnur"
+            label={t("mapSidebar.routeIncludeTurnur")}
+            defaultOn={false}
+          />
+          <SettingToggle
+            settingKey="nexum.route.includeWormholes"
+            label={t("mapSidebar.routeIncludeWormholes")}
+            defaultOn={false}
+          />
+          <SettingToggle
+            settingKey="nexum.route.includeAnsiblex"
+            label={t("mapSidebar.routeIncludeAnsiblex")}
+            defaultOn={false}
+          />
+          <p className="map-sidebar__hint">
+            {t("mapSidebar.routeShortcutNote")}
+          </p>
         </CollapsibleSection>
 
         <CollapsibleSection
@@ -1084,6 +1165,7 @@ export function MapSidebar() {
                 <option value={48}>{t("units.hours", { count: 48 })}</option>
                 <option value={168}>{t("units.weeks", { count: 1 })}</option>
                 <option value={720}>{t("units.months", { count: 1 })}</option>
+                <option value={0}>{t("mapSidebar.staleNever")}</option>
               </select>
             </div>
           </CollapsibleSection>
@@ -1233,6 +1315,7 @@ export function MapSidebar() {
 
               {settingsTab === "signatures" && (
                 <>
+                  <MapBookmarkFormat />
                   <div className="map-sidebar__field">
                     <label className="map-sidebar__label" htmlFor="sig-bookmark-fmt">{t("mapSidebar.sigBookmark")}</label>
                     <input id="sig-bookmark-fmt" className="map-sidebar__select map-sidebar__select--full" type="text" spellCheck={false} value={sigBookmarkFmt} onChange={(e) => setSigBookmarkFmt(e.target.value)} placeholder={DEFAULT_BOOKMARK_FORMAT} />

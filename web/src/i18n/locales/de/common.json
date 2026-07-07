@@ -50,7 +50,7 @@
     "switchTo": "Zu {{name}} wechseln",
     "focusLocation": "Karte auf {{name}} zentrieren und von dort routen",
     "noLocation": "Kein bekannter Standort für {{name}}",
-    "linkFailedNotInCorp": "Charakter konnte nicht hinzugefügt werden — er ist nicht in der Corp.",
+    "linkFailedNotInCorp": "Charakter konnte nicht hinzugefügt werden — er ist in keiner berechtigten Corporation oder Allianz.",
     "linkFailed": "Charakter konnte nicht hinzugefügt werden. Bitte erneut versuchen.",
     "remove": "Entfernen",
     "removeCharacter": "{{name}} entfernen",
@@ -109,7 +109,9 @@
       "loadFailed": "Benutzer konnten nicht geladen werden",
       "roleChangeFailed": "Rollenänderung fehlgeschlagen",
       "blockChangeFailed": "Sperränderung fehlgeschlagen",
-      "recheckFailed": "Neuprüfung fehlgeschlagen"
+      "recheckFailed": "Neuprüfung fehlgeschlagen",
+      "searchPlaceholder": "Mitglieder suchen…",
+      "noMatch": "Keine Mitglieder passen zu „{{query}}“."
     },
     "maps": {
       "title": "Karten",
@@ -242,11 +244,37 @@
       "saving": "Speichert…",
       "saveRegions": "Regionen speichern",
       "saved": "Gespeichert",
+      "events": "Übertragungen",
+      "broadcastChains": "Gespeicherte Ketten übertragen",
+      "broadcastChainsHint": "Wenn aktiviert, wird beim Speichern einer Wurmloch-Kette diese mit Name, Start- und Zielsystem, maximaler Schiffsgröße und Anzahl der Sprünge in Discord gepostet.",
+      "webhooks": "Webhooks",
+      "webhooksHint": "Wohin Benachrichtigungen gepostet werden. Füge für jeden Kanal eine Discord-Webhook-URL ein; leer lassen, um diesen Typ zu deaktivieren.",
+      "connectionsWebhook": "Verbindungen (K162 + neue Verbindungen)",
+      "chainsWebhook": "Ketten (gespeicherte Ketten)",
+      "whFilters": "Wurmloch-Filter",
+      "whFiltersHint": "Filtern, welche Neue-Verbindung-Benachrichtigungen ausgelöst werden. Ein leerer Filter erlaubt alles; ein Loch muss allen gesetzten Filtern entsprechen.",
+      "whTypeLabel": "Typ",
+      "whTypePlaceholder": "Wurmloch-Typ hinzufügen (z. B. C247)…",
+      "whClassLabel": "Zielklasse",
+      "whSizeLabel": "Größe",
+      "whAll": "Alle",
+      "removeType": "{{name}} entfernen",
       "excludedMaps": "Ausgeschlossene Karten",
       "excludedHint": "Alle Karten benachrichtigen standardmäßig. Hake eine Karte an, um sie von Discord auszuschließen.",
       "noCorpMaps": "Noch keine Corp-Karten.",
       "colMap": "Karte",
       "colExclude": "Ausschließen"
+    },
+    "roles": {
+      "button": "Rollen?",
+      "title": "Was jede Rolle darf",
+      "desc": {
+        "alliance_admin": "Volle Kontrolle über die gesamte Allianz — verwaltet allianzweite Karten und die Rolle jedes Mitglieds. Umfasst alles, was ein Admin kann.",
+        "admin": "Corp-Verwaltung — verwaltet die Nutzer der eigenen Corp (Rollen ändern, sperren), sperrt Karten und alles, was Full kann.",
+        "full": "Corp- und Allianzkarten erstellen, löschen und sperren, zusätzlich zur vollständigen Bearbeitung.",
+        "edit": "Karten bearbeiten — Systeme, Verbindungen, Signaturen, Strukturen und Notizen — aber keine Karten erstellen, löschen oder sperren.",
+        "readonly": "Nur Ansicht. Kann Karten sehen, aber nichts ändern."
+      }
     }
   },
   "proximityOptIn": {
@@ -279,11 +307,13 @@
     "type": "Typ",
     "personal": "Persönlich",
     "corp": "Corp",
+    "alliance": "Allianz",
     "regionLabel": "Region (optional — leer für eine leere Karte)",
     "regionPlaceholder": "Zum Suchen tippen…",
     "clearRegion": "Region löschen",
     "regionHint": "Erstellt {{count}} Systeme aus {{region}}, positioniert nach ihren Ingame-Koordinaten mit allen Stargate-Verbindungen.",
     "corpLimit": "Corp-Kartenlimit erreicht ({{max}}).",
+    "allianceLimit": "Allianz-Karten-Limit erreicht ({{max}}).",
     "personalLimit": "Persönliches Kartenlimit erreicht ({{max}}).",
     "createFailed": "Karte konnte nicht erstellt werden",
     "created": "\"{{name}}\" aus {{region}} erstellt",
@@ -374,6 +404,9 @@
     },
     "fontSize": "Schriftgröße",
     "placement": "Platzierung neuer Systeme",
+    "mapBookmark": "Karten-Lesezeichenformat (geteilt)",
+    "mapBookmarkPlaceholder": "Eigenes Format jedes Nutzers verwenden",
+    "mapBookmarkHelp": "Wenn gesetzt, kopieren alle auf dieser Karte Lesezeichen in diesem Format. Leer lassen, damit jeder sein eigenes Format unten verwendet.",
     "sigBookmark": "Signatur-Lesezeichen",
     "bookmarkHelp": "Klicke in der Zeile einer Wurmloch-Signatur auf das Kopiersymbol, um einen fertigen Lesezeichennamen zu kopieren, und füge ihn in das Ingame-Lesezeichen ein. Erstelle den Namen mit diesen Tokens:",
     "crossMapSync": "Systemdaten über meine Karten synchronisieren",
@@ -444,6 +477,7 @@
     "fleetHeatmap": "Flotten-Heatmap",
     "showAccountChars": "Meine Charaktere anzeigen",
     "staleHint": "Systeme abblenden, die im gewählten Intervall nicht aktualisiert wurden, damit alte Kettenreste auf einen Blick erkennbar sind.",
+    "staleNever": "Nie",
     "exportJson": "↓ Als JSON exportieren",
     "importJson": "↑ Aus JSON importieren",
     "exportPng": "⎙ Als PNG exportieren",
@@ -499,7 +533,12 @@
     "notifColSound": "Ton",
     "notifK162": "Eingehendes K162",
     "notifProximity": "Nahe Bedrohungen",
-    "notifWatchlist": "Beobachtungslisten-Treffer"
+    "notifWatchlist": "Beobachtungslisten-Treffer",
+    "routeIncludeThera": "Thera-Verbindungen einbeziehen",
+    "routeIncludeTurnur": "Turnur-Verbindungen einbeziehen",
+    "routeIncludeWormholes": "Wurmlochkette einbeziehen",
+    "routeShortcutNote": "Routen über ein Wurmloch, Thera, Turnur oder ein Sprungtor können nicht als spielinternes Ziel oder Wegpunkt gesetzt werden — Rechtsklick auf ein K-Space-System in der Route, um stattdessen dorthin zu navigieren.",
+    "routeIncludeAnsiblex": "Ansiblex-Sprungtore einbeziehen"
   },
   "customIntel": {
     "title": "Eigene Intel",
@@ -543,7 +582,8 @@
     "max": "Maximal {{count}} Einträge in der Beobachtungsliste",
     "add": "Zur Beobachtungsliste hinzufügen",
     "appeared": "Beobachtungsliste: {{name}} ({{marker}}) ist auf der Karte",
-    "notifTitle": "Beobachtungslisten-Treffer"
+    "notifTitle": "Beobachtungslisten-Treffer",
+    "duplicate": "Bereits auf der Beobachtungsliste"
   },
   "chainExits": {
     "noExits": "Keine K-Space-Ausgänge in dieser Kette.",
@@ -646,7 +686,9 @@
     "removeConnection": "Verbindung entfernen",
     "brokenNotice": "Verbindung unterbrochen — die stützende Wurmloch-Sig wurde gelöscht. Bleibt auf der Karte, ist aber vom Routing in Quarantäne.",
     "restore": "Wiederherstellen",
-    "restoreTitle": "Die Unterbrochen-Markierung entfernen und dies wieder als aktive Verbindung behandeln"
+    "restoreTitle": "Die Unterbrochen-Markierung entfernen und dies wieder als aktive Verbindung behandeln",
+    "gateNote": "Reguläres Stargate — keine Wurmloch-Daten.",
+    "jumpgateNote": "Ansiblex-Sprungbrücke — keine Wurmloch-Daten."
   },
   "mapControls": {
     "panel": "Steuerungsfeld",
@@ -714,7 +756,9 @@
     "labels": "Labels",
     "customLabel": "Eigenes Label",
     "clearLabels": "Löschen",
-    "labelNamed": "Label {{name}}"
+    "labelNamed": "Label {{name}}",
+    "tag": "Tag",
+    "clearTag": "Tag entfernen"
   },
   "panel": {
     "notes": "Notizen",
@@ -723,7 +767,9 @@
     "structures": "Strukturen",
     "npcStations": "NPC-Stationen",
     "killboard": "zKillboard",
-    "activity": "Aktivität"
+    "activity": "Aktivität",
+    "undock": "In ein schwebendes Fenster ablösen",
+    "redock": "Wieder andocken"
   },
   "systemPanel": {
     "unknownSystem": "Unbekanntes System",
@@ -801,7 +847,7 @@
     "home": "Heimat",
     "noJumps": "— Sprünge",
     "removeFromList": "Aus Liste entfernen",
-    "signIn": "Melde dich an und docke in K-Space, um Sprünge zu Hubs zu sehen.",
+    "signIn": "Melde dich an und docke in K-Space, um Sprünge zu Hubs zu sehen, oder aktiviere die Routen-Shortcut-Optionen, um von einem Wurmloch oder Thera aus zu routen.",
     "searchPlaceholder": "Systemname suchen…",
     "onList": "auf Liste",
     "noMatch": "Keine Systeme passen zu \"{{query}}\""
@@ -826,7 +872,15 @@
   },
   "route": {
     "fromLastKnown": "Sprünge ab {{system}} (letzter bekannter Standort)",
-    "fromCharacter": "Sprünge von {{character}} — {{system}}"
+    "fromCharacter": "Sprünge von {{character}} — {{system}}",
+    "viaWormhole": "Wurmloch-Sprung",
+    "viaThera": "Über Thera",
+    "viaTurnur": "Über Turnur",
+    "riskEol": "EOL",
+    "riskCritical": "Kritische Masse",
+    "riskFrig": "Fregatten-Loch",
+    "shortcutNoWaypoint": "Diese Route nutzt ein Wurmloch/Thera/Turnur/Sprungtor und kann nicht als Autopilot-Ziel gesetzt werden — Rechtsklick auf ein K-Space-System in der Route.",
+    "viaAnsiblex": "Ansiblex-Sprungtor"
   },
   "activity": {
     "thisHour": "diese Stunde",
@@ -871,6 +925,8 @@
     "showNpcKills": "NPC-Kills anzeigen",
     "loading": "Lädt Kills…",
     "noKills": "Keine Kills in den letzten 24h.",
+    "lastKillAgo": "Keine Kills in den letzten 24h — zuletzt {{time}}.",
+    "noKillsOnRecord": "Keine Kills verzeichnet.",
     "noKillsNpc": "Keine Kills in den letzten 24h — {{count}} NPC-only ausgeblendet.",
     "showThem": "Anzeigen",
     "loadMore": "Mehr laden ({{count}} verbleibend)"
@@ -926,6 +982,7 @@
     "colNotes": "Notizen",
     "colAge": "Alter",
     "colUpdated": "Aktualisiert",
+    "columns": "Spalten",
     "namePlaceholder": "Seitenname"
   },
   "anomalies": {
@@ -958,6 +1015,7 @@
     "colNotes": "Notizen",
     "colAge": "Alter",
     "colUpdated": "Aktualisiert",
+    "columns": "Spalten",
     "namePlaceholder": "Anomalie-Name"
   },
   "stats": {
@@ -1007,6 +1065,7 @@
     "mapType": {
       "shared": "Geteilt",
       "corp": "Corp",
+      "alliance": "Allianz",
       "solo": "Solo"
     },
     "lockedTooltip": "Karte ist gesperrt — Systeme und Verbindungen sind eingefroren. Signaturen, Strukturen und Notizen können weiterhin bearbeitet werden.",
@@ -1050,7 +1109,8 @@
       "threat": "Bedrohung",
       "closest": "Nächstes {{label}}-System"
     },
-    "resetLayout": "Symbolleisten-Layout zurücksetzen"
+    "resetLayout": "Symbolleisten-Layout zurücksetzen",
+    "copyThisMap": "Diese Karte kopieren"
   },
   "landing": {
     "tagline": "Wurmloch-Kettenkartierung für EVE Online",
@@ -1064,17 +1124,17 @@
       "joinDiscord": "Tritt dem Nexum-Discord bei"
     },
     "errors": {
-      "not_in_corp": "Dein Charakter ist kein Mitglied der Corporation, die diese Nexum-Instanz betreibt. Der Zugriff ist auf Corp-Mitglieder beschränkt.",
+      "not_in_corp": "Dein Charakter gehört zu keiner Corporation oder Allianz, die auf diese Nexum-Instanz zugreifen darf. Der Zugriff ist auf berechtigte Mitglieder beschränkt.",
       "corp_check_failed": "Deine Corporation-Mitgliedschaft konnte aufgrund eines ESI-Fehlers nicht überprüft werden. Bitte versuche es gleich noch einmal.",
       "unknown": "Ein unbekannter Fehler ist aufgetreten. Bitte versuche es erneut."
     },
     "sections": {
       "mapping": "Kartierung",
-      "personalCorp": "Persönliche & Corp-Karten",
+      "personalCorp": "Persönliche, Corp- & Allianzkarten",
       "sysIntel": "System-Informationen",
       "liveOps": "Live-Ops",
       "productivity": "Produktivität & UX",
-      "forCorps": "Für Corporations",
+      "forCorps": "Für Corporations & Allianzen",
       "compare": "Wie schneidet Nexum ab?",
       "languages": "In deiner Sprache verfügbar",
       "discordCta": "Fragen, Ideen oder Bugs?",
@@ -1289,6 +1349,14 @@
       "multiCorp": {
         "title": "Multi-Corp-Deployments",
         "desc": "CORP_ID akzeptiert eine kommagetrennte Liste von Corporation-IDs. Eine Nexum-Instanz kann mehrere Corps hosten; die Karten jeder Corp bleiben auf ihre eigenen Mitglieder beschränkt, sofern nicht CORP_MAP_SHARED=true gesetzt ist."
+      },
+      "allianceMaps": {
+        "title": "Allianzweite Karten",
+        "desc": "ALLIANCE_ID fügt eine dritte Kartenebene über der Corp hinzu: Allianzkarten, die jedes Allianzmitglied sehen kann. Mit ALLIANCE_MAP_SHARED=true werden sie über eine Koalition mehrerer Allianzen geteilt."
+      },
+      "allianceRoles": {
+        "title": "Allianz-Admin-Rolle",
+        "desc": "Eine eigene alliance_admin-Stufe verwaltet Allianzkarten und die Rolle jedes Mitglieds in der gesamten Allianz — eine Obermenge des Corp-Admins. Jede Corp innerhalb der Allianz kann eigene corp-private Karten führen, ohne CORP_ID-Liste."
       },
       "adminDash": {
         "title": "Admin-Dashboard",
@@ -1531,5 +1599,20 @@
     "remove": "Entfernen",
     "colour": "Farbe",
     "maxReached": "Maximal {{n}} eigene Labels erreicht — entferne eines, um ein weiteres hinzuzufügen."
+  },
+  "copyMap": {
+    "title": "Karte kopieren",
+    "sourceLabel": "Kopieren von",
+    "nameLabel": "Name der neuen Karte",
+    "namePlaceholder": "Name der neuen Karte",
+    "include": "Kopieren",
+    "copyNotes": "Notizen",
+    "copySignatures": "Signaturen",
+    "copyStructures": "Strukturen",
+    "copyAnomalies": "Anomalien",
+    "submit": "Kopie erstellen",
+    "copying": "Wird kopiert…",
+    "success": "Kopiert nach {{name}}",
+    "failed": "Kopieren fehlgeschlagen"
   }
 }

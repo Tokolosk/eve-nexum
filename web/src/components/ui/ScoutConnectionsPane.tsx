@@ -171,7 +171,11 @@ export function ScoutConnectionsPane({ scoutSystem }: Props) {
               )}
               <span className="scout-row__time">{formatRemaining(t, c.remainingHours)}</span>
             </div>
-            <div className="scout-row__region">{c.inRegionName}</div>
+            {/* A wormhole target's J-space region code carries no useful intel;
+                only show the region for k-space exits. */}
+            {isKspaceTarget && c.inRegionName && (
+              <div className="scout-row__region">{c.inRegionName}</div>
+            )}
             <div className="scout-row__meta">
               <span className="scout-row__wh">{c.whType}</span>
               <span className="scout-row__size">
@@ -193,8 +197,9 @@ export function ScoutConnectionsPane({ scoutSystem }: Props) {
                     type="button"
                     className="sys-btn scout-row__btn scout-row__btn--icon"
                     onClick={() => setWaypoint(c.inSystemId, c.inSystemName, true)}
+                    disabled={route?.usesSpecial}
                     aria-label={t('waypoint.setDestination')}
-                    data-tooltip={t('waypoint.setDestination')}
+                    data-tooltip={route?.usesSpecial ? t('route.shortcutNoWaypoint') : t('waypoint.setDestination')}
                   >
                     <MapPinSimpleIcon size={14} weight="regular" color="#3ddc84" />
                   </button>
@@ -202,8 +207,9 @@ export function ScoutConnectionsPane({ scoutSystem }: Props) {
                     type="button"
                     className="sys-btn scout-row__btn scout-row__btn--icon"
                     onClick={() => setWaypoint(c.inSystemId, c.inSystemName, false)}
+                    disabled={route?.usesSpecial}
                     aria-label={t('waypoint.addWaypoint')}
-                    data-tooltip={t('waypoint.addWaypoint')}
+                    data-tooltip={route?.usesSpecial ? t('route.shortcutNoWaypoint') : t('waypoint.addWaypoint')}
                   >
                     <PathIcon size={14} weight="regular" color="#5a9af8" />
                   </button>

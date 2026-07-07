@@ -1,17 +1,19 @@
-import { useState, useEffect, useLayoutEffect, useRef, type ReactNode, type CSSProperties } from 'react';
+import { useState, useEffect, useRef, type ReactNode, type CSSProperties } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import { timeAgo, jumps } from '../../i18n/format';
 import { useMapStore } from '../../store/mapStore';
-import { useAuth } from '../../context/AuthContext';
+import { useAuth, formatRole, isAdminRole } from '../../context/AuthContext';
 import { useOnlineStatus } from '../../hooks/useOnlineStatus';
 import { useCharacterLocation } from '../../hooks/useCharacterLocation';
 import { useCanEdit } from '../../hooks/useCanEdit';
+import { useCanEditContent } from '../../hooks/useCanEditContent';
 import { useIsMapOwner } from '../../hooks/useIsMapOwner';
-import { useCanCreateMaps } from '../../hooks/useCanCreateMaps';
+import { useCanCreateMaps, useCanManageAllianceMaps } from '../../hooks/useCanCreateMaps';
 import { UserStatsModal } from './UserStatsModal';
 import { ConfirmModal } from './ConfirmModal';
 import { CreateMapModal } from './CreateMapModal';
+import { CopyMapModal } from './CopyMapModal';
 import { ApiKeysModal } from './ApiKeysModal';
 import { LanguageSwitcher } from './LanguageSwitcher';
 import { CharacterSwitcher } from './CharacterSwitcher';
@@ -21,9 +23,13 @@ import { useProximityAlerts } from '../../hooks/useProximityAlerts';
 import { useClickOutside } from '../../hooks/useClickOutside';
 import { useUserSetting } from '../../hooks/useUserSetting';
 import {
-  DndContext, PointerSensor, useSensor, useSensors, useDraggable,
+  DndContext, PointerSensor, useSensor, useSensors, closestCenter,
   type DragEndEvent,
 } from '@dnd-kit/core';
+import {
+  SortableContext, useSortable, arrayMove, rectSortingStrategy,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 import {
   WarningIcon, SkullIcon, XCircleIcon, QuestionIcon,
   ShieldStarIcon, ChartBarIcon, SlidersHorizontalIcon, FootprintsIcon,
@@ -158,91 +164,37 @@ function CheckedAtIcon({ checkedAt }: { checkedAt: Date }) {
   );
 }
 
-// Persistent indicator for the nearest live threat (incursion / insurgency).
-// Mounts the proximity hook (which also fires the browser notification + beep
-// on threshold crossings — Toolbar is rendered once for every logged-in user).
-function ProximityChip() {
-  const { nearest, threshold } = useProximityAlerts();
-  const { t } = useTranslation();
-  // The user's configurable threshold gates both display and the alert state —
-  // if the chip is shown, the threat is in-zone by definition. Filters out the
-  // permanent "20 jumps — …" noise on most maps.
-  if (!nearest || nearest.jumps > threshold) return null;
-  const { label, Icon }: { label: string; Icon: PhosphorIcon } =
-    nearest.kind === 'incursion'   ? { label: t('toolbar.proximity.incursion'),  Icon: WarningIcon } :
-    nearest.kind === 'insurgency'  ? { label: t('toolbar.proximity.insurgency'), Icon: SkullIcon } :
-    nearest.kind === 'hostile-sov' ? { label: t('toolbar.proximity.hostileSov'), Icon: XCircleIcon } :
-    { label: t('toolbar.proximity.threat'), Icon: QuestionIcon };
-  return (
-    <span
-      className="toolbar__proximity toolbar__proximity--alert tooltip-right"
-      data-tooltip={t('toolbar.proximity.closest', { label: label.toLowerCase() })}
-    >
-      <span className="toolbar__proximity-icon"><Icon size={14} weight="bold" /></span>
-      <span className="toolbar__proximity-text">
-        {nearest.jumps === 0 ? 'IN' : jumps(t, nearest.jumps)} - {label}
-      </span>
-    </span>
-  );
-}
+// Every movable toolbar control, in default left-to-right order. Each id maps to
+// a node built in the component below; the persisted layout is just a reordering
+// of these ids, so two items can never occupy the same space — the flex row
+// reflows and wraps instead of stacking. Conditional items (admin, proximity,
+// account actions) simply drop out of the rendered list when absent.
+const DEFAULT_TOOLBAR_ORDER = [
+  'map', 'stats', 'proximity', 'tools', 'server', 'account',
+  'actions',
+];
 
-// The reorderable toolbar groups, in their default left-to-right order. The
-// brand (far left) and the account actions — API keys + sign out (far right) —
-// are fixed and deliberately NOT in this list.
-// Default left-to-right order of the freely-placeable sections (used for the
-// flow layout that seeds their default positions).
-const DEFAULT_TOOLBAR_ORDER = ['map', 'status', 'tools', 'server', 'account'];
-
-// Min gap (px) kept between sections so they never visually touch.
-const SECTION_GAP = 6;
-
-// Snap a dropped section's x to the nearest spot that doesn't overlap any
-// section sharing its row, so groups can't land on top of each other. `bars`
-// are the x-intervals {l,r} of those same-row sections. If the drop point is
-// already clear it's kept; otherwise the closest free slot (just before/after
-// an obstacle, or a bar edge) is chosen.
-function nearestFreeX(desiredX: number, w: number, bars: { l: number; r: number }[], barW: number): number {
-  const fits = (px: number) =>
-    px >= 0 && px + w <= barW && !bars.some((b) => px < b.r + SECTION_GAP && px + w + SECTION_GAP > b.l);
-  if (fits(desiredX)) return desiredX;
-  const cands = [0, Math.max(0, barW - w)];
-  for (const b of bars) { cands.push(b.r + SECTION_GAP, b.l - w - SECTION_GAP); }
-  const valid = cands.filter(fits);
-  if (!valid.length) return desiredX; // row full — nothing we can do, leave it
-  valid.sort((a, b) => Math.abs(a - desiredX) - Math.abs(b - desiredX));
-  return valid[0];
-}
-
-// One freely-placeable toolbar group. Always draggable, no separate handle: the
-// 6px pointer activation distance (see the DndContext sensor) means a tap still
-// clicks the controls inside — only a press-and-move starts a drag. The dragged
-// section follows the cursor (transform); nothing else shifts. `gap` is a saved
-// margin-left so the group keeps the empty space you dropped it with, and the
-// left-to-right flow makes overlap impossible.
-function ToolbarSection({
-  id, pos, registerRef, children,
-}: {
-  id: string;
-  // Absolute position once known; null while it's still in flow (pre-measure).
-  pos: { x: number; y: number } | null;
-  registerRef: (id: string, el: HTMLElement | null) => void;
-  children: ReactNode;
-}) {
-  const { setNodeRef, listeners, transform, isDragging } = useDraggable({ id });
-  const moved = transform ? `translate3d(${transform.x}px, ${transform.y}px, 0)` : undefined;
-  const style: CSSProperties = pos
-    ? { position: 'absolute', left: pos.x, top: pos.y, transform: moved, zIndex: isDragging ? 50 : undefined }
-    : { transform: moved, zIndex: isDragging ? 50 : undefined };
+// One movable toolbar item. The whole item is the drag handle (with a visible
+// six-dot grip signalling it can be dragged); the 6px pointer activation
+// distance (see the DndContext sensor) means a tap still clicks the control
+// inside — only a press-and-move starts a reorder. Sortable transforms animate
+// the other items out of the way, so nothing ever overlaps.
+function SortableItem({ id, children }: { id: string; children: ReactNode }) {
+  const { setNodeRef, listeners, transform, transition, isDragging } = useSortable({ id });
+  const style: CSSProperties = {
+    transform: CSS.Translate.toString(transform),
+    transition,
+    zIndex: isDragging ? 50 : undefined,
+    opacity: isDragging ? 0.85 : undefined,
+  };
   return (
     <div
-      ref={(el) => { setNodeRef(el); registerRef(id, el); }}
-      className={`toolbar__section${isDragging ? ' toolbar__section--dragging' : ''}${pos ? ' toolbar__section--placed' : ''}`}
+      ref={setNodeRef}
+      className={`toolbar__item${isDragging ? ' toolbar__item--dragging' : ''}`}
       style={style}
       {...listeners}
     >
-      {/* Drag affordance: faint at rest, brightens on hover (the whole section
-          is the drag target, this just signals it). */}
-      <span className="toolbar__section-grip" aria-hidden="true">
+      <span className="toolbar__item-grip" aria-hidden="true">
         <DotsSixVerticalIcon size={13} weight="bold" />
       </span>
       {children}
@@ -262,6 +214,8 @@ export function Toolbar() {
   const maxMaps         = useMapStore((s) => s.maxMaps);
   const maxCorpMaps     = useMapStore((s) => s.maxCorpMaps);
   const corpMapCount    = useMapStore((s) => s.corpMapCount);
+  const maxAllianceMaps  = useMapStore((s) => s.maxAllianceMaps);
+  const allianceMapCount = useMapStore((s) => s.allianceMapCount);
   const activeMapId     = useMapStore((s) => s.activeMapId);
   const setMapName      = useMapStore((s) => s.setMapName);
   const switchMap       = useMapStore((s) => s.switchMap);
@@ -272,16 +226,33 @@ export function Toolbar() {
   const trackJumps      = useMapStore((s) => s.trackJumps);
   const setTrackJumps   = useMapStore((s) => s.setTrackJumps);
 
-  const atMapLimit      = maps.filter((m) => !m.isCorpMap).length >= maxMaps;
+  const atMapLimit      = maps.filter((m) => !m.isCorpMap && !m.isAllianceMap).length >= maxMaps;
   const atCorpMapLimit  = corpMapCount >= maxCorpMaps;
   const { user, logout } = useAuth();
   const canEdit       = useCanEdit();
+  const canEditContent = useCanEditContent();
   const isMapOwner    = useIsMapOwner();
+  // A read-only corp map can't be copied (matches the server gate). Personal
+  // maps are always content-editable, so this is true only for corp maps where
+  // the user lacks an edit role.
+  // A read-only member can't copy a corp/alliance map (the server 403s), so hide
+  // the Copy action for those maps when the user lacks edit access.
+  const readonlyCorpActive = (() => {
+    const active = maps.find((m) => m.id === activeMapId);
+    return !!active && (active.isCorpMap || active.isAllianceMap) && !canEditContent;
+  })();
   const canManageMaps = useCanCreateMaps();
-  const canCorpCreate = !!user?.corpMode && canManageMaps;
-  // No creatable option = personal slots full AND (can't make corp maps, or
-  // corp slots full too). Gates the single "+ New Map" action.
-  const noCreateOption = atMapLimit && (!canCorpCreate || atCorpMapLimit);
+  const canManageAllianceMaps = useCanManageAllianceMaps();
+  // Corp maps exist under corp OR alliance mode (a corp inside the alliance).
+  const canCorpCreate     = (!!user?.corpMode || !!user?.allianceMode) && canManageMaps;
+  const canAllianceCreate = canManageAllianceMaps;
+  const atAllianceMapLimit = allianceMapCount >= maxAllianceMaps;
+  // No creatable option = every scope the user could make is unavailable or
+  // full: personal slots full AND corp blocked AND alliance blocked. Gates the
+  // single "+ New Map" action.
+  const noCreateOption = atMapLimit
+    && (!canCorpCreate || atCorpMapLimit)
+    && (!canAllianceCreate || atAllianceMapLimit);
   const { online, checkedAt, lastLogin } = useOnlineStatus(!!user);
   // Ship + live system come from the same poll that drives passive location
   // tracking, so no extra ESI traffic — we just surface fields already on hand.
@@ -298,83 +269,35 @@ export function Toolbar() {
   const [showMaps, setShowMaps]   = useState(false);
   const [showStats, setShowStats] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
+  const [showCopy, setShowCopy] = useState(false);
   const [showKeys, setShowKeys] = useState(false);
   const [showWhChart, setShowWhChart] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState(false);
   const mapSwitcherRef = useRef<HTMLDivElement>(null);
   useClickOutside(showMaps, mapSwitcherRef, () => setShowMaps(false));
 
-  // Per-user, cross-device toolbar layout. Each reorderable section is freely
-  // placed: an absolute {x,y} relative to the bar. `savedPositions` holds only
-  // the sections the user has actually dragged; everything else falls back to a
-  // measured default — a tidy left-to-right row laid out in flow, then captured
-  // (and re-captured on resize so it stays responsive). Reset clears the saved
-  // positions and drops back to those defaults.
-  const [savedPositions, setSavedPositions] =
-    useUserSetting<Record<string, { x: number; y: number }>>('nexum.toolbar.positions', {});
-  const [defaultPositions, setDefaultPositions] = useState<Record<string, { x: number; y: number }>>({});
-  const posOf = (id: string): { x: number; y: number } | null =>
-    savedPositions[id] ?? defaultPositions[id] ?? null;
-  const atDefaultLayout = Object.keys(savedPositions).length === 0;
-  // Clear the measured defaults too, so EVERY section re-flows into a clean
-  // tidy row and re-seeds. Clearing only the saved positions would leave the
-  // sections you'd dragged with no default (back to flow) while the rest stayed
-  // absolute at their old defaults — and the two would overlap.
-  const resetLayout = () => { setSavedPositions({}); setDefaultPositions({}); };
+  // The proximity hook is mounted here (not inside the chip) so it keeps firing
+  // the browser notification + beep on threshold crossings even when the chip
+  // itself is hidden — the chip is only a visual item that drops out of the
+  // toolbar when there's no in-zone threat.
+  const { nearest: nearestThreat, threshold: threatThreshold } = useProximityAlerts();
+
+  // Per-user, cross-device toolbar layout: a saved ORDER of item ids. Storing an
+  // order (not x/y positions) means the flex row simply reflows — items can be
+  // moved anywhere but can never overlap. Empty = the default order.
+  const [savedOrder, setSavedOrder] = useUserSetting<string[]>('nexum.toolbar.order', []);
+  const atDefaultLayout = savedOrder.length === 0;
+  const resetLayout = () => setSavedOrder([]);
 
   const dragSensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
-  const toolbarRef = useRef<HTMLElement>(null);
-  const sectionEls = useRef<Map<string, HTMLElement>>(new Map());
-  const registerSectionRef = (id: string, el: HTMLElement | null) => {
-    if (el) sectionEls.current.set(id, el); else sectionEls.current.delete(id);
-  };
 
-  // Seed the default position of any section that doesn't have one yet by
-  // measuring where it lands in flow (it renders in flow, vertically centred,
-  // until placed). Runs after layout; a no-op once every section has a position.
-  useLayoutEffect(() => {
-    const tb = toolbarRef.current?.getBoundingClientRect();
-    if (!tb) return;
-    let patch: Record<string, { x: number; y: number }> | null = null;
-    sectionEls.current.forEach((el, id) => {
-      if (savedPositions[id] || defaultPositions[id]) return;
-      const r = el.getBoundingClientRect();
-      (patch ??= {})[id] = { x: Math.round(r.left - tb.left), y: Math.round(r.top - tb.top) };
-    });
-    if (patch) setDefaultPositions((d) => ({ ...d, ...patch }));
-  }, [savedPositions, defaultPositions, user]);
-
-  // On resize, drop the measured defaults so un-customised sections re-flow and
-  // re-seed at the new width. User-dragged (saved) positions are left alone.
-  useEffect(() => {
-    let t: ReturnType<typeof setTimeout>;
-    const onResize = () => { clearTimeout(t); t = setTimeout(() => setDefaultPositions({}), 150); };
-    window.addEventListener('resize', onResize);
-    return () => { clearTimeout(t); window.removeEventListener('resize', onResize); };
-  }, []);
-
-  const onSectionDragEnd = (e: DragEndEvent) => {
-    const id = e.active.id as string;
-    const cur = posOf(id);
-    const tb = toolbarRef.current?.getBoundingClientRect();
-    const el = sectionEls.current.get(id);
-    if (!cur || !tb || !el) return;
-    // Land where dropped (start + drag delta); clamp to stay on the bar and
-    // within ~two rows. Absolute placement means no reflow — it stays put.
-    const w = el.offsetWidth, h = el.offsetHeight;
-    const y = Math.min(Math.max(0, Math.round(cur.y + e.delta.y)), 56);
-    const dropX = Math.min(Math.max(0, Math.round(cur.x + e.delta.x)), Math.max(0, tb.width - w));
-    // Sections that share the dropped row (vertically overlapping) are obstacles;
-    // snap x to the nearest free slot so groups can't be dropped onto each other.
-    const bars: { l: number; r: number }[] = [];
-    sectionEls.current.forEach((oel, oid) => {
-      if (oid === id) return;
-      const p = posOf(oid);
-      if (!p || y + h <= p.y || y >= p.y + oel.offsetHeight) return;
-      bars.push({ l: p.x, r: p.x + oel.offsetWidth });
-    });
-    const x = nearestFreeX(dropX, w, bars, tb.width);
-    setSavedPositions({ ...savedPositions, [id]: { x, y } });
+  const onDragEnd = (e: DragEndEvent) => {
+    const { active, over } = e;
+    if (!over || active.id === over.id) return;
+    const from = fullOrder.indexOf(active.id as string);
+    const to   = fullOrder.indexOf(over.id as string);
+    if (from < 0 || to < 0) return;
+    setSavedOrder(arrayMove(fullOrder, from, to));
   };
 
   async function handleDeleteMap() {
@@ -382,11 +305,37 @@ export function Toolbar() {
     await deleteMap(activeMapId);
   }
 
-  // Each reorderable section's content, keyed by id. Brand and the account
-  // actions (API keys / sign out) live outside this map — they're pinned.
-  const sections: Record<string, ReactNode> = {
+  // Nearest-threat chip: null unless an in-zone threat exists (the user's
+  // threshold gates both the alert and the chip). Built here from the lifted
+  // hook so it can be an independently movable item.
+  const proximityNode: ReactNode = (nearestThreat && nearestThreat.jumps <= threatThreshold)
+    ? (() => {
+        const { label, Icon }: { label: string; Icon: PhosphorIcon } =
+          nearestThreat.kind === 'incursion'   ? { label: t('toolbar.proximity.incursion'),  Icon: WarningIcon } :
+          nearestThreat.kind === 'insurgency'  ? { label: t('toolbar.proximity.insurgency'), Icon: SkullIcon } :
+          nearestThreat.kind === 'hostile-sov' ? { label: t('toolbar.proximity.hostileSov'), Icon: XCircleIcon } :
+          { label: t('toolbar.proximity.threat'), Icon: QuestionIcon };
+        return (
+          <span
+            className="toolbar__proximity toolbar__proximity--alert tooltip-right"
+            data-tooltip={t('toolbar.proximity.closest', { label: label.toLowerCase() })}
+          >
+            <span className="toolbar__proximity-icon"><Icon size={14} weight="bold" /></span>
+            <span className="toolbar__proximity-text">
+              {nearestThreat.jumps === 0 ? 'IN' : jumps(t, nearestThreat.jumps)} - {label}
+            </span>
+          </span>
+        );
+      })()
+    : null;
+
+  const showAdmin = !!user && (user.canViewReports || (isAdminRole(user.role) && (user.corpMode || user.allianceMode)));
+
+  // Each movable item's content, keyed by id. Items that evaluate to null are
+  // simply not rendered (and not persisted in the order).
+  const items: Record<string, ReactNode> = {
     map: (
-      <>
+      <div className="toolbar__group">
         <div className="toolbar__map-switcher" ref={mapSwitcherRef}>
           <button
             className="toolbar__map-name-btn"
@@ -399,10 +348,14 @@ export function Toolbar() {
               if (active.sharedWithMe) {
                 return <span className="toolbar__map-type toolbar__map-type--shared">{t('toolbar.mapType.shared')}</span>;
               }
-              if (!user?.corpMode) return null;
-              return active.isCorpMap
-                ? <span className="toolbar__map-type toolbar__map-type--corp">{t('toolbar.mapType.corp')}</span>
-                : <span className="toolbar__map-type toolbar__map-type--solo">{t('toolbar.mapType.solo')}</span>;
+              if (active.isAllianceMap) {
+                return <span className="toolbar__map-type toolbar__map-type--alliance">{t('toolbar.mapType.alliance')}</span>;
+              }
+              if (active.isCorpMap) {
+                return <span className="toolbar__map-type toolbar__map-type--corp">{t('toolbar.mapType.corp')}</span>;
+              }
+              if (!user?.corpMode && !user?.allianceMode) return null;
+              return <span className="toolbar__map-type toolbar__map-type--solo">{t('toolbar.mapType.solo')}</span>;
             })()}
             {mapName || t('toolbar.noMap')}
             <span className="toolbar__caret">▾</span>
@@ -421,10 +374,10 @@ export function Toolbar() {
           {showMaps && (
             <div className="map-dropdown" onMouseLeave={() => setShowMaps(false)}>
               {[...maps].sort((a, b) => {
-                // Three-tier ordering: own personal → corp → shared-with-me.
+                // Tier ordering: own personal → corp → alliance → shared-with-me.
                 // Inside a tier, alphabetical by name.
-                const aTier = a.sharedWithMe ? 2 : a.isCorpMap ? 1 : 0;
-                const bTier = b.sharedWithMe ? 2 : b.isCorpMap ? 1 : 0;
+                const tier = (m: typeof a) => m.sharedWithMe ? 3 : m.isAllianceMap ? 2 : m.isCorpMap ? 1 : 0;
+                const aTier = tier(a), bTier = tier(b);
                 if (aTier !== bTier) return aTier - bTier;
                 return a.name.localeCompare(b.name);
               }).map((m) => (
@@ -435,9 +388,10 @@ export function Toolbar() {
                 >
                   {m.sharedWithMe
                     ? <span className="map-dropdown__badge map-dropdown__badge--shared">{t('toolbar.mapType.shared')}</span>
-                    : user?.corpMode && !m.isCorpMap
+                    : (user?.corpMode || user?.allianceMode) && !m.isCorpMap && !m.isAllianceMap
                       ? <span className="map-dropdown__badge map-dropdown__badge--solo">{t('toolbar.mapType.solo')}</span>
                       : null}
+                  {!m.sharedWithMe && m.isAllianceMap && <span className="map-dropdown__badge map-dropdown__badge--alliance">{t('toolbar.mapType.alliance')}</span>}
                   {!m.sharedWithMe && m.isCorpMap && <span className="map-dropdown__badge map-dropdown__badge--corp">{t('toolbar.mapType.corp')}</span>}
                   {m.locked    && <span className="map-dropdown__badge map-dropdown__badge--lock">🔒</span>}
                   {m.name}
@@ -456,6 +410,20 @@ export function Toolbar() {
                   {t('toolbar.newMap')}
                 </button>
               </span>
+              {!readonlyCorpActive && (
+                <span
+                  className={`map-dropdown__new-wrap${atMapLimit ? ' map-dropdown__new-wrap--disabled' : ''}`}
+                  data-disabled-reason={atMapLimit ? t('toolbar.mapLimitReached') : undefined}
+                >
+                  <button
+                    className="map-dropdown__item map-dropdown__item--action"
+                    onClick={() => { setShowMaps(false); setShowCopy(true); }}
+                    disabled={atMapLimit}
+                  >
+                    {t('toolbar.copyThisMap')}
+                  </button>
+                </span>
+              )}
               {canManageMaps && maps.length > 1 && !maps.find((m) => m.id === activeMapId)?.sharedWithMe && (
                 <button className="map-dropdown__item map-dropdown__item--danger" onClick={() => { setShowMaps(false); setDeleteConfirm(true); }}>
                   {t('toolbar.deleteThisMap')}
@@ -473,34 +441,34 @@ export function Toolbar() {
             value={mapName}
             onChange={(e) => setMapName(e.target.value)}
             // Let the field own its pointer (caret / text selection) without the
-            // surrounding section reading the drag as a reorder.
+            // surrounding item reading the drag as a reorder.
             onPointerDown={(e) => e.stopPropagation()}
             spellCheck={false}
             readOnly={!canEdit || !isMapOwner}
           />
         </div>
-      </>
+      </div>
     ),
 
-    status: (
-      <>
-        <div className="toolbar__stats">
-          <span className="toolbar__stat" data-tooltip={t('toolbar.totalSystems')}>
-            <PlanetIcon size={16} weight="regular" />
-            <span className="toolbar__stat-count">{systemCount}</span>
-          </span>
-          <span className="toolbar__stat" data-tooltip={t('toolbar.totalConnections')}>
-            <LinkSimpleIcon size={16} weight="regular" />
-            <span className="toolbar__stat-count">{connectionCount}</span>
-          </span>
-        </div>
-        <ProximityChip />
-      </>
+    stats: (
+      <div className="toolbar__stats">
+        <span className="toolbar__stat" data-tooltip={t('toolbar.totalSystems')}>
+          <PlanetIcon size={16} weight="regular" />
+          <span className="toolbar__stat-count">{systemCount}</span>
+        </span>
+        <span className="toolbar__stat" data-tooltip={t('toolbar.totalConnections')}>
+          <LinkSimpleIcon size={16} weight="regular" />
+          <span className="toolbar__stat-count">{connectionCount}</span>
+        </span>
+      </div>
     ),
 
+    proximity: proximityNode,
+
+    // All the explicit action buttons travel together as one movable block.
     tools: (
-      <>
-        {user && (user.canViewReports || (user.role === 'admin' && user.corpMode)) && (
+      <div className="toolbar__group">
+        {showAdmin && (
           <button
             className="toolbar__toggle toolbar__toggle--icon toolbar__toggle--prominent"
             onClick={() => { window.location.hash = '#/admin/users'; }}
@@ -563,7 +531,7 @@ export function Toolbar() {
           <FootprintsIcon size={18} weight="regular" />
           <span className={`toolbar__toggle-led${trackJumps ? ' toolbar__toggle-led--on' : ' toolbar__toggle-led--off'}`} />
         </button>
-      </>
+      </div>
     ),
 
     server: (
@@ -630,15 +598,15 @@ export function Toolbar() {
         <div className="toolbar__char-info">
           <span className="toolbar__char-name">
             {user.characterName}
-            {/* Role only matters in corp mode — in solo deployments every
-                user is implicitly admin of their own maps, so the badge
-                just adds noise. */}
-            {user.corpMode && (
+            {/* Role only matters in a restricted (corp/alliance) deployment —
+                in solo deployments every user is implicitly admin of their own
+                maps, so the badge just adds noise. */}
+            {(user.corpMode || user.allianceMode) && (
               <span
                 className={`role-badge role-badge--${user.role}`}
-                title={t('toolbar.role', { role: user.role })}
+                title={t('toolbar.role', { role: formatRole(user.role) })}
               >
-                {user.role}
+                {formatRole(user.role)}
               </span>
             )}
           </span>
@@ -668,65 +636,72 @@ export function Toolbar() {
         <CharacterSwitcher />
       </div>
     ) : null,
+
+    // Language, API keys and sign-out travel together as one movable block.
+    actions: user ? (
+      <div className="toolbar__group">
+        <LanguageSwitcher compact />
+        <button
+          className="toolbar__toggle toolbar__toggle--icon"
+          onClick={() => setShowKeys(true)}
+          data-tooltip={t('apiKeys.title')}
+          aria-label={t('apiKeys.title')}
+        >
+          <KeyIcon size={18} weight="regular" />
+        </button>
+        <button
+          className="toolbar__toggle toolbar__toggle--icon toolbar__toggle--prominent"
+          onClick={logout}
+          data-tooltip={t('toolbar.signOut')}
+          aria-label={t('toolbar.signOut')}
+        >
+          <SignOutIcon size={18} weight="regular" />
+        </button>
+      </div>
+    ) : null,
   };
 
-  const renderOrder = DEFAULT_TOOLBAR_ORDER.filter((id) => sections[id] != null);
-  // Grow the bar to fit the lowest-placed section (so a second row isn't clipped).
-  // ROW_H is a generous single-row height — erring tall just adds a little slack.
-  const ROW_H = 52;
-  const maxY = renderOrder.reduce((m, id) => Math.max(m, posOf(id)?.y ?? 0), 0);
-  const toolbarMinHeight = Math.max(ROW_H, maxY + ROW_H);
+  // The full known ordering: saved order first (any stale ids that no longer
+  // exist are dropped), then any items the user hasn't placed yet appended in
+  // default order — so a newly-added control shows up without wiping the layout.
+  const fullOrder = [
+    ...savedOrder.filter((id) => DEFAULT_TOOLBAR_ORDER.includes(id)),
+    ...DEFAULT_TOOLBAR_ORDER.filter((id) => !savedOrder.includes(id)),
+  ];
+  // Only items that actually render this pass participate in the sortable list.
+  const renderOrder = fullOrder.filter((id) => items[id] != null);
 
   return (
     <>
-    <header className="toolbar toolbar--free" ref={toolbarRef} style={{ minHeight: toolbarMinHeight }}>
+    <header className="toolbar toolbar--free">
+      {/* Fixed brand anchor — always top-left, never draggable. */}
       <div className="toolbar__brand">
         <span className="toolbar__logo">◈</span>
       </div>
 
-      <DndContext sensors={dragSensors} onDragEnd={onSectionDragEnd}>
-        {renderOrder.map((id) => (
-          <ToolbarSection key={id} id={id} pos={posOf(id)} registerRef={registerSectionRef}>
-            {sections[id]}
-          </ToolbarSection>
-        ))}
+      <DndContext sensors={dragSensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
+        <SortableContext items={renderOrder} strategy={rectSortingStrategy}>
+          {renderOrder.map((id) => (
+            <SortableItem key={id} id={id}>{items[id]}</SortableItem>
+          ))}
+        </SortableContext>
       </DndContext>
 
-      {user && (
-        <div className="toolbar__anchor-right">
-          {!atDefaultLayout && (
-            <button
-              className="toolbar__toggle toolbar__toggle--icon"
-              onClick={resetLayout}
-              data-tooltip={t('toolbar.resetLayout')}
-              aria-label={t('toolbar.resetLayout')}
-            >
-              <ArrowCounterClockwiseIcon size={16} weight="regular" />
-            </button>
-          )}
-          <LanguageSwitcher />
-          <button
-            className="toolbar__toggle toolbar__toggle--icon"
-            onClick={() => setShowKeys(true)}
-            data-tooltip={t('apiKeys.title')}
-            aria-label={t('apiKeys.title')}
-          >
-            <KeyIcon size={18} weight="regular" />
-          </button>
-          <button
-            className="toolbar__toggle toolbar__toggle--icon toolbar__toggle--prominent"
-            onClick={logout}
-            data-tooltip={t('toolbar.signOut')}
-            aria-label={t('toolbar.signOut')}
-          >
-            <SignOutIcon size={18} weight="regular" />
-          </button>
-        </div>
+      {user && !atDefaultLayout && (
+        <button
+          className="toolbar__toggle toolbar__toggle--icon toolbar__reset-layout"
+          onClick={resetLayout}
+          data-tooltip={t('toolbar.resetLayout')}
+          aria-label={t('toolbar.resetLayout')}
+        >
+          <ArrowCounterClockwiseIcon size={16} weight="regular" />
+        </button>
       )}
     </header>
 
     {showStats && <UserStatsModal onClose={() => setShowStats(false)} />}
     {showCreate && <CreateMapModal onClose={() => setShowCreate(false)} />}
+    {showCopy && <CopyMapModal onClose={() => setShowCopy(false)} />}
     {showKeys && <ApiKeysModal onClose={() => setShowKeys(false)} />}
     {showWhChart && <WhTypeChartModal onClose={() => setShowWhChart(false)} />}
     {deleteConfirm && (

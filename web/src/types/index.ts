@@ -82,6 +82,9 @@ export interface MapSystem {
   labels: string[];
   /** Up to 3 custom labels, each 't:<text>' or 'i:<IconName>' (Phosphor). */
   customLabels: string[];
+  /** Single-character quick tag (A-Z / 0-9), shown as a badge before the name.
+   *  null/undefined = untagged. */
+  tag?: string | null;
   lastActivityAt: string; // ISO timestamp, updated when system or its sigs are touched
 }
 
@@ -175,6 +178,8 @@ export interface WormholeMap {
   id: string;
   name: string;
   isCorpMap?: boolean;
+  /** Alliance-scoped map (visible to the whole alliance). */
+  isAllianceMap?: boolean;
   locked?: boolean;
   /** Corp maps only: whether this map is opted in as a merge source. */
   allowAsMergeSource?: boolean;
@@ -183,6 +188,10 @@ export interface WormholeMap {
   /** Opt-in: a server-side sweep removes wormhole sigs older than their type's
    *  max lifetime and quarantines (marks broken) any connection they backed. */
   lazyRemoveWormholes?: boolean;
+  /** Per-map bookmark-name format override. When set (non-empty), every user on
+   *  this map copies bookmarks in this format; when null/absent, each user falls
+   *  back to their own nexum.sig.bookmarkFormat global setting. */
+  bookmarkFormat?: string | null;
   /** Present when the map has an active or expired share link. The token
    *  itself is in shareToken; shareExpiresAt is the cutoff. The owner UI
    *  treats an expired token as "no link" — regenerate to share again.

@@ -18,6 +18,16 @@ export interface RouteOriginOverride {
 
 // Debounce position saves — fires max once per 500 ms per system
 const moveTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+// Per-connection promises that resolve with the server's authoritative
+// gate/standard classification once the create POST returns. Lets the jump
+// confirm await the real type instead of racing the optimistic 'standard'
+// default. Resolves 'unknown' if the POST failed (offline) so callers can be
+// conservative. Self-cleans after settling.
+const connClassPromises = new Map<string, Promise<string>>();
+export function awaitConnectionType(id: string): Promise<string> | null {
+  return connClassPromises.get(id) ?? null;
+}
 // Per-node measured dimensions, kept out of reactive state so individual
 // ResizeObserver fires don't trigger re-renders across the whole map.
 // `countHeight` is false for systems with statics — those WH systems can
@@ -105,8 +115,10 @@ export interface MapListItem {
   id: string;
   name: string;
   isCorpMap: boolean;
-  /** True when this map isn't owned by the caller and isn't a corp map they
-   *  belong to — i.e. it reached their list via an explicit map_shares grant. */
+  /** Alliance-scoped map (visible to the whole alliance). */
+  isAllianceMap?: boolean;
+  /** True when this map isn't owned by the caller and isn't a corp/alliance map
+   *  they belong to — i.e. it reached their list via an explicit map_shares grant. */
   sharedWithMe?: boolean;
   locked: boolean;
   /** Owning character's name — shown in the merge picker to disambiguate maps. */
@@ -152,6 +164,8 @@ interface MapStore {
   maxMaps: number;
   maxCorpMaps: number;
   corpMapCount: number;
+  maxAllianceMaps: number;
+  allianceMapCount: number;
   activeMapId: string | null;
 
   // Current map
@@ -237,8 +251,8 @@ interface MapStore {
   // Maps management
   loadMaps: () => Promise<void>;
   switchMap: (id: string) => Promise<void>;
-  createMap: (name?: string, isCorpMap?: boolean) => Promise<void>;
-  createFromRegion: (regionId: number, name: string, isCorpMap: boolean) => Promise<void>;
+  createMap: (name?: string, isCorpMap?: boolean, isAllianceMap?: boolean) => Promise<void>;
+  createFromRegion: (regionId: number, name: string, isCorpMap: boolean, isAllianceMap?: boolean) => Promise<void>;
   deleteMap: (id: string) => Promise<void>;
 
   // Map metadata
@@ -322,7 +336,7 @@ export type RemoteEvent =
   | { type: 'route.update';      id: string; updates: Partial<SavedRoute> }
   | { type: 'route.remove';      id: string }
   | { type: 'route.reorder';     orderedIds: string[] }
-  | { type: 'map.meta';          name?: string; locked?: boolean }
+  | { type: 'map.meta';          name?: string; locked?: boolean; bookmarkFormat?: string | null }
   | { type: 'map.resync' }
   | { type: 'sig.changed';       systemId: string }
   | { type: 'structure.changed'; systemId: string }
@@ -470,6 +484,8 @@ export const useMapStore = create<MapStore>()((set, get) => {
     maxMaps: 10,
     maxCorpMaps: 5,
     corpMapCount: 0,
+    maxAllianceMaps: 5,
+    allianceMapCount: 0,
     activeMapId: null,
     map: emptyMap(),
     selectedSystemId: null,
@@ -551,9 +567,9 @@ export const useMapStore = create<MapStore>()((set, get) => {
     // ── Maps management ───────────────────────────────────────────────────────
 
     loadMaps: async () => {
-      const { maps, maxMaps, maxCorpMaps, corpMapCount } = await api<{ maps: MapListItem[]; maxMaps: number; maxCorpMaps: number; corpMapCount: number }>('/api/maps');
+      const { maps, maxMaps, maxCorpMaps, corpMapCount, maxAllianceMaps, allianceMapCount } = await api<{ maps: MapListItem[]; maxMaps: number; maxCorpMaps: number; corpMapCount: number; maxAllianceMaps: number; allianceMapCount: number }>('/api/maps');
       const activeId = get().activeMapId;
-      set({ maps, maxMaps, maxCorpMaps, corpMapCount });
+      set({ maps, maxMaps, maxCorpMaps, corpMapCount, maxAllianceMaps, allianceMapCount });
 
       // Pick an initial map if none is active yet, falling back to the
       // user's last-viewed id when it's still in the list.
@@ -586,13 +602,27 @@ export const useMapStore = create<MapStore>()((set, get) => {
       for (const t of moveTimers.values()) clearTimeout(t);
       moveTimers.clear();
 
+      // Re-selecting the CURRENT map is a resync (SSE reconnect after the tab
+      // was backgrounded, or the merge resync event), not a real switch. Keep
+      // the user's selection + current system across it so alt-tabbing to EVE
+      // and back doesn't drop the system they had open for pasting sigs.
+      const isResync = id === get().activeMapId;
+      const prev = isResync
+        ? { sel: get().selectedSystemId, conn: get().selectedConnectionId, current: get().currentSystemId }
+        : { sel: null, conn: null, current: null };
+
       try {
         const map = await api<WormholeMap>(`/api/maps/${id}`);
         // Older payloads / share responses may omit routes — normalise so the
         // chains slice can always read an array.
         if (!Array.isArray(map.routes)) map.routes = [];
         localStorage.setItem('nexum.lastMapId', id);
-        set({ map, activeMapId: id, selectedSystemId: null, selectedConnectionId: null, currentSystemId: null, undoStack: [], sigTypesBySystem: {}, contentBySystem: {}, contentFilter: { sigTypes: [], anomTypes: [], nameQuery: '' } });
+        // Drop any preserved ref that no longer exists in the refetched map
+        // (e.g. the selected system was deleted while we were disconnected).
+        const keepSel     = prev.sel     && map.systems.some((s) => s.id === prev.sel)      ? prev.sel     : null;
+        const keepConn    = prev.conn    && map.connections.some((c) => c.id === prev.conn) ? prev.conn    : null;
+        const keepCurrent = prev.current && map.systems.some((s) => s.id === prev.current)  ? prev.current : null;
+        set({ map, activeMapId: id, selectedSystemId: keepSel, selectedConnectionId: keepConn, currentSystemId: keepCurrent, undoStack: [], sigTypesBySystem: {}, contentBySystem: {}, contentFilter: { sigTypes: [], anomTypes: [], nameQuery: '' } });
       } catch (err) {
         // 403/404 — the grant was revoked, or the map was deleted. Reload
         // the list (which will trigger the revocation-detection path above
@@ -606,19 +636,19 @@ export const useMapStore = create<MapStore>()((set, get) => {
       }
     },
 
-    createMap: async (name = 'New Map', isCorpMap = false) => {
+    createMap: async (name = 'New Map', isCorpMap = false, isAllianceMap = false) => {
       const { id } = await api<{ id: string }>('/api/maps', {
         method: 'POST',
-        body: JSON.stringify({ name, isCorpMap }),
+        body: JSON.stringify({ name, isCorpMap, isAllianceMap }),
       });
       await get().loadMaps();
       await get().switchMap(id);
     },
 
-    createFromRegion: async (regionId, name, isCorpMap) => {
+    createFromRegion: async (regionId, name, isCorpMap, isAllianceMap = false) => {
       const { id } = await api<{ id: string }>('/api/maps/from-region', {
         method: 'POST',
-        body: JSON.stringify({ regionId, name, isCorpMap }),
+        body: JSON.stringify({ regionId, name, isCorpMap, isAllianceMap }),
       });
       await get().loadMaps();
       await get().switchMap(id);
@@ -1007,20 +1037,30 @@ export const useMapStore = create<MapStore>()((set, get) => {
         get().pushUndo({ type: 'add_connection', connectionId: id });
         if (activeMapId) {
           const url  = `/api/maps/${activeMapId}/connections`;
-          const body = JSON.stringify({ ...conn });
-          api<{ ok: boolean; connectionType?: string }>(url, { method: 'POST', body })
+          // Pass the endpoints' eve ids so the server can gate-classify directly
+          // from map_stargates without waiting for both system rows to commit —
+          // a jump POSTs the new system and this connection near-simultaneously.
+          const systemsNow  = get().map.systems;
+          const sourceEveId = systemsNow.find((s) => s.id === conn.sourceId)?.eveSystemId ?? null;
+          const targetEveId = systemsNow.find((s) => s.id === conn.targetId)?.eveSystemId ?? null;
+          const body = JSON.stringify({ ...conn, sourceEveId, targetEveId });
+          const classifyP = api<{ ok: boolean; connectionType?: string }>(url, { method: 'POST', body })
             .then((r) => {
               // Server may auto-classify an in-game gate (stargate-adjacent
               // systems). Reflect it locally so the chain/edge updates without
               // a reload.
-              if (r?.connectionType && r.connectionType !== 'standard') {
+              const ct = r?.connectionType ?? 'standard';
+              if (ct !== 'standard') {
                 set((s) => ({
                   map: { ...s.map, connections: s.map.connections.map((c) =>
-                    c.id === id ? { ...c, connectionType: r.connectionType as MapConnection['connectionType'] } : c) },
+                    c.id === id ? { ...c, connectionType: ct as MapConnection['connectionType'] } : c) },
                 }));
               }
+              return ct;
             })
-            .catch(() => enqueue(`addConnection:${id}`, url, 'POST', body));
+            .catch(() => { enqueue(`addConnection:${id}`, url, 'POST', body); return 'unknown'; });
+          connClassPromises.set(id, classifyP);
+          void classifyP.finally(() => connClassPromises.delete(id));
         }
       }
 
@@ -1223,17 +1263,14 @@ export const useMapStore = create<MapStore>()((set, get) => {
           break;
         }
         case 'map.meta': {
+          const patch = {
+            ...(event.name   !== undefined ? { name:   event.name }   : {}),
+            ...(event.locked !== undefined ? { locked: event.locked } : {}),
+            ...(event.bookmarkFormat !== undefined ? { bookmarkFormat: event.bookmarkFormat } : {}),
+          };
           set((s) => ({
-            map: {
-              ...s.map,
-              ...(event.name   !== undefined ? { name:   event.name }   : {}),
-              ...(event.locked !== undefined ? { locked: event.locked } : {}),
-            },
-            maps: s.maps.map((m) => m.id === s.activeMapId
-              ? { ...m,
-                  ...(event.name   !== undefined ? { name:   event.name }   : {}),
-                  ...(event.locked !== undefined ? { locked: event.locked } : {}) }
-              : m),
+            map: { ...s.map, ...patch },
+            maps: s.maps.map((m) => (m.id === s.activeMapId ? { ...m, ...patch } : m)),
           }));
           break;
         }

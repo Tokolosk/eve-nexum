@@ -1,26 +1,24 @@
-// Best-effort Discord webhook notifications for corp chain intel. Fire-and-
-// forget: never blocks a request and never throws into a caller. Corp-scoped
-// and configured purely via env (see config.ts). See discord_webhooks_feature.md.
-import { config } from '../config.js';
+// Best-effort Discord webhook notifications for corp/alliance chain intel.
+// Fire-and-forget: never blocks a request and never throws into a caller.
+// Webhook URLs are per-org, per-event-type, and stored in the discord settings
+// tables (managed in the admin UI). See discord_webhooks_feature.md.
 import { createLogger } from '../utils/logger.js';
 
 const log = createLogger('discord');
 
-// Log the configuration once at startup so a misconfigured DISCORD_WEBHOOK_URL
-// is obvious in the logs. URLs are secrets, so we log presence, not values.
-{
-  const corps = Object.keys(config.discord.byCorp);
-  const enabled = !!config.discord.defaultUrl || corps.length > 0;
-  log.info(enabled
-    ? `enabled — default webhook: ${config.discord.defaultUrl ? 'set' : 'none'}; per-corp overrides: [${corps.join(', ') || 'none'}]`
-    : 'disabled — DISCORD_WEBHOOK_URL is not set (no notifications will be sent)');
-}
-
-// Resolve the webhook for a map's corp: per-corp override, else the default,
-// else null (feature off, or a personal map with corpId === null).
-export function webhookFor(corpId: number | null): string | null {
-  if (corpId == null) return null;
-  return config.discord.byCorp[corpId] ?? config.discord.defaultUrl ?? null;
+// SSRF guard: the server POSTs to an admin-supplied URL, so it must be a genuine
+// Discord webhook endpoint. Validated on write (admin PUT / env seed) AND before
+// every send, so a stored value can never point the server at an internal host.
+const DISCORD_WEBHOOK_HOSTS = new Set([
+  'discord.com', 'discordapp.com', 'ptb.discord.com', 'canary.discord.com',
+]);
+export function isDiscordWebhookUrl(url: unknown): url is string {
+  if (typeof url !== 'string' || !url) return false;
+  let u: URL;
+  try { u = new URL(url); } catch { return false; }
+  return u.protocol === 'https:'
+    && DISCORD_WEBHOOK_HOSTS.has(u.hostname)
+    && u.pathname.startsWith('/api/webhooks/');
 }
 
 export interface DiscordEmbed {
@@ -39,11 +37,16 @@ const MAX_QUEUE  = 100;   // drop overflow rather than grow unbounded
 const SPACING_MS = 1000;  // gentle pacing — well under Discord's ~30/min limit
 let draining = false;
 
-// Enqueue a notification. No-op when no webhook is configured for the corp.
-export function notifyDiscord(corpId: number | null, embed: DiscordEmbed): void {
-  const url = webhookFor(corpId);
+// Enqueue a notification to a specific webhook URL. No-op when the URL is
+// absent (event type not configured for this org) or not a valid Discord
+// webhook (SSRF guard — never POST to an arbitrary host).
+export function notifyDiscord(url: string | null | undefined, embed: DiscordEmbed): void {
   if (!url) {
-    log.info(`skip "${embed.title}" — no webhook resolved for corpId=${corpId ?? 'null (personal map)'}`);
+    log.info(`skip "${embed.title}" — no webhook configured for this event`);
+    return;
+  }
+  if (!isDiscordWebhookUrl(url)) {
+    log.warn(`skip "${embed.title}" — stored webhook is not a valid Discord webhook URL`);
     return;
   }
   if (queue.length >= MAX_QUEUE) {
@@ -51,7 +54,7 @@ export function notifyDiscord(corpId: number | null, embed: DiscordEmbed): void 
     return;
   }
   queue.push({ url, embed });
-  log.info(`queued "${embed.title}" for corpId=${corpId} (queue depth: ${queue.length})`);
+  log.info(`queued "${embed.title}" (queue depth: ${queue.length})`);
   void drain();
 }
 
@@ -71,10 +74,13 @@ async function drain(): Promise<void> {
 async function deliver(item: QueueItem, attempt = 0): Promise<void> {
   try {
     const r = await fetch(item.url, {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ embeds: [item.embed] }),
-      signal:  AbortSignal.timeout(5000),
+      method:   'POST',
+      headers:  { 'Content-Type': 'application/json' },
+      body:     JSON.stringify({ embeds: [item.embed] }),
+      signal:   AbortSignal.timeout(5000),
+      // The URL host is allowlisted to Discord, but a 3xx could otherwise bounce
+      // the POST to an arbitrary host — refuse to follow redirects (SSRF guard).
+      redirect: 'error',
     });
     // Honour Discord's rate-limit backoff a couple of times, then give up.
     if (r.status === 429 && attempt < 2) {
@@ -101,6 +107,26 @@ const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve,
 // ── Embed builders ──────────────────────────────────────────────────────────
 const AMBER = 0xf0a030;
 const BLUE  = 0x5b9bff;
+const GREEN = 0x3ddc84;
+
+// Saved wormhole chain: name + start/end + how tight and how far.
+export function chainEmbed(p: {
+  name: string; start: string; end: string; maxSize: string; hops: number; mapName: string; actor: string | null;
+}): DiscordEmbed {
+  return {
+    title:       '🧭 Chain saved',
+    description: `**${p.name || `${p.start} → ${p.end}`}** on **${p.mapName}**`,
+    color:       GREEN,
+    fields: [
+      { name: 'From',      value: p.start,          inline: true },
+      { name: 'To',        value: p.end,            inline: true },
+      { name: 'Max ship',  value: p.maxSize,        inline: true },
+      { name: 'Hops',      value: String(p.hops),   inline: true },
+    ],
+    footer:    p.actor ? { text: `saved by ${p.actor}` } : undefined,
+    timestamp: new Date().toISOString(),
+  };
+}
 
 export function k162Embed(p: {
   system: string; systemClass: string; leadsTo?: string | null; mapName: string; actor: string | null;

@@ -29,6 +29,7 @@ import scoutRouter        from './routes/scout.js';
 import routeRouter        from './routes/route.js';
 import wormholesRouter    from './routes/wormholes.js';
 import { loadRouteGraph } from './services/routeGraph.js';
+import { seedDiscordWebhooksFromEnv } from './services/discordSeed.js';
 import { startSdeAutoUpdate } from './services/sdeUpdate.js';
 import { startLocationPoller } from './services/locationPoll.js';
 import { startWhSweeper } from './services/whSweep.js';
@@ -54,11 +55,16 @@ app.set('trust proxy', 1);
 app.disable('x-powered-by');
 
 // Default Helmet is safe for a JSON API: HSTS (HTTPS only), nosniff,
-// frameguard=deny, referrer-policy=no-referrer, etc. CSP is disabled
-// because we serve JSON not HTML — the frontend is delivered by nginx,
-// which is where any meaningful CSP belongs.
+// frameguard=deny, referrer-policy=no-referrer, etc. This server only ever
+// returns JSON (the SPA is served by nginx/traefik, which owns the frontend
+// CSP), so we lock the API's own CSP all the way down: default-src 'none'
+// forbids loading/executing anything should a response ever be interpreted as
+// a document. Costs nothing on JSON responses.
 app.use(helmet({
-  contentSecurityPolicy: false,
+  contentSecurityPolicy: {
+    useDefaults: false,
+    directives: { defaultSrc: ["'none'"], frameAncestors: ["'none'"] },
+  },
   crossOriginEmbedderPolicy: false,
   crossOriginResourcePolicy: { policy: 'cross-origin' },
 }));
@@ -151,19 +157,20 @@ app.use((err: Error & { status?: number; type?: string }, req: express.Request, 
 });
 
 async function expireMaps() {
-  if (!config.corpMode) return;
+  if (!config.restrictedMode) return;
   const cutoff = new Date(Date.now() - config.corpMapExpireDays * 24 * 60 * 60 * 1000);
-  // Corp maps only — a member's idle personal maps must never be auto-deleted
-  // by the corp-map expiry (matches the partial idx_maps_last_active index).
+  // Corp + alliance maps only — a member's idle personal maps must never be
+  // auto-deleted by this sweep (matches the partial idx_maps_last_active index).
   const { rowCount } = await db.query(
-    `DELETE FROM maps WHERE last_active_at < $1 AND corp_id IS NOT NULL`,
+    `DELETE FROM maps WHERE last_active_at < $1 AND (corp_id IS NOT NULL OR alliance_id IS NOT NULL)`,
     [cutoff],
   );
-  if (rowCount) console.log(`Expired ${rowCount} inactive corp map(s)`);
+  if (rowCount) console.log(`Expired ${rowCount} inactive corp/alliance map(s)`);
 }
 
 migrate()
   .then(async () => {
+    await seedDiscordWebhooksFromEnv();
     await expireMaps();
     setInterval(expireMaps, 60 * 60 * 1000); // re-check hourly
     await initActivity();
