@@ -1,4 +1,4 @@
-import { memo } from 'react';
+import { memo, type CSSProperties } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   getBezierPath, getStraightPath, getSmoothStepPath,
@@ -9,27 +9,39 @@ import type { MapConnection } from '../../types';
 import { useMapStore } from '../../store/mapStore';
 import { useNow30s } from '../../hooks/useNow30s';
 import { useWatchlist } from '../../hooks/useWatchlist';
+import { useWormholeTypes } from '../../hooks/useWormholeTypes';
 import { matchConnection } from '../../utils/watchMatch';
+import { useJumpDistance, useJdcLevel } from '../../hooks/useJumpRange';
+import { classesInRange } from '../../data/jumpDrives';
 import { watchMarker } from '../../data/watchMarkers';
+import { effectiveExpiryMs, lifeBucket, type TimeBucket } from '../../utils/whLifetime';
+import { DynamicIcon } from '../DynamicIcon';
+import { hoursMins } from '../../i18n/format';
+import type { TFunction } from 'i18next';
 
 // CSS custom properties (resolved via the edge path's inline `style`) so the
-// colour-vision palettes (--cv-conn-* in App.css) re-map connection colours.
+// colour-vision palettes (--cv-conn-* in styles/tokens.css) re-map connection colours.
 const STANDARD_COLOR = 'var(--cv-conn-standard)';
 const JUMPGATE_COLOR  = 'var(--cv-conn-jumpgate)';
 const GATE_COLOR      = 'var(--cv-conn-gate)';
+const CYNO_COLOR      = 'var(--cv-conn-cyno)';   // cyno-jump route (purple, palette-aware)
 const HIGHLIGHT_COLOR = 'var(--cv-conn-highlight)';
 
 // Perpendicular spacing between multiple connections that share the same pair
 // of systems, so they fan apart instead of stacking on one line.
 const PARALLEL_SEP = 18;
 
-const EOL_LIFE_MS    = 4 * 60 * 60 * 1000;
-const EOL_LESS_1H_MS = 60 * 60 * 1000;
-
 const TIME_COLORS: Record<string, string> = {
   lessThan4h: 'var(--cv-conn-4h)',
   lessThan1h: 'var(--cv-conn-1h)',
   expired:    'var(--cv-conn-expired)',
+};
+
+// Ship-size limit, shown beside the wormhole type. The code already implies it
+// to anyone who has the table memorised; this is for everyone else, and for the
+// untyped / bare-K162 holes where the size is whatever a scout set by hand.
+const SIZE_LABELS: Record<string, string> = {
+  xl: 'XL', large: 'L', medium: 'M', small: 'S',
 };
 
 const MASS_LABELS: Record<string, { text: string; cls: string }> = {
@@ -39,22 +51,20 @@ const MASS_LABELS: Record<string, { text: string; cls: string }> = {
 };
 
 /**
- * Given the EOL timestamp, return the live display state. Counts down from
- * 4h at the time EOL was marked; flips to "< 1 hr" when 3h have elapsed;
- * marks expired after 4h.
+ * Colour + label for a live time bucket. The two sub-4h buckets show a live
+ * countdown (updated by useNow30s); "< 1 day" is a static band label; a fresh
+ * hole (> 24h left) carries no time label. Returns null text ⇒ no label drawn.
  */
-function computeEolState(eolAt: string | null | undefined, now: number) {
-  if (!eolAt) return null;
-  const elapsed   = now - new Date(eolAt).getTime();
-  const remaining = EOL_LIFE_MS - elapsed;
-  if (remaining <= 0) return { color: TIME_COLORS.expired, label: '!', cls: 'connection-label__crit', expired: true };
-  const hours = Math.floor(remaining / 3_600_000);
-  const mins  = Math.floor((remaining % 3_600_000) / 60_000);
-  const label = hours > 0 ? `${hours}h ${mins}m` : `${mins}m`;
-  if (remaining < EOL_LESS_1H_MS) {
-    return { color: TIME_COLORS.lessThan1h, label, cls: 'connection-label__eol', expired: false };
+function bucketDisplay(
+  bucket: TimeBucket, remainingMs: number, t: TFunction,
+): { color: string; text: string | null; cls: string } {
+  switch (bucket) {
+    case 'expired':     return { color: TIME_COLORS.expired,    text: '!',                     cls: 'connection-label__crit' };
+    case 'lessThan1h':  return { color: TIME_COLORS.lessThan1h, text: hoursMins(remainingMs),  cls: 'connection-label__eol' };
+    case 'lessThan4h':  return { color: TIME_COLORS.lessThan4h, text: hoursMins(remainingMs),  cls: 'connection-label__eol' };
+    case 'lessThan24h': return { color: STANDARD_COLOR,         text: t('mapEdge.lessThan24h'), cls: 'connection-label__eol' };
+    default:            return { color: STANDARD_COLOR,         text: null,                    cls: '' };
   }
-  return   { color: TIME_COLORS.lessThan4h, label, cls: 'connection-label__eol', expired: false };
 }
 
 export const ConnectionEdge = memo(({
@@ -71,6 +81,7 @@ export const ConnectionEdge = memo(({
     parallelCount?: number;
   };
   const selectConnection = useMapStore((s) => s.selectConnection);
+  const whTypes = useWormholeTypes();
   const now = useNow30s();
 
   // Lit because the hovered/selected system is one of its endpoints — these get
@@ -84,6 +95,20 @@ export const ConnectionEdge = memo(({
   const [watchEntries] = useWatchlist();
   const watch = conn ? matchConnection(watchEntries, conn) : null;
   const watchColor = watch ? watchMarker(watch.marker).color : null;
+
+  // Cyno-jump auto-annotation: for a cyno-tagged edge, resolve its endpoints' EVE
+  // ids (null otherwise, so non-cyno edges never re-run the find or fetch), get
+  // the star-to-star light-year distance, and classify by the user's JDC.
+  const cynoEdge = conn?.connectionType === 'cyno';
+  const srcEve = useMapStore((s) => (cynoEdge ? (s.map.systems.find((x) => x.id === conn.sourceId)?.eveSystemId ?? null) : null));
+  const tgtEve = useMapStore((s) => (cynoEdge ? (s.map.systems.find((x) => x.id === conn.targetId)?.eveSystemId ?? null) : null));
+  // High-sec endpoint → only JF / Black Ops are relevant (caps don't operate there).
+  const cynoHighsec = useMapStore((s) => cynoEdge && (
+    s.map.systems.find((x) => x.id === conn.sourceId)?.systemClass === 'HS' ||
+    s.map.systems.find((x) => x.id === conn.targetId)?.systemClass === 'HS'
+  ));
+  const cynoLy = useJumpDistance(srcEve, tgtEve, cynoEdge);
+  const [jdc] = useJdcLevel();
 
   let [edgePath, labelX, labelY] = (() => {
     const args = { sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition };
@@ -119,21 +144,27 @@ export const ConnectionEdge = memo(({
 
   const isJumpgate = conn?.connectionType === 'jumpgate'; // player Ansiblex bridge
   const isGate     = conn?.connectionType === 'gate';     // in-game stargate
-  // Stargates and Ansiblex bridges are permanent in-game infrastructure — no
-  // wormhole lifetime or mass to track.
-  const noLifetime = isJumpgate || isGate;
+  const isCyno     = conn?.connectionType === 'cyno';     // tagged cyno-jump route
+  // Stargates, Ansiblex bridges and cyno routes are infrastructure/intel, not
+  // wormholes — no lifetime or mass to track.
+  const noLifetime = isJumpgate || isGate || isCyno;
   // Quarantined: the backing wormhole sig was deleted (hole collapsed). Kept on
   // the map but rendered severed (dashed/red + a ✂ marker) so the chain is
   // still traceable but clearly no longer an active link.
   const broken = !!conn?.broken;
 
-  // Live EOL state takes priority over the legacy categorical timeStatus.
-  const eolState   = !noLifetime ? computeEolState(conn?.eolAt, now) : null;
+  // Live lifetime: derive the current bucket from the hole's effective expiry
+  // (manual override, legacy EOL mark, or createdAt + the wh type's max life),
+  // re-evaluated every 30s via `now` so a hole visibly ages on its own. Null =
+  // lifetime unknown (untyped / bare K162) → fall back to the stored category.
+  const expiryMs   = !noLifetime && conn ? effectiveExpiryMs(conn, whTypes) : null;
+  const lifeState  = expiryMs != null ? bucketDisplay(lifeBucket(expiryMs - now), expiryMs - now, t) : null;
   const timeStatus = conn?.timeStatus ?? null;
 
-  const color = isJumpgate ? JUMPGATE_COLOR
+  const color = isCyno ? CYNO_COLOR
+    : isJumpgate ? JUMPGATE_COLOR
     : isGate ? GATE_COLOR
-    : (eolState?.color ?? TIME_COLORS[timeStatus ?? ''] ?? STANDARD_COLOR);
+    : (lifeState?.color ?? TIME_COLORS[timeStatus ?? ''] ?? STANDARD_COLOR);
   // Final stroke: broken keeps severed-red; otherwise a highlighted link (its
   // system is hovered/selected) takes the highlight hue, else its own state colour.
   const strokeColor = broken
@@ -152,10 +183,34 @@ export const ConnectionEdge = memo(({
   const strokeWidth = emphasized ? baseWidth + 2 : baseWidth;
   const massLabel   = !noLifetime && conn?.massStatus ? (MASS_LABELS[conn.massStatus] ?? null) : null;
 
-  // Prefer the live countdown label; fall back to the static category label
-  // if a connection has a legacy timeStatus value but no eolAt.
+  // A frigate-sized hole gets its own dash. Dashing already marks Ansiblex and
+  // cyno routes, but neither can also be a wormhole, so the channel is free
+  // here. A broken hole keeps its severed dash — being dead outranks being
+  // small.
+  const frigHole = !noLifetime && !broken && conn?.size === 'small';
+  // Only wormholes have a size worth stating; a gate or an Ansiblex takes
+  // anything. Small and medium are flagged as restrictions because they change
+  // what you can bring — medium especially, since nothing on the LINE marks it.
+  const sizeText = !noLifetime && conn?.size ? (SIZE_LABELS[conn.size] ?? null) : null;
+  const sizeRestrictive = conn?.size === 'small' || conn?.size === 'medium';
+  const dash = broken ? '5 7' : isCyno ? '2 6' : isJumpgate ? '10 5' : frigHole ? '4 4' : undefined;
+
+  // Mass rides a SECOND channel rather than competing for colour, which
+  // lifetime already owns. A thin core in the mass colour runs inside the
+  // line, so a hole that is both EOL and critical reads as both at once
+  // instead of one state overwriting the other. Same tokens as the mass
+  // label, so the line and the text agree.
+  const massCore = !noLifetime && !broken
+    ? conn?.massStatus === 'critical'     ? 'var(--cv-conn-expired)'
+    : conn?.massStatus === 'destabilized' ? 'var(--cv-conn-1h)'
+    : null
+    : null;
+
+  // Prefer the live bucket label; fall back to the stored category label only
+  // for a connection whose lifetime is unknown but which carries a legacy
+  // timeStatus value (e.g. a hand-set band on an untyped hole).
   const timeLabel = (() => {
-    if (eolState) return { text: eolState.label, cls: eolState.cls };
+    if (lifeState) return lifeState.text ? { text: lifeState.text, cls: lifeState.cls } : null;
     switch (timeStatus) {
       case 'lessThan24h': return { text: t('mapEdge.lessThan24h'), cls: 'connection-label__eol' };
       case 'lessThan4h':  return { text: t('mapEdge.lessThan4h'),  cls: 'connection-label__eol' };
@@ -176,7 +231,7 @@ export const ConnectionEdge = memo(({
           // stays readable even while highlighted.
           stroke: strokeColor,
           strokeWidth: watchColor ? strokeWidth + 1 : strokeWidth,
-          strokeDasharray: broken ? '5 7' : isJumpgate ? '10 5' : undefined,
+          strokeDasharray: dash,
           filter: [
             emphasized ? `drop-shadow(0 0 6px ${strokeColor})` : null,
             watchColor ? `drop-shadow(0 0 5px ${watchColor}) drop-shadow(0 0 2px ${watchColor})` : null,
@@ -185,6 +240,22 @@ export const ConnectionEdge = memo(({
         }}
         markerEnd={undefined}
       />
+      {/* Mass core, painted over the main stroke and following the same path
+          and dash so it reads as one line with a coloured centre rather than
+          two overlapping edges. Non-interactive: the BaseEdge underneath keeps
+          all hit-testing. */}
+      {massCore && (
+        <path
+          d={edgePath}
+          fill="none"
+          stroke={massCore}
+          strokeWidth={Math.max(1, (watchColor ? strokeWidth + 1 : strokeWidth) - 2.5)}
+          strokeDasharray={dash}
+          strokeLinecap="round"
+          pointerEvents="none"
+          opacity={conn?.dimmed ? 0.1 : 0.95}
+        />
+      )}
       <EdgeLabelRenderer>
         {broken && (
           <div
@@ -199,16 +270,34 @@ export const ConnectionEdge = memo(({
           </div>
         )}
         {!broken && (() => {
-          const typeNode = isJumpgate
+          const typeNode = isCyno
+            ? <span className="connection-label__cyno" style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
+                <span>CJ{cynoLy != null ? ` ${cynoLy.toFixed(1)}ly` : ''}</span>
+                {cynoLy != null && classesInRange(cynoLy, jdc, cynoHighsec).length > 0 && (
+                  <span style={{ display: 'inline-flex', gap: 4 }}>
+                    {classesInRange(cynoLy, jdc, cynoHighsec).map((c) => (
+                      <span key={c.key} title={c.label}
+                        style={{ width: 6, height: 6, borderRadius: '50%', background: c.color, display: 'inline-block' }} />
+                    ))}
+                  </span>
+                )}
+              </span>
+            : isJumpgate
             ? <span className="connection-label__jumpgate">JG</span>
             : isGate
               ? <span className="connection-label__gate">G</span>
               : conn?.type
-                ? <span className="connection-label__type">{conn.type}</span>
+                ? <span className="connection-label__type">
+                    {conn.type}
+                    {sizeText && <span className={`connection-label__size${sizeRestrictive ? ' connection-label__size--limit' : ''}`}>{sizeText}</span>}
+                  </span>
                 // Typeless wormhole normally shows no badge; surface a "WH" one
                 // while hovered so every traced link reveals its jump type.
                 : highlighted
-                  ? <span className="connection-label__type">WH</span>
+                  ? <span className="connection-label__type">
+                      WH
+                      {sizeText && <span className={`connection-label__size${sizeRestrictive ? ' connection-label__size--limit' : ''}`}>{sizeText}</span>}
+                    </span>
                   : null;
           const massNode = !noLifetime && massLabel
             ? <span className={massLabel.cls}>{massLabel.text}</span>
@@ -216,7 +305,26 @@ export const ConnectionEdge = memo(({
           const timeNode = !noLifetime && timeLabel
             ? <span className={timeLabel.cls}>{timeLabel.text}</span>
             : null;
-          const count = (typeNode ? 1 : 0) + (massNode ? 1 : 0) + (timeNode ? 1 : 0);
+          // Corp/alliance-shared flag: an icon badge beside the type, its note
+          // (if any) revealed by the global [data-tooltip] layer on hover.
+          const flagIcon = conn?.flagIcon || null;
+          const flagNode = flagIcon
+            ? (
+              <span
+                className={`connection-label__flag${conn?.flagBlink ? ' connection-label__flag--blink' : ''}`}
+                // Custom flag colour drives the icon, badge and blink via the
+                // --flag-color CSS var (falls back to the default amber). Only a
+                // validated #rrggbb reaches here (server-checked), so it's safe
+                // to feed into the inline custom property.
+                style={conn?.flagColor ? ({ '--flag-color': conn.flagColor } as CSSProperties) : undefined}
+                data-tooltip={conn?.flagNote || undefined}
+                onClick={(e) => { e.stopPropagation(); selectConnection(id); }}
+              >
+                <DynamicIcon name={flagIcon} size={14} weight="fill" />
+              </span>
+            )
+            : null;
+          const count = (typeNode ? 1 : 0) + (massNode ? 1 : 0) + (timeNode ? 1 : 0) + (flagNode ? 1 : 0);
 
           return (
             <div
@@ -229,7 +337,7 @@ export const ConnectionEdge = memo(({
             >
               {count > 0 ? (
                 <>
-                  {typeNode && <div className="connection-label__row">{typeNode}</div>}
+                  {(typeNode || flagNode) && <div className="connection-label__row">{typeNode}{flagNode}</div>}
                   {massNode && <div className="connection-label__row">{massNode}</div>}
                   {timeNode && <div className="connection-label__row">{timeNode}</div>}
                 </>

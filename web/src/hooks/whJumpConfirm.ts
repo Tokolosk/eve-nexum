@@ -1,6 +1,7 @@
 import { api } from '../api/client';
-import { toast } from '../components/ui/Toaster';
+import { toast } from '../utils/toastStore';
 import { reevaluateConnectionsForSystem } from '../utils/whAutoDetect';
+import { isUnresolvedLeadsTo } from '../utils/whDest';
 import { useMapStore, awaitConnectionType } from '../store/mapStore';
 import i18n from '../i18n';
 import type { Signature } from '../types';
@@ -9,16 +10,6 @@ import type { Signature } from '../types';
 // system was jumped — pinning its leads-to to the SPECIFIC arrival system. A
 // single plausible hole is filled directly (with an undo); ambiguous cases ask.
 // See wh_jump_confirm_feature.md.
-
-// The leads-to values that are class/band/unknown rather than a pinned system
-// (see LeadsToDropdown). Anything NOT in here is a specific connected-system
-// name — i.e. the hole is already solved, so we leave it alone.
-const CLASS_OR_UNKNOWN = new Set([
-  '', 'unknown',
-  'C1-C3', 'C4-C5', 'C6', 'C13', 'Thera', 'Pochven', 'Drifter',
-  'HS', 'LS', 'NS',
-  'C1', 'C2', 'C3', 'C4', 'C5', // legacy exact-class values
-]);
 
 // The band value the dropdown uses for an exact C-space class.
 function bandFor(cls: string): string {
@@ -32,9 +23,10 @@ function bandFor(cls: string): string {
 // hole that leads to a different class can't be the one we jumped).
 function isCandidate(whLeadsTo: string, arrivalClass: string): boolean {
   const v = (whLeadsTo || '').trim();
-  if (!CLASS_OR_UNKNOWN.has(v)) return false;          // already a specific system
-  if (v === '' || v === 'unknown') return true;        // unknown → plausible
-  return v === bandFor(arrivalClass) || v === arrivalClass;
+  if (!isUnresolvedLeadsTo(v)) return false;           // already a specific system
+  if (v === '' || v.toLowerCase() === 'unknown') return true; // unknown → plausible
+  return v.toUpperCase() === bandFor(arrivalClass).toUpperCase()
+      || v.toUpperCase() === arrivalClass.toUpperCase();
 }
 
 export interface WhJumpContext {
@@ -55,6 +47,14 @@ export async function maybeConfirmWhJump(ctx: WhJumpContext): Promise<void> {
   } catch {
     return;
   }
+
+  // Already accounted for: a wormhole sig here is pinned to exactly where we
+  // arrived, so this hole is solved and its connection's backing sig is (or will
+  // be) linked by the sig auto-detect. Don't fill a second hole or prompt — this
+  // is the "asked which sig on the way back even though one already leads home"
+  // case.
+  const arrived = toName.toUpperCase();
+  if (sigs.some((s) => s.sigType === 'wormhole' && (s.whLeadsTo || '').toUpperCase() === arrived)) return;
 
   // Eligible = known wormhole sigs not yet pinned to a system, whose class is
   // compatible with where we arrived. Unknowns (non-wormhole) are never touched.

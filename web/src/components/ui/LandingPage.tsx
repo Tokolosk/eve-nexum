@@ -1,18 +1,20 @@
 import { useEffect, useRef, useState } from 'react';
 import { charPortrait } from '../../utils/eveImages';
 import { Trans, useTranslation } from 'react-i18next';
-import type { Icon } from '@phosphor-icons/react';
+import type { Icon } from '../../icons';
 import {
   GraphIcon, MapTrifoldIcon, GaugeIcon, MagnifyingGlassIcon, SelectionIcon, ImageIcon, HourglassIcon,
   LinkBreakIcon, BroomIcon, TimerIcon,
   UsersIcon, UsersThreeIcon, StackIcon, ArrowsMergeIcon, ArrowsClockwiseIcon, LockIcon, ShieldCheckIcon,
   CardsIcon, WaveformIcon, BuildingsIcon, SparkleIcon, ChartLineIcon, FlagBannerIcon, SwordIcon, HandshakeIcon,
-  PathIcon, StarIcon, SnowflakeIcon, LightningIcon, WarningIcon, NavigationArrowIcon, MapPinIcon, BroadcastIcon, BellRingingIcon, DiscordLogoIcon, BinocularsIcon,
+  PathIcon, StarIcon, SnowflakeIcon, LightningIcon, WarningIcon, NavigationArrowIcon, TargetIcon, PlanetIcon, MapPinIcon, BroadcastIcon, BellRingingIcon, DiscordLogoIcon, BinocularsIcon,
   CommandIcon, HouseIcon, SkullIcon, ChartBarIcon, PulseIcon, EyeIcon, SidebarIcon, EyeglassesIcon,
   SquaresFourIcon, UserGearIcon, TableIcon, ChartDonutIcon, ClockIcon, ClipboardTextIcon, TagIcon, IdentificationCardIcon,
+  KeyIcon,
   LineSegmentsIcon,
-} from '@phosphor-icons/react';
+} from '../../icons';
 import { apiUrl } from '../../api/client';
+import { DISCORD_INVITE_URL } from '../../data/links';
 import { SUPPORTED_LANGUAGES, LANGUAGE_NAMES } from '../../i18n';
 import { DemoMap } from './DemoMap';
 import { LanguageSwitcher } from './LanguageSwitcher';
@@ -32,11 +34,11 @@ type FeatureId =
   | 'systemPanel' | 'sigMgmt' | 'labels' | 'structImport' | 'autoStruct' | 'activityCharts'
   | 'sovStation' | 'killboard' | 'effectDigest' | 'standings'
   | 'scout' | 'a0' | 'iceBelt' | 'storms' | 'proximity' | 'discordNotif' | 'watchlist'
-  | 'chains' | 'routePlanner' | 'locationTracking' | 'presence' | 'onlineStatus'
+  | 'chains' | 'routePlanner' | 'jumpRange' | 'jumpPlanner' | 'locationTracking' | 'presence' | 'onlineStatus'
   | 'commandPalette' | 'homeHotkey' | 'killHighlights' | 'userStats' | 'apiKeys'
   | 'serverStatus' | 'demoMap' | 'sidebar' | 'colorVision';
 type CorpFeatureId =
-  | 'multiCorp' | 'allianceMaps' | 'allianceRoles' | 'adminDash' | 'userMgmt' | 'mapMgmt' | 'usersReport'
+  | 'multiCorp' | 'allianceMaps' | 'allianceRoles' | 'accessControl' | 'adminDash' | 'userMgmt' | 'mapMgmt' | 'usersReport'
   | 'systemsReport' | 'timeWindowed' | 'auditLog' | 'corpTicker' | 'perCharAttr';
 
 interface FeatureItem { icon: Icon; id: FeatureId }
@@ -99,6 +101,8 @@ const FEATURE_SECTIONS: FeatureSection[] = [
       { icon: BellRingingIcon,     id: 'discordNotif'     },
       { icon: LineSegmentsIcon,    id: 'chains'           },
       { icon: NavigationArrowIcon, id: 'routePlanner'     },
+      { icon: TargetIcon,          id: 'jumpRange'        },
+      { icon: PlanetIcon,          id: 'jumpPlanner'      },
       { icon: MapPinIcon,          id: 'locationTracking' },
       { icon: UsersIcon,           id: 'presence'         },
       { icon: BroadcastIcon,       id: 'onlineStatus'     },
@@ -126,6 +130,7 @@ const CORP_FEATURES: { icon: Icon; id: CorpFeatureId }[] = [
   { icon: BuildingsIcon,          id: 'multiCorp'     },
   { icon: HandshakeIcon,          id: 'allianceMaps'  },
   { icon: ShieldCheckIcon,        id: 'allianceRoles' },
+  { icon: KeyIcon,                id: 'accessControl' },
   { icon: SquaresFourIcon,        id: 'adminDash'     },
   { icon: UserGearIcon,           id: 'userMgmt'      },
   { icon: MapTrifoldIcon,         id: 'mapMgmt'       },
@@ -312,19 +317,12 @@ export function LandingPage() {
         <div style={{ position: 'absolute', top: 16, right: 16, zIndex: 3 }}>
           <LanguageSwitcher />
         </div>
-        <div className="landing__logo">◈</div>
+        <img className="landing__logo" src="/screen.png" alt="Nexum" />
         <h1 className="landing__title">Nexum</h1>
         <p className="landing__tagline">{t('landing.tagline')}</p>
       </header>
 
       <div className="landing__content">
-                <div className="landing__demo">
-          <p className="landing__demo-note">
-            {t('landing.demoNote')}
-          </p>
-          <DemoMap />
-        </div>
-
         <div className="landing__cta">
           {errorMessage && (
             <div className="landing__error">
@@ -369,7 +367,7 @@ export function LandingPage() {
             </>
           )}
           <a
-            href="https://discord.gg/KG8SMXrhZ4"
+            href={DISCORD_INVITE_URL}
             target="_blank"
             rel="noopener noreferrer"
             className="landing__discord-btn"
@@ -378,6 +376,14 @@ export function LandingPage() {
             <span>{t('landing.cta.joinDiscord')}</span>
           </a>
           <a href="/help/" className="landing__switch-link">{t('landing.helpLink')}</a>
+          <a href="/help/#guides" className="landing__switch-link">{t('landing.guidesLink')}</a>
+        </div>
+
+        <div className="landing__demo">
+          <p className="landing__demo-note">
+            {t('landing.demoNote')}
+          </p>
+          <DemoMap />
         </div>
         {FEATURE_SECTIONS.map((section) => (
           <section key={section.id} className="landing__section landing__section--features">
@@ -451,7 +457,7 @@ export function LandingPage() {
             {t('landing.discordCtaBody')}
           </p>
           <a
-            href="https://discord.gg/KG8SMXrhZ4"
+            href={DISCORD_INVITE_URL}
             target="_blank"
             rel="noopener noreferrer"
             className="landing__discord-btn"

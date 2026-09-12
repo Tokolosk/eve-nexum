@@ -4,26 +4,33 @@ import { Handle, Position, useConnection } from '@xyflow/react';
 import {
   HouseIcon, LockIcon, WarningIcon, SkullIcon, LightningIcon,
   SunIcon, SnowflakeIcon, SwordIcon, SparkleIcon, DiamondsFourIcon,
-} from '@phosphor-icons/react';
+} from '../../icons';
 import type { NodeProps } from '@xyflow/react';
 import type { MapSystem } from '../../types';
-import { CLASS_COLORS, CLASS_LABELS, EFFECT_ICONS, EFFECT_LABELS, EFFECT_MODIFIERS, WORMHOLE_DESTINATIONS } from '../../data/wormholes';
+import { CLASS_COLORS, CLASS_LABELS, EFFECT_ICONS, EFFECT_LABELS, EFFECT_MODIFIERS } from '../../data/wormholes';
 import { useMapStore } from '../../store/mapStore';
 import { usePresenceStore } from '../../store/presenceStore';
+import { useSystemKill, RECENT_KILL_MS } from '../../store/killStore';
+import { useJumpRangeStore } from '../../store/jumpRangeStore';
+import { useGateJumpsStore } from '../../store/gateJumpsStore';
+import { JUMP_CLASSES } from '../../data/jumpDrives';
+import { iskCompact } from '../../utils/isk';
 import { useAccountLocations } from '../../hooks/useAccountLocations';
 import { useSovData } from '../../hooks/useSovData';
 import { useStandings } from '../../hooks/useStandings';
 import { useFleet } from '../../hooks/useFleet';
 import { useAuth } from '../../context/AuthContext';
 import { useUserSetting } from '../../hooks/useUserSetting';
+import { useWormholeTypes } from '../../hooks/useWormholeTypes';
+import { holeDisplay, whDestClass } from '../../utils/whDest';
 import { useIncursions, findIncursion } from '../../hooks/useIncursions';
 import { useInsurgency, findInsurgency } from '../../hooks/useInsurgency';
 import { useStorms, findStorm } from '../../hooks/useStorms';
 import { useScoutConnections, findScoutConnections } from '../../hooks/useScoutConnections';
-import { useA0Systems } from '../../hooks/useA0Systems';
-import { useShatteredSystems } from '../../hooks/useShatteredSystems';
+import { useA0SystemIds } from '../../hooks/useA0Systems';
+import { useShatteredSystemIds } from '../../hooks/useShatteredSystems';
 import { PREDEFINED_LABELS, parseCustomLabel, labelTextColor } from '../../data/labels';
-import { iconComponent } from '../../utils/phosphorIcons';
+import { DynamicIcon } from '../DynamicIcon';
 import { useIceBeltSystems, hasIceBelt } from '../../hooks/useIceBeltSystems';
 import { useCurrentHourKills } from '../../hooks/useCurrentHourKills';
 import { useNow30s } from '../../hooks/useNow30s';
@@ -35,6 +42,9 @@ import { matchSystem } from '../../utils/watchMatch';
 import { contentFilterActive, systemMatchesContent } from '../../utils/contentMatch';
 import { watchMarker } from '../../data/watchMarkers';
 import { useHeatmap } from '../../context/HeatmapContext';
+import { useShareMode } from '../../context/ShareModeContext';
+import { systemDisplayName } from '../../utils/systemName';
+import { useSystemAlias } from '../../hooks/useSystemAlias';
 import { heatValue, heatColor } from '../../utils/heatmap';
 import { WHTypeInfo } from '../ui/WHTypeInfo';
 import { truesecColor } from '../../utils/truesec';
@@ -78,27 +88,34 @@ export const SystemNode = memo(({ data, selected }: NodeProps) => {
   }, [showFleetMembers, fleet.bySystem, sys.eveSystemId, user?.characterId]);
 
   // The account's other characters (alts) located in this system — live when
-  // online, else their last known position. The active character has its own
-  // you-are-here dot, so it's excluded server-side.
+  // online, else their last known position. The character THIS TAB acts as has
+  // its own you-are-here dot, so exclude it from the alt list. The session-active
+  // character is already excluded server-side; this also drops a PINNED acting
+  // character (which the server doesn't know about), so it never shows as both a
+  // you-are-here dot and an alt dot.
   const accountLocations     = useAccountLocations();
   const [showAccountChars]   = useUserSetting<boolean>('nexum.account.showOnMap', true);
+  const actingUserId = useMapStore((s) => s.routeOrigin?.charId ?? null) ?? user?.id ?? null;
   const accountHere = useMemo(() => {
     if (!showAccountChars || sys.eveSystemId == null) return undefined;
-    const here = accountLocations.bySystem.get(sys.eveSystemId);
+    const here = accountLocations.bySystem.get(sys.eveSystemId)?.filter((c) => c.charId !== actingUserId);
     return here && here.length ? here : undefined;
-  }, [showAccountChars, accountLocations.bySystem, sys.eveSystemId]);
+  }, [showAccountChars, accountLocations.bySystem, sys.eveSystemId, actingUserId]);
 
   // Other people viewing this map who are currently in this system (presence).
-  // Excludes self — the green you-are-here dot covers that.
-  const presenceViewers = usePresenceStore((s) => s.viewers);
+  // Excludes self — the green you-are-here dot covers that. Subscribe to just
+  // this system's slice of the presence index (stable ref unless a viewer
+  // enters/leaves THIS system), so a viewer moving elsewhere doesn't re-render
+  // this node.
+  const presenceSlice = usePresenceStore(
+    (s) => (sys.eveSystemId == null ? undefined : s.bySystem.get(sys.eveSystemId)),
+  );
   const presenceHere    = useMemo(() => {
-    if (sys.eveSystemId == null) return undefined;
+    if (!presenceSlice || presenceSlice.length === 0) return undefined;
     const myId = user?.characterId;
-    const here = Object.values(presenceViewers).filter(
-      (v) => v.eveSystemId === sys.eveSystemId && v.characterId !== myId,
-    );
+    const here = presenceSlice.filter((v) => v.characterId !== myId);
     return here.length ? here : undefined;
-  }, [presenceViewers, sys.eveSystemId, user?.characterId]);
+  }, [presenceSlice, user?.characterId]);
 
   // Halo around any sov-holder system based on the user's contact bands.
   // Threshold is just "negative or positive" rather than the strict ≤-5
@@ -127,17 +144,18 @@ export const SystemNode = memo(({ data, selected }: NodeProps) => {
   const storm           = useMemo(() => findStorm(storms, sys.eveSystemId), [storms, sys.eveSystemId]);
   const scoutAll        = useScoutConnections();
   const scoutMatches    = useMemo(() => findScoutConnections(scoutAll, sys.eveSystemId), [scoutAll, sys.eveSystemId]);
-  const a0Systems       = useA0Systems();
-  const a0Ids           = useMemo(() => new Set(a0Systems.map(s => s.id)), [a0Systems]);
+  // Shared id-Sets (built once, not per node) for O(1) membership.
+  const a0Ids           = useA0SystemIds();
   const isA0            = sys.eveSystemId !== null && a0Ids.has(sys.eveSystemId);
-  const shatteredSystems = useShatteredSystems();
-  const shatteredIds    = useMemo(() => new Set(shatteredSystems.map(s => s.id)), [shatteredSystems]);
+  const shatteredIds    = useShatteredSystemIds();
   const isShattered     = sys.eveSystemId !== null && shatteredIds.has(sys.eveSystemId);
   const iceBeltSystems  = useIceBeltSystems();
   const isIceBelt       = useMemo(() => hasIceBelt(iceBeltSystems, sys.eveSystemId), [iceBeltSystems, sys.eveSystemId]);
   const allKills        = useCurrentHourKills();
   const myKills         = sys.eveSystemId !== null ? allKills.get(sys.eveSystemId) : undefined;
   const hotKills        = !!myKills && myKills.shipKills + myKills.podKills > 0;
+  // Live "a kill just happened here" flag from the zKill feed (ephemeral, SSE).
+  const recentKill      = useSystemKill(sys.eveSystemId);
 
   // Active heatmap glow for this node — value for the selected metric,
   // normalised against the per-map max (from HeatmapContext). null = no glow
@@ -155,6 +173,9 @@ export const SystemNode = memo(({ data, selected }: NodeProps) => {
     return { glow: Math.min(1, raw * heatmap.intensity), color: heatColor(raw, heatmap.colorVision !== 'off') };
   }, [heatmap.metric, heatmap.max, heatmap.intensity, heatmap.colorVision, sys.eveSystemId, allKills, fleet, user?.characterId]);
   const now             = useNow30s();
+  // The flag fades once the kill ages past the display window; the 30s ticker
+  // re-evaluates this so it drops on its own without another SSE frame.
+  const killFresh       = !!recentKill && now - recentKill.flaggedAtMs < RECENT_KILL_MS;
   const [staleHours]    = useStaleThreshold();
   // staleHours === 0 is the "Never fade" sentinel: no system is ever stale.
   const isStale         = staleHours > 0 && !!sys.lastActivityAt &&
@@ -163,11 +184,21 @@ export const SystemNode = memo(({ data, selected }: NodeProps) => {
   const [customIntel]   = useCustomIntel();
   const intelColor      = resolveIntelColor(sys.intel, customIntel);
   const intelLabel      = resolveIntelLabel(sys.intel, customIntel, t);
+  // The home marker is the map OWNER's — meaningless (and a touch personal) to a
+  // share-link viewer, so hide the home icon + double border in share mode.
+  const { isShareMode } = useShareMode();
+  const showHome        = sys.isHome && !isShareMode;
   // Personal watchlist: highlight + corner icon when this system matches an
   // entry (by name, class, effect, or a static wormhole type / frig hole).
   const [watchEntries]  = useWatchlist();
   const watchSigTypes   = useMapStore((s) => s.sigTypesBySystem[sys.id]);
-  const watch           = matchSystem(watchEntries, sys, watchSigTypes);
+  const watchLeadsTo    = useMapStore((s) => s.leadsToClassesBySystem[sys.id]);
+  // Memoized: matchSystem scans up to MAX_WATCH (~75) entries; without this it
+  // re-ran on every re-render (e.g. every 10s location poll), for every node.
+  const watch           = useMemo(
+    () => matchSystem(watchEntries, sys, watchSigTypes, watchLeadsTo),
+    [watchEntries, sys, watchSigTypes, watchLeadsTo],
+  );
   const watchDef        = watch ? watchMarker(watch.marker) : null;
   const watchTip        = watch ? (watch.note.trim() || t(`watchMarker.${watch.marker}`)) : undefined;
 
@@ -176,19 +207,32 @@ export const SystemNode = memo(({ data, selected }: NodeProps) => {
   // matching ones stay lit.
   const contentFilter   = useMapStore((s) => s.contentFilter);
   const sysContent      = useMapStore((s) => s.contentBySystem[sys.id]);
+  // Scanned-but-not-dived wormholes here — rendered as pills under the node and
+  // matched by the content filter's "undived wormhole" state.
+  const undivedHoles    = useMapStore((s) => s.undivedWhBySystem[sys.id]);
+  const scan            = useMapStore((s) => s.scanBySystem[sys.id]);
+  const [showUndivedWh] = useUserSetting<boolean>('nexum.map.showUndivedWh', true);
+  // SDE-derived wormhole catalog (the single source of truth for destinations),
+  // used to colour statics and undived-hole pills consistently with the rest of
+  // the app rather than the drift-prone hardcoded map.
+  const whTypes         = useWormholeTypes();
   const filterOn        = contentFilterActive(contentFilter);
-  const contentMatch    = filterOn && systemMatchesContent(sysContent, contentFilter);
+  const contentMatch    = useMemo(
+    () => filterOn && systemMatchesContent(sysContent, contentFilter, (undivedHoles?.length ?? 0) > 0),
+    [filterOn, sysContent, contentFilter, undivedHoles],
+  );
   const filteredOut     = filterOn && !contentMatch;
 
   // Tooltip label: dedupe by scout system name (Thera / Turnur). Multiple
   // connections from the same scout are summarised, mixed scouts are listed.
+  const aliasName = useSystemAlias();
   const scoutLabel = useMemo(() => {
     if (scoutMatches.length === 0) return '';
-    const names = Array.from(new Set(scoutMatches.map(c => c.outSystemName)));
+    const names = Array.from(new Set(scoutMatches.map(c => aliasName(c.outSystemName))));
     return names.length === 1
       ? t('mapNode.scoutConnections', { name: names[0], count: scoutMatches.length })
       : t('mapNode.scoutConnectionsMulti', { names: names.join(' & ') });
-  }, [scoutMatches, t]);
+  }, [scoutMatches, t, aliasName]);
   const isTarget        = connection.inProgress && connection.fromNode?.id !== sys.id;
 
   // Measure the node so the map store can compute the largest natural
@@ -221,10 +265,37 @@ export const SystemNode = memo(({ data, selected }: NodeProps) => {
     return () => { obs.disconnect(); forgetNodeSize(sys.id); };
   }, [sys.id, countHeight, reportNodeSize, forgetNodeSize]);
 
+  // Jump-range overlay. When active: the staging system gets a gold ring, systems
+  // reachable under the active class filter glow in the tightest-class colour, and
+  // everything else dims so the reachable set stands out.
+  const jrActive  = useJumpRangeStore((s) => s.stagingId != null);
+  const jrInfo    = useJumpRangeStore((s) => (sys.eveSystemId != null ? s.inRange.get(sys.eveSystemId) : undefined));
+  const jrStaging = useJumpRangeStore((s) => s.stagingId != null && s.stagingId === sys.eveSystemId);
+  const jrFilter  = useJumpRangeStore((s) => s.filterClass);
+  // Gate jumps from the route origin (shown on hover for k-space systems).
+  const gateJumps    = useGateJumpsStore((s) => (sys.eveSystemId != null ? s.jumps.get(sys.eveSystemId) : undefined));
+  const gateOrigin   = useGateJumpsStore((s) => s.originName);
+  const isGateOrigin = useGateJumpsStore((s) => s.originId != null && s.originId === sys.eveSystemId);
+  let jrGlow: string | null = null;
+  let jrDim = false;
+  if (jrActive) {
+    if (jrStaging) jrGlow = '#ffd54a';
+    else if (jrInfo && (!jrFilter || jrInfo.classKeys.includes(jrFilter))) {
+      jrGlow = jrFilter ? (JUMP_CLASSES.find((c) => c.key === jrFilter)?.color ?? jrInfo.color) : jrInfo.color;
+    } else {
+      jrDim = true;   // overlay on but this node isn't reachable (or not under the filter)
+    }
+  }
+  const jrStyle: React.CSSProperties =
+    jrStaging ? { boxShadow: `0 0 0 3px ${jrGlow}, 0 0 22px 6px ${jrGlow}`, zIndex: 5 }
+    : jrGlow  ? { boxShadow: `0 0 0 2px ${jrGlow}, 0 0 15px 4px ${jrGlow}bb`, zIndex: 4 }
+    : jrDim   ? { opacity: 0.25 }
+    : {};
+
   return (
     <div
       ref={nodeRef}
-      className={`system-node${sys.locked ? ' nopan' : ''}${isTarget ? ' system-node--connect-target' : ''}${isStale ? ' system-node--stale' : ''}${isSovHostile ? ' system-node--sov-hostile' : ''}${isSovBlue ? ' system-node--sov-blue' : ''}${uniformSize ? ' system-node--uniform' : ''}${compactMode ? ' system-node--compact' : ''}${watchDef ? ' system-node--watched' : ''}${filteredOut ? ' system-node--filtered-out' : ''}${contentMatch ? ' system-node--content-match' : ''}${sys.dimmed ? ' system-node--dimmed' : ''}${sys.routeHighlighted ? ' system-node--route' : ''}`}
+      className={`system-node${sys.locked ? ' nopan' : ''}${isTarget ? ' system-node--connect-target' : ''}${isStale ? ' system-node--stale' : ''}${isSovHostile ? ' system-node--sov-hostile' : ''}${isSovBlue ? ' system-node--sov-blue' : ''}${uniformSize ? ' system-node--uniform' : ''}${compactMode ? ' system-node--compact' : ''}${watchDef ? ' system-node--watched' : ''}${filteredOut ? ' system-node--filtered-out' : ''}${contentMatch ? ' system-node--content-match' : ''}${sys.dimmed ? ' system-node--dimmed' : ''}${sys.routeHighlighted ? ' system-node--route' : ''}${sys.systemClass === 'unknown' ? ' system-node--unknown' : ''}`}
       style={{
         '--class-color': color,
         ...(intelColor ? { '--intel-color': intelColor } : null),
@@ -232,12 +303,13 @@ export const SystemNode = memo(({ data, selected }: NodeProps) => {
         ...(heat ? { '--heat': heat.glow, '--heat-color': heat.color } : null),
         ...(uniformSize && uniformWidth  > 0 ? { minWidth:  uniformWidth  } : null),
         ...(uniformSize && uniformHeight > 0 ? { minHeight: uniformHeight } : null),
+        ...jrStyle,
       } as React.CSSProperties}
       data-selected={selected || sys.selected}
       data-heat={heat ? '' : undefined}
       data-status={sys.status}
       data-intel={sys.intel ?? undefined}
-      data-home={sys.isHome}
+      data-home={showHome}
       data-current={isCurrent}
       onClick={(e) => {
         // Skip our single-select on shift-click so ReactFlow's built-in
@@ -259,19 +331,52 @@ export const SystemNode = memo(({ data, selected }: NodeProps) => {
           {(sys.customLabels ?? []).map((raw, i) => {
             const parsed = parseCustomLabel(raw);
             if (!parsed) return null;
-            const Icon = parsed.kind === 'icon' ? iconComponent(parsed.value) : null;
             return (
               <span
                 key={i}
                 className={`system-node__label${parsed.color ? '' : ' system-node__label--custom'}`}
                 style={parsed.color ? { background: parsed.color, color: labelTextColor(parsed.color), textShadow: 'none' } : undefined}
               >
-                {Icon ? <Icon size={12} weight="fill" /> : parsed.value}
+                {parsed.kind === 'icon'
+                  ? <DynamicIcon name={parsed.value} size={12} weight="fill" />
+                  : parsed.value}
               </span>
             );
           })}
         </div>
       ) : null}
+
+      {/* Scan progress, bottom-right. Absolutely positioned so it takes no
+          layout space and cannot be squeezed: the meta row fills up with kill,
+          effect and sovereignty icons, and anything sharing that row loses.
+          The bottom-LEFT corner is left alone for the undived-wormhole capsules.
+
+          Hidden when a system has no signatures — "0%" on every unvisited system
+          would be noise. Amber below 100%, so a new unscanned signature landing
+          in a system you had finished changes the node on its own. */}
+      {scan && scan.total > 0 && (
+        <span
+          className={`system-node__scan${scan.scanned < scan.total ? ' system-node__scan--partial' : ''}`}
+          title={t('mapNode.scanned', { scanned: scan.scanned, total: scan.total })}
+        >
+          {Math.round((scan.scanned / scan.total) * 100)}%
+        </span>
+      )}
+
+      {/* Gate jumps from the route origin — appears on hover for k-space systems. */}
+      {gateJumps != null && !isGateOrigin && (
+        <span
+          className="system-node__gate-jumps"
+          title={gateOrigin
+            ? t('mapNode.jumpsFrom', { count: gateJumps, origin: gateOrigin })
+            : t('mapNode.jumps', { count: gateJumps })}
+        >
+          {/* The word, not a bare number: "38" alone on a node was routinely
+              read as anything but a jump count. i18next picks the singular so
+              an adjacent system reads "1 jump", not "1 jumps". */}
+          {t('mapNode.jumps', { count: gateJumps })}
+        </span>
+      )}
 
       {/* Always present so existing edge handle references stay valid across mode toggles */}
       <Handle type="source" position={Position.Top}    id="top"    className={easyConnect ? 'system-handle system-handle--ghost' : 'system-handle'} />
@@ -351,14 +456,19 @@ export const SystemNode = memo(({ data, selected }: NodeProps) => {
             </span>
           </span>
         )}
-        {sys.isHome && (
+        {showHome && (
           <span className="system-node__home-icon" aria-label={t('mapNode.homeSystem')}>
             <HouseIcon size={14} weight="regular" />
           </span>
         )}
         {sys.tag && <span className="system-node__tag">{sys.tag}</span>}
-        <span className="system-node__name">{sys.name || t('mapNode.unknown')}</span>
-        {sys.security != null && Number.isFinite(Number(sys.security)) && (
+        <span className="system-node__name">{systemDisplayName(sys) || t('mapNode.unknown')}</span>
+        {/* K-space only. Every J-space system is -1.0, so printing it on a
+            wormhole node is a constant dressed up as data — it takes header
+            space and reads as though it distinguishes one hole from another.
+            The class badge below already says C1..C6 / Thera / Drifter, which
+            is the number that actually varies. */}
+        {isKspace && sys.security != null && Number.isFinite(Number(sys.security)) && (
           <span className="system-node__truesec" style={{ color: truesecColor(Number(sys.security)) }}>
             {Number(sys.security).toFixed(1)}
           </span>
@@ -377,11 +487,27 @@ export const SystemNode = memo(({ data, selected }: NodeProps) => {
       <div className="system-node__meta-row">
         <span className="system-node__class-badge">{CLASS_LABELS[sys.systemClass]}</span>
         <div className="system-node__icons">
+          {killFresh && recentKill && (
+            <span className="system-node__recentkill-icon">
+              <SkullIcon size={14} weight="fill" />
+              <span className="system-node__recentkill-tooltip">
+                {t('mapNode.recentKill', {
+                  value: iskCompact(recentKill.totalValue),
+                  ago: Math.max(0, Math.round((now - recentKill.atMs) / 60_000)),
+                })}
+              </span>
+            </span>
+          )}
           {hotKills && myKills && (
             <span className="system-node__kill-icon">
               <SwordIcon size={14} weight="regular" />
               <span className="system-node__kill-tooltip">
-                {t('mapNode.killsTooltip', { ships: myKills.shipKills, pods: myKills.podKills })}
+                <span className="system-node__kill-tooltip-main">
+                  {t('mapNode.killsTooltip', { ships: myKills.shipKills, pods: myKills.podKills })}
+                </span>
+                <span className="system-node__kill-tooltip-hint">
+                  {t('mapNode.killsTooltipHint')}
+                </span>
               </span>
             </span>
           )}
@@ -465,7 +591,7 @@ export const SystemNode = memo(({ data, selected }: NodeProps) => {
         <div className="system-node__statics">
           <div className="title">{t('mapNode.statics')}</div>
           {sys.statics.map((s) => {
-            const dest = WORMHOLE_DESTINATIONS[s];
+            const dest = whDestClass(s, whTypes);
             return (
               <WHTypeInfo key={s} code={s}>
               <span className="system-node__static-tag">
@@ -480,6 +606,50 @@ export const SystemNode = memo(({ data, selected }: NodeProps) => {
                 )}
               </span>
               </WHTypeInfo>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Statics in compact mode. The block above is hidden there, which loses
+          the one thing a wormholer routes by, so the destination classes alone
+          sit along the bottom — what Pathfinder and Wanderer show — in a single
+          short row rather than a titled list. Hover still gives full detail
+          through WHTypeInfo, and the code is shown when the destination can't
+          be resolved so nothing silently disappears. */}
+      {compactMode && showStatics && sys.statics.length > 0 && (
+        <div className="system-node__statics-compact">
+          <span className="system-node__statics-compact-label">{t('mapNode.statics')}</span>
+          {sys.statics.map((s) => {
+            const dest = whDestClass(s, whTypes);
+            return (
+              <WHTypeInfo key={s} code={s}>
+                <span
+                  className="system-node__static-mini"
+                  style={dest ? { color: CLASS_COLORS[dest] } : undefined}
+                >
+                  {dest ?? s}
+                </span>
+              </WHTypeInfo>
+            );
+          })}
+        </div>
+      )}
+
+      {showUndivedWh && undivedHoles && undivedHoles.length > 0 && (
+        <div className="system-node__holes">
+          {undivedHoles.map((h) => {
+            // Destination + colour from the single SDE-backed source (type first,
+            // else the leads-to band) so pills match the signature pane.
+            const disp = holeDisplay(h.code, h.leadsTo, whTypes);
+            return (
+              <span
+                key={h.id}
+                className="system-node__hole"
+                style={disp ? { background: disp.color } : undefined}
+                title={`${t('mapNode.undivedWhTitle')} — ${h.sigId || '?'} · ${h.code || t('mapNode.undivedUnknown')}${disp ? ` → ${disp.label}` : ''}`}
+                onClick={(e) => { e.stopPropagation(); selectSystem(sys.id); }}
+              />
             );
           })}
         </div>

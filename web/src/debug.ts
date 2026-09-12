@@ -1,3 +1,5 @@
+import type { JumpSystem } from './hooks/useLocationTracking';
+
 interface LogEntry {
   ts: string;
   level: 'error' | 'warn' | 'api';
@@ -27,13 +29,19 @@ console.warn = (...args: unknown[]) => {
   _warn(...args);
 };
 
+// Redact the bearer-style share token so it never lands in the captured log
+// buffer (which nexumDebug.dump() prints to the console).
+function redactUrl(url: string): string {
+  return url.replace(/([?&]shareToken=)[^&]*/gi, '$1[redacted]');
+}
+
 // Intercept fetch to log API failures
 const _fetch = window.fetch.bind(window);
 window.fetch = async (input, init) => {
   const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : (input as Request).url;
   const res = await _fetch(input, init);
   if (!res.ok && url.includes('/api/')) {
-    entry('api', `${res.status} ${res.statusText} — ${url}`);
+    entry('api', `${res.status} ${res.statusText} — ${redactUrl(url)}`);
   }
   return res;
 };
@@ -110,19 +118,26 @@ const nexumDebug = {
   // queuing) any server writes — useful when logged out or without a saved map.
   _jumpTimer: null as ReturnType<typeof setInterval> | null,
 
-  async simulateJumps(names: string[], intervalMs = 2000, opts: { dryRun?: boolean } = {}) {
+  async simulateJumps(names: string[], intervalMs = 2000, opts: { dryRun?: boolean; shipTypeId?: number } = {}) {
     if (!Array.isArray(names) || names.some((n) => typeof n !== 'string')) {
-      console.error('[nexum] simulateJumps(names[], intervalMs?, { dryRun? }) — names must be an array of system names.');
+      console.error('[nexum] simulateJumps(names[], intervalMs?, { dryRun?, shipTypeId? }) — names must be an array of system names.');
       return;
     }
-    const { dryRun = false } = opts;
-    const [{ applyJump }, store, esi, client] = await Promise.all([
+    const { dryRun = false, shipTypeId } = opts;
+    // Ship the fake pilot "flies" so a wormhole crossing lands in the jump log
+    // (the live tracker uses the real ship; the sim has none). Defaults to a
+    // Megathron (base ~105M kg) so the mass is realistic; override via shipTypeId.
+    const simShipTypeId = shipTypeId ?? 641;
+    const [{ applyTrackedJump }, store, esi, client, userSettings, { recordConnectionJump }] = await Promise.all([
       import('./hooks/useLocationTracking'),
       import('./store/mapStore'),
       import('./hooks/useEsiSearch'),
       import('./api/client'),
+      import('./hooks/useUserSetting'),
+      import('./utils/recordConnectionJump'),
     ]);
     const { useMapStore } = store;
+    const { readUserSetting } = userSettings;
 
     const resolve = async (name: string) => {
       const results = await (await fetch(
@@ -139,9 +154,18 @@ const nexumDebug = {
     };
 
     if (this._jumpTimer) { clearInterval(this._jumpTimer); this._jumpTimer = null; }
-    let prev = useMapStore.getState().currentSystemId;
+    // Drive the exact filter live tracking uses: keep a separate "previous
+    // physical system" (for the K-space skip logic) and connection anchor.
+    let prevAnchor = useMapStore.getState().currentSystemId;
+    const startNode = useMapStore.getState().map.systems.find((s) => s.id === prevAnchor);
+    let prevPhysical: JumpSystem | null = startNode && startNode.eveSystemId != null ? {
+      eveSystemId: startNode.eveSystemId, name: startNode.name, systemClass: startNode.systemClass,
+      effect: startNode.effect, statics: startNode.statics,
+      regionName: startNode.regionName, npcType: startNode.npcType,
+    } : null;
+    const skipKspace = readUserSetting<boolean>('nexum.tracking.skipKspace', false);
     let i = 0;
-    console.log(`[nexum] Simulating ${names.length} jumps, one every ${intervalMs}ms${dryRun ? ' (dry run — no server writes)' : ''}. nexumDebug.stopJumps() to cancel.`);
+    console.log(`[nexum] Simulating ${names.length} jumps, one every ${intervalMs}ms${dryRun ? ' (dry run — no server writes)' : ''}${skipKspace ? ' (skip K-space on)' : ''}. nexumDebug.stopJumps() to cancel.`);
 
     const step = async () => {
       if (i >= names.length) { this.stopJumps(); console.log('[nexum] Jump simulation complete.'); return; }
@@ -151,14 +175,23 @@ const nexumDebug = {
       // applyJump's writes are dispatched synchronously (the suppression check
       // runs before fetch), so toggling around this call captures them all.
       if (dryRun) client.setWritesSuppressed(true);
-      let id: string | null;
+      // Record each wormhole crossing to the jump log, exactly like the live
+      // tracker's onJump — but not in a dry run (its POST is async, so it would
+      // escape the synchronous write-suppression window). Attribute to the
+      // session character (actingCharId null → server resolves from the session).
+      const mapId = useMapStore.getState().map.id;
+      const onJump = dryRun ? undefined : ({ connId, fromMapSystemId, toMapSystemId }: { connId: string; fromMapSystemId: string; toMapSystemId: string }) =>
+        recordConnectionJump({ mapId, connId, fromMapSystemId, toMapSystemId, shipTypeId: simShipTypeId, actingCharId: null });
+      let result: { mapSystemId: string | null; anchor: string | null | 'keep' };
       try {
-        id = applyJump(sys, prev, true);
+        result = applyTrackedJump(sys, prevPhysical, prevAnchor, { skipKspace, canAdd: true }, onJump);
       } finally {
         if (dryRun) client.setWritesSuppressed(false);
       }
+      prevPhysical = sys;
+      if (result.anchor !== 'keep') prevAnchor = result.anchor;
+      const id = result.mapSystemId;
       if (id) {
-        prev = id;
         useMapStore.getState().setCurrentSystem(id);
         // Selecting a system opens its detail panel, whose panes immediately
         // GET /systems/:id/{signatures,structures,anomalies}. In a dry run the
@@ -168,6 +201,8 @@ const nexumDebug = {
         if (!dryRun) useMapStore.getState().selectSystem(id);
         const pos = useMapStore.getState().map.systems.find((s) => s.id === id)?.position;
         console.log(`[nexum] jump ${i}/${names.length} → ${sys.name}  @ (${pos?.x}, ${pos?.y})`);
+      } else {
+        console.log(`[nexum] jump ${i}/${names.length} → ${sys.name}  (skipped — K-space)`);
       }
     };
     await step();
@@ -188,6 +223,18 @@ const nexumDebug = {
       const next = typeof on === 'boolean' ? on : !getDebugFlag('showThreats');
       setDebugFlag('showThreats', next);
       console.log(`[nexum] Show nearby threats: ${next ? 'ON — toolbar shows the nearest threat ignoring your alert threshold (a demo chip if none is detected)' : 'OFF — toolbar respects your alert threshold'}.`);
+    });
+  },
+
+  // Force the "update available" toolbar badge on/off regardless of the real
+  // version check, so you can eyeball the blinking indicator without cutting a
+  // newer release. Admin-gated in normal use; this bypasses the version check
+  // only (still runs in your own session, resets on reload).
+  updateBadge(on?: boolean) {
+    import('./utils/debugFlags').then(({ getDebugFlag, setDebugFlag }) => {
+      const next = typeof on === 'boolean' ? on : !getDebugFlag('forceUpdateBadge');
+      setDebugFlag('forceUpdateBadge', next);
+      console.log(`[nexum] Force update badge: ${next ? 'ON — the update indicator is shown regardless of the real version check' : 'OFF — back to the real update check'}.`);
     });
   },
 
@@ -231,8 +278,10 @@ const nexumDebug = {
     console.log('nexumDebug.traceSelection() — log a stack trace whenever the selected system is cleared');
     console.log("nexumDebug.simulateJumps(['Jita','Perimeter','Jita'], 2000) — replay a route, one hop / interval");
     console.log("nexumDebug.simulateJumps([...], 1000, { dryRun: true }) — replay without firing server writes (logged-out safe)");
+    console.log("nexumDebug.simulateJumps([...], 2000, { shipTypeId: 641 }) — set the ship the fake pilot flies (for the jump log)");
     console.log('nexumDebug.stopJumps() — cancel a running jump simulation');
     console.log('nexumDebug.showThreats(on?)  — toggle showing the nearest threat in the toolbar, ignoring the alert threshold');
+    console.log('nexumDebug.updateBadge(on?)  — force the "update available" toolbar badge on/off for testing');
     console.log('nexumDebug.clear()     — clear the log buffer');
     console.groupEnd();
   },

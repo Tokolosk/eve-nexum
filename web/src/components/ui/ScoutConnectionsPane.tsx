@@ -6,10 +6,14 @@ import { useWormholeTypes } from '../../hooks/useWormholeTypes';
 import { whSizeForType, whSizeShort } from '../../utils/wormholeSize';
 import { useRouteOrigin } from '../../hooks/useRouteOrigin';
 import { useRoute } from '../../hooks/useRoute';
-import { setWaypoint, RouteSquares } from './routeUi';
+import { RouteSquares } from './routeUi';
+import { setWaypoint, canSetAutopilot } from '../../utils/routeActions';
+import { useSystemAlias } from '../../hooks/useSystemAlias';
 import { truesecColor } from '../../utils/truesec';
 import { useMapStore } from '../../store/mapStore';
-import { MapPinSimpleIcon, PathIcon } from '@phosphor-icons/react';
+import { MapPinSimpleIcon, PathIcon } from '../../icons';
+import { Select } from './Select';
+import { DASH } from '../../i18n/format';
 
 interface Props {
   scoutSystem: 'Thera' | 'Turnur';
@@ -55,14 +59,17 @@ function secClassColor(cls: string | null): string | undefined {
   return undefined;
 }
 
+// Remaining wormhole lifetime — an upper bound from eve-scout ("< N hours"), so
+// it's shown with a leading "<", matching the source's meaning (time left, not age).
 function formatRemaining(t: TFunction, hours: number): string {
   if (hours <= 0) return t('scout.expiring');
-  if (hours < 1)  return '<1h';
-  return `${Math.floor(hours)}h`;
+  if (hours < 1)  return '< 1h';
+  return `< ${Math.floor(hours)}h`;
 }
 
 export function ScoutConnectionsPane({ scoutSystem }: Props) {
   const { t }    = useTranslation();
+  const aliasName = useSystemAlias();
   const all      = useScoutConnections();
   const origin   = useRouteOrigin();
   const routeMode = useMapStore((s) => s.routeMode);
@@ -87,13 +94,21 @@ export function ScoutConnectionsPane({ scoutSystem }: Props) {
   const canRoute = origin.systemId !== null;
 
   const targetIds = useMemo(() => filtered.map(c => c.inSystemId), [filtered]);
-  const routes = useRoute(origin.systemId, targetIds);
+  // Route to each exit WITHOUT this pane's own scout hub spliced in: a route to
+  // a Turnur exit that travels through Turnur is circular — it's the hole you'd
+  // be taking, so every exit scores (jumps to Turnur + 1) and the whole list
+  // ties. What's wanted here is how far each exit sits from you by ordinary
+  // travel. The other hub and mapped chains stay in — those are real shortcuts.
+  const routes = useRoute(origin.systemId, targetIds, 'active', {
+    excludeScout: scoutSystem === 'Thera' ? 'thera' : 'turnur',
+  });
 
   // Two sort modes:
   //  - 'age'     : remaining time descending — freshest holes at the top, the
   //                soon-to-collapse ones drop to the bottom.
   //  - 'closest' : fewest jumps via the active route preference (shortest /
-  //                secure) ascending. Connections without a usable route (no
+  //                secure) ascending, excluding this pane's own hub (see the
+  //                useRoute call above). Connections without a usable route (no
   //                k-space location, or wormhole-class target) fall to the
   //                bottom. Age then name break ties in both modes.
   const sorted = useMemo(() => {
@@ -131,25 +146,24 @@ export function ScoutConnectionsPane({ scoutSystem }: Props) {
   return (
     <div className="scout-pane">
       {origin.characterName && origin.name ? (
-        <div className="scout-pane__note scout-pane__note--lastknown">{t('route.fromCharacter', { character: origin.characterName, system: origin.name })}</div>
+        <div className="scout-pane__note scout-pane__note--lastknown">{t('route.fromCharacter', { character: origin.characterName, system: aliasName(origin.name) })}</div>
       ) : origin.fromLastKnown && origin.name ? (
-        <div className="scout-pane__note scout-pane__note--lastknown">{t('route.fromLastKnown', { system: origin.name })}</div>
+        <div className="scout-pane__note scout-pane__note--lastknown">{t('route.fromLastKnown', { system: aliasName(origin.name) })}</div>
       ) : null}
       <div className="scout-pane__sort">
         <label className="scout-pane__sort-label" htmlFor={`scout-sort-${scoutSystem}`}>
           {t('scout.sortLabel')}
         </label>
-        <select
+        <Select
           id={`scout-sort-${scoutSystem}`}
           className="scout-pane__sort-select"
           value={sortBy}
-          onChange={(e) => changeSort(e.target.value as ScoutSort)}
-        >
-          <option value="age">{t('scout.sortAge')}</option>
-          <option value="closest">
-            {t(routeMode === 'secure' ? 'scout.sortSecure' : 'scout.sortShortest')}
-          </option>
-        </select>
+          onChange={(v) => changeSort(v as ScoutSort)}
+          options={[
+            { value: 'age', label: t('scout.sortAge') },
+            { value: 'closest', label: t(routeMode === 'secure' ? 'scout.sortSecure' : 'scout.sortShortest') },
+          ]}
+        />
       </div>
       {sorted.map(c => {
         const route   = canRoute ? routes[String(c.inSystemId)] : undefined;
@@ -157,10 +171,13 @@ export function ScoutConnectionsPane({ scoutSystem }: Props) {
         // The K-space exit is the destination users can autopilot to.
         // Wormhole-class targets can't be set as a waypoint.
         const isKspaceTarget = !isWormholeClass(c.inSystemClass);
+        // A k-space exit stays settable even when the shortest route shortcuts
+        // through a hole/Ansiblex — EVE routes there via gates regardless.
+        const canAutopilot = canSetAutopilot(route);
         return (
           <div key={c.id} className="scout-row">
             <div className="scout-row__sys">
-              <span className="scout-row__name">{c.inSystemName}</span>
+              <span className="scout-row__name">{aliasName(c.inSystemName)}</span>
               {c.inSystemClass && (
                 <span
                   className="scout-row__class"
@@ -186,7 +203,22 @@ export function ScoutConnectionsPane({ scoutSystem }: Props) {
                   return cls ? whSizeShort(cls) : (SIZE_LABELS[c.maxShipSize] ?? c.maxShipSize);
                 })()}
               </span>
-              <span className="scout-row__sig">{c.inSignature}</span>
+            </div>
+
+            {/* Both ends of the hole, labelled. eve-scout names them from the
+                hub's point of view: outSig is the signature in Thera/Turnur (the
+                one you warp to in order to LEAVE), inSig is the signature in the
+                system at the far end. Only inSig was shown before, which is the
+                wrong one if you're sitting in the hub trying to get out. */}
+            <div className="scout-row__sigs">
+              <span className="scout-row__sig" title={t('scout.outSigHint', { system: scoutSystem })}>
+                <span className="scout-row__sig-label">{t('scout.outSig')}</span>
+                {c.outSignature || DASH}
+              </span>
+              <span className="scout-row__sig" title={t('scout.inSigHint', { system: aliasName(c.inSystemName) })}>
+                <span className="scout-row__sig-label">{t('scout.inSig')}</span>
+                {c.inSignature || DASH}
+              </span>
             </div>
 
             <div className="scout-row__actions">
@@ -197,9 +229,9 @@ export function ScoutConnectionsPane({ scoutSystem }: Props) {
                     type="button"
                     className="sys-btn scout-row__btn scout-row__btn--icon"
                     onClick={() => setWaypoint(c.inSystemId, c.inSystemName, true)}
-                    disabled={route?.usesSpecial}
+                    disabled={!canAutopilot}
                     aria-label={t('waypoint.setDestination')}
-                    data-tooltip={route?.usesSpecial ? t('route.shortcutNoWaypoint') : t('waypoint.setDestination')}
+                    data-tooltip={canAutopilot ? t('waypoint.setDestination') : t('route.jspaceNoWaypoint')}
                   >
                     <MapPinSimpleIcon size={14} weight="regular" color="#3ddc84" />
                   </button>
@@ -207,9 +239,9 @@ export function ScoutConnectionsPane({ scoutSystem }: Props) {
                     type="button"
                     className="sys-btn scout-row__btn scout-row__btn--icon"
                     onClick={() => setWaypoint(c.inSystemId, c.inSystemName, false)}
-                    disabled={route?.usesSpecial}
+                    disabled={!canAutopilot}
                     aria-label={t('waypoint.addWaypoint')}
-                    data-tooltip={route?.usesSpecial ? t('route.shortcutNoWaypoint') : t('waypoint.addWaypoint')}
+                    data-tooltip={canAutopilot ? t('waypoint.addWaypoint') : t('route.jspaceNoWaypoint')}
                   >
                     <PathIcon size={14} weight="regular" color="#5a9af8" />
                   </button>

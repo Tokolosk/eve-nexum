@@ -2,11 +2,12 @@ import { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Trans, useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
-import { XIcon } from '@phosphor-icons/react';
+import { XIcon } from '../../icons';
 import { api } from '../../api/client';
 import { useMapStore, type MapListItem } from '../../store/mapStore';
-import { useAuth } from '../../context/AuthContext';
-import { toast } from './Toaster';
+import { useAuth, isAdminRole } from '../../context/AuthContext';
+import { toast } from '../../utils/toastStore';
+import { Select } from './Select';
 
 interface MergeResult {
   added:   { systems: number; connections: number; signatures: number; structures: number };
@@ -14,7 +15,7 @@ interface MergeResult {
 }
 
 // Roles that can write to a corp map (and therefore use one as a destination).
-const CORP_WRITE_ROLES = new Set(['edit', 'full', 'admin']);
+const CORP_WRITE_ROLES = new Set(['edit', 'full', 'admin', 'alliance_admin']);
 
 function mapLabel(t: TFunction, m: MapListItem): string {
   const kind = m.isCorpMap ? t('merge.corp') : t('merge.solo');
@@ -30,7 +31,7 @@ export function MergeMapModal({ onClose }: { onClose: () => void }) {
   const requestFitView = useMapStore((s) => s.requestFitView);
   const { user }    = useAuth();
   const role    = user?.role ?? 'readonly';
-  const isAdmin = role === 'admin';
+  const isAdmin = isAdminRole(role);
 
   // Source: any solo map the user can see (owned or shared), or a corp map
   // explicitly flagged as a merge source. Destination: maps the user can write
@@ -100,22 +101,22 @@ export function MergeMapModal({ onClose }: { onClose: () => void }) {
         <div className="modal__body">
           <label className="field">
             <span>{t('merge.sourceMap')}</span>
-            <select value={sourceId} onChange={(e) => setSourceId(e.target.value)}>
-              <option value="">{t('merge.selectSource')}</option>
-              {sourceOptions.map((m) => (
-                <option key={m.id} value={m.id}>{mapLabel(t, m)}</option>
-              ))}
-            </select>
+            <Select
+              value={sourceId}
+              onChange={(v) => setSourceId(v)}
+              placeholder={t('merge.selectSource')}
+              options={sourceOptions.map((m) => ({ value: m.id, label: mapLabel(t, m) }))}
+            />
           </label>
 
           <label className="field">
             <span>{t('merge.destMap')}</span>
-            <select value={destId} onChange={(e) => setDestId(e.target.value)}>
-              <option value="">{t('merge.selectDest')}</option>
-              {destOptions.map((m) => (
-                <option key={m.id} value={m.id}>{mapLabel(t, m)}</option>
-              ))}
-            </select>
+            <Select
+              value={destId}
+              onChange={(v) => setDestId(v)}
+              placeholder={t('merge.selectDest')}
+              options={destOptions.map((m) => ({ value: m.id, label: mapLabel(t, m) }))}
+            />
           </label>
 
           {sameMap && (

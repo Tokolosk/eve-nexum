@@ -5,8 +5,9 @@ import { ReactFlowProvider } from '@xyflow/react';
 import { useMapStore } from '../../store/mapStore';
 import { MapCanvas } from '../map/MapCanvas';
 import { SystemPanel } from './SystemPanel';
-import { ShareModeProvider } from '../../context/ShareModeContext';
+import { ShareModeProvider } from '../../context/ShareModeProvider';
 import type { MapSystem, MapConnection, Signature, Structure } from '../../types';
+import { expiresIn } from '../../i18n/format';
 
 interface SharePayload {
   mapName:           string;
@@ -44,12 +45,7 @@ function formatLocal(iso: string): string {
 }
 
 function formatRemaining(t: TFunction, iso: string): string {
-  const ms = new Date(iso).getTime() - Date.now();
-  if (ms <= 0) return t('share.expired');
-  const h = Math.floor(ms / 3_600_000);
-  const m = Math.floor((ms % 3_600_000) / 60_000);
-  if (h > 0) return t('share.expiresInHM', { hours: h, minutes: m });
-  return t('share.expiresInM', { minutes: m });
+  return expiresIn(t, new Date(iso).getTime() - Date.now());
 }
 
 export function SharedMapView({ token }: { token: string }) {
@@ -142,7 +138,7 @@ export function SharedMapView({ token }: { token: string }) {
   if (state.kind === 'loading') {
     return (
       <div className="loading-screen">
-        <span className="loading-screen__logo">◈</span>
+        <img className="loading-screen__logo" src="/screen.png" alt="Nexum" />
       </div>
     );
   }

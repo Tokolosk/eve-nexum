@@ -2,15 +2,18 @@ import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { api } from '../../api/client';
-import { useMapStore } from '../../store/mapStore';
+import i18n from '../../i18n';
+import { useMapStore, awaitSystemCreate } from '../../store/mapStore';
 import { useShareMode } from '../../context/ShareModeContext';
 import type { Structure, StructureType } from '../../types';
 import { NotesEditor } from './NotesEditor';
-import { ConfirmModal, shouldSkipConfirm } from './ConfirmModal';
+import { ConfirmModal } from './ConfirmModal';
+import { shouldSkipConfirm } from '../../utils/confirmPref';
+import { Select } from './Select';
 import { ContextMenu } from './ContextMenu';
-import { XIcon, PathIcon, MapPinSimpleIcon } from '@phosphor-icons/react';
+import { XIcon, PathIcon, MapPinSimpleIcon } from '../../icons';
 import { setDestination, addWaypoint } from '../../api/waypoint';
-import { toast } from './Toaster';
+import { toast } from '../../utils/toastStore';
 import { useCanEditContent } from '../../hooks/useCanEditContent';
 import { useStandings } from '../../hooks/useStandings';
 
@@ -88,6 +91,8 @@ export function StructuresPane({ systemId }: { systemId: string }) {
 
   useEffect(() => {
     if (!activeMapId) return;
+    // Deliberate: clears this pane's own state when the record it shows changes.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setStructures([]);
 
     // Share viewers have structures embedded per-system in the share
@@ -100,9 +105,18 @@ export function StructuresPane({ systemId }: { systemId: string }) {
       return;
     }
 
-    api<Structure[]>(`/api/maps/${activeMapId}/systems/${systemId}/structures`)
-      .then(setStructures)
-      .catch(() => toast.error(t('structures.loadFailed')));
+    // Wait for a just-jumped-to system's create POST to commit before fetching,
+    // or the GET 404s ("Failed to load structures"). Existing systems fetch now.
+    let cancelled = false;
+    const fetchStructures = () => {
+      if (cancelled) return;
+      api<Structure[]>(`/api/maps/${activeMapId}/systems/${systemId}/structures`)
+        .then((data) => { if (!cancelled) setStructures(data); })
+        .catch(() => { if (!cancelled) toast.error(i18n.t('structures.loadFailed')); });
+    };
+    const pending = awaitSystemCreate(systemId);
+    if (pending) void pending.then(fetchStructures); else fetchStructures();
+    return () => { cancelled = true; };
   }, [activeMapId, systemId, isShareMode]);
 
   // Live sync: re-fetch in place when a remote client changes this system's
@@ -273,15 +287,15 @@ export function StructuresPane({ systemId }: { systemId: string }) {
                     {isShareMode ? (
                       <span className="sig-text">{typeLabel(s.structureType)}</span>
                     ) : (
-                      <select
-                        className="sig-select"
+                      <Select
+                        className="sig-type-select"
                         value={s.structureType}
-                        onChange={(e) => updateStructure(s.id, { structureType: e.target.value as StructureType })}
-                      >
-                        {(Object.keys(STRUCTURE_TYPE_LABELS) as StructureType[]).map((st) => (
-                          <option key={st} value={st}>{typeLabel(st)}</option>
-                        ))}
-                      </select>
+                        onChange={(v) => updateStructure(s.id, { structureType: v as StructureType })}
+                        options={(Object.keys(STRUCTURE_TYPE_LABELS) as StructureType[]).map((st) => ({
+                          value: st,
+                          label: typeLabel(st),
+                        }))}
+                      />
                     )}
                   </td>
                   <td>

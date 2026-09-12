@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
@@ -9,7 +9,9 @@ import { DndContext, closestCenter, PointerSensor, useSensor, useSensors } from 
 import type { DragEndEvent } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy, arrayMove } from '@dnd-kit/sortable';
 import { useMapStore } from '../../store/mapStore';
-import { CLASS_COLORS, CLASS_LABELS, EFFECT_LABELS, EFFECT_MODIFIERS, WORMHOLE_DESTINATIONS } from '../../data/wormholes';
+import { CLASS_COLORS, CLASS_LABELS, EFFECT_LABELS, EFFECT_MODIFIERS } from '../../data/wormholes';
+import { useWormholeTypes } from '../../hooks/useWormholeTypes';
+import { whDestClass } from '../../utils/whDest';
 import { DraggableCard } from './DraggableCard';
 import { FloatingPanel, type PanelGeometry } from './FloatingPanel';
 import { useUserSetting } from '../../hooks/useUserSetting';
@@ -21,8 +23,9 @@ import { NotesEditor } from './NotesEditor';
 import { KillboardPane } from './KillboardPane';
 import { ActivityPane } from './ActivityPane';
 import { useStandings, type ContactKind } from '../../hooks/useStandings';
-import { toast } from './Toaster';
+import { toast } from '../../utils/toastStore';
 import { truesecColor } from '../../utils/truesec';
+import { systemDisplayName } from '../../utils/systemName';
 import { useIncursions, findIncursion } from '../../hooks/useIncursions';
 import { useInsurgency, findInsurgency } from '../../hooks/useInsurgency';
 import { useCanEditContent } from '../../hooks/useCanEditContent';
@@ -31,6 +34,7 @@ import { useCustomIntel } from '../../hooks/useCustomIntel';
 import { resolveIntelColor, resolveIntelLabel } from '../../utils/intelColors';
 import { WHTypeInfo } from './WHTypeInfo';
 import { Tooltip } from './Tooltip';
+import styles from './SystemPanel.module.css';
 
 /**
  * One chip in the "In chain:" digest. Owns its own hover state and renders
@@ -128,15 +132,15 @@ function InfoSection({
 }) {
   const [collapsed, toggle] = useSectionCollapse(id);
   return (
-    <div className="sys-info__section">
-      <div className="sys-info__section-label">
+    <div className={styles.section}>
+      <div className={styles.sectionLabel}>
         <button
           type="button"
-          className="sys-info__section-toggle"
+          className={styles.sectionToggle}
           onClick={toggle}
           aria-expanded={!collapsed}
         >
-          <span className="sys-info__section-caret">{collapsed ? '▸' : '▾'}</span>
+          <span className={styles.sectionCaret}>{collapsed ? '▸' : '▾'}</span>
           {title}
         </button>
         {headerExtra}
@@ -151,6 +155,14 @@ const WIDTH_KEY  = 'nexum.panelInfoWidth';
 const COLLAPSE_KEY = 'nexum.panelInfoCollapsed';
 const MIN_H      = 80;
 const DEFAULT_H  = 300;
+// Column mode keeps its own size. Sharing one number with row mode means
+// switching layouts hands you a 300px-wide panel because that was your height.
+const SIDE_KEY   = 'nexum.panelSideWidth';
+const DEFAULT_SW = 460;
+const MIN_SW     = 320;
+function clampSide(v: number) {
+  return Math.min(Math.floor(window.innerWidth * 0.7), Math.max(MIN_SW, v));
+}
 // System-info column width: the previous fixed 400px is the max; users can drag
 // it narrower down to a still-readable minimum, and the panel-stack fills the
 // space freed up (or the whole panel when the column is fully collapsed).
@@ -173,6 +185,7 @@ function clamp(v: number) {
 
 export function SystemPanel() {
   const { t } = useTranslation();
+  const whTypes = useWormholeTypes();
   const panelTitle: Record<string, string> = {
     notes:       t('panel.notes'),
     signatures:  t('panel.signatures'),
@@ -183,6 +196,7 @@ export function SystemPanel() {
     activity:    t('panel.activity'),
   };
   const systems          = useMapStore((s) => s.map.systems);
+  const connections      = useMapStore((s) => s.map.connections);
   const selectedSystemId = useMapStore((s) => s.selectedSystemId);
   const panelOrder       = useMapStore((s) => s.panelOrder);
   const updateSystem     = useMapStore((s) => s.updateSystem);
@@ -200,6 +214,10 @@ export function SystemPanel() {
   // Undocked (floating) panels: id -> {x,y,w,h}, persisted per user. `topFloat`
   // is the last-focused floating window, lifted above the others.
   const [floatingPanels, setFloatingPanels] = useUserSetting<Record<string, PanelGeometry>>('nexum.floatingPanels', {});
+  // Last geometry each pane had while undocked, kept after it is redocked so
+  // popping it out again restores the window you had sized rather than the
+  // default 460x320 every time.
+  const [lastFloatGeo, setLastFloatGeo] = useUserSetting<Record<string, PanelGeometry>>('nexum.floatingPanelsLast', {});
   const [topFloat, setTopFloat] = useState<string | null>(null);
 
   const [height, setHeight] = useState(() => {
@@ -207,6 +225,21 @@ export function SystemPanel() {
     return v ? clamp(parseInt(v, 10)) : DEFAULT_H;
   });
   const heightRef = useRef(height);
+
+  // Side-by-side layout: the panel becomes a column beside the map instead of a
+  // row beneath it. Only the docked panel moves — the workspace sidebar keeps
+  // its own left/right setting, and floating panes are unaffected.
+  const sideBySide = useMapStore((st) => st.panelSideBySide);
+  const requestFitView = useMapStore((st) => st.requestFitView);
+  const [sideWidth, setSideWidth] = useState(() => {
+    const v = localStorage.getItem(SIDE_KEY);
+    return v ? clampSide(parseInt(v, 10)) : DEFAULT_SW;
+  });
+  const sideWidthRef = useRef(sideWidth);
+
+  // React Flow keeps its old viewport when the container changes shape, so the
+  // map has to be told to refit when the split flips.
+  useEffect(() => { requestFitView(); }, [sideBySide, requestFitView]);
 
   const [infoWidth, setInfoWidth] = useState(() => {
     const v = localStorage.getItem(WIDTH_KEY);
@@ -230,6 +263,33 @@ export function SystemPanel() {
   const incursions   = useIncursions();
   const insurgencies = useInsurgency();
   const [customIntel] = useCustomIntel();
+
+  // The selected system's chain: every system reachable from it by following
+  // (non-broken) connections. The "In chain" digest is scoped to this so it
+  // shows only systems actually linked to the selected one — not every effect
+  // system that merely sits on the same map.
+  const chainIds = useMemo(() => {
+    const seen = new Set<string>();
+    if (!selectedSystemId) return seen;
+    const adj = new Map<string, string[]>();
+    const link = (a: string, b: string) => {
+      const arr = adj.get(a);
+      if (arr) arr.push(b); else adj.set(a, [b]);
+    };
+    for (const c of connections) {
+      if (c.broken) continue; // a collapsed hole no longer links its ends
+      link(c.sourceId, c.targetId);
+      link(c.targetId, c.sourceId);
+    }
+    const queue = [selectedSystemId];
+    seen.add(selectedSystemId);
+    while (queue.length) {
+      const id = queue.pop()!;
+      for (const n of adj.get(id) ?? []) if (!seen.has(n)) { seen.add(n); queue.push(n); }
+    }
+    return seen;
+  }, [connections, selectedSystemId]);
+
   if (!sys) return null;
   const incursion  = findIncursion(incursions, sys.eveSystemId);
   const insurgency = findInsurgency(insurgencies, sys.eveSystemId);
@@ -256,17 +316,28 @@ export function SystemPanel() {
 
   const onResizeMouseDown = (e: React.MouseEvent) => {
     e.preventDefault();
+    // Row mode drags the top edge (height); column mode drags the left edge
+    // (width). Same handle, same idiom, different axis.
     const startY = e.clientY;
+    const startX = e.clientX;
     const startH = heightRef.current;
+    const startW = sideWidthRef.current;
 
     const onMove = (ev: MouseEvent) => {
+      if (sideBySide) {
+        const next = clampSide(startW + (startX - ev.clientX));
+        sideWidthRef.current = next;
+        setSideWidth(next);
+        return;
+      }
       const next = clamp(startH + (startY - ev.clientY));
       heightRef.current = next;
       setHeight(next);
     };
 
     const onUp = () => {
-      localStorage.setItem(HEIGHT_KEY, String(heightRef.current));
+      if (sideBySide) localStorage.setItem(SIDE_KEY, String(sideWidthRef.current));
+      else localStorage.setItem(HEIGHT_KEY, String(heightRef.current));
       document.removeEventListener('mousemove', onMove);
       document.removeEventListener('mouseup', onUp);
     };
@@ -335,14 +406,36 @@ export function SystemPanel() {
   const undock = (id: string) => setFloatingPanels((prev) => {
     if (prev[id]) return prev;
     const n = Object.keys(prev).length;
-    return { ...prev, [id]: { x: 140 + n * 28, y: 120 + n * 28, w: 460, h: 320 } };
+    const remembered = lastFloatGeo[id];
+    // Reopen at the size and place it was last used, clamped so a window saved
+    // on a bigger screen can't come back off the edge of a smaller one.
+    let geo = { x: 140 + n * 28, y: 120 + n * 28, w: 460, h: 320 };
+    if (remembered) {
+      // Size first, then position against THAT size — clamping the corner
+      // against a fixed margin instead would let a window as wide as the
+      // screen still open 1560px in, with most of itself off the right edge.
+      const w = Math.max(240, Math.min(remembered.w, window.innerWidth));
+      const h = Math.max(160, Math.min(remembered.h, window.innerHeight));
+      geo = {
+        w, h,
+        x: Math.max(0, Math.min(remembered.x, window.innerWidth  - w)),
+        y: Math.max(0, Math.min(remembered.y, window.innerHeight - h)),
+      };
+    }
+    return { ...prev, [id]: geo };
   });
   const redock = (id: string) => setFloatingPanels((prev) => {
+    // Remember where and how big it was before it goes away, so the next
+    // undock is not back to square one.
+    if (prev[id]) setLastFloatGeo((last) => ({ ...last, [id]: prev[id] }));
     const next = { ...prev };
     delete next[id];
     return next;
   });
-  const commitGeo = (id: string, g: PanelGeometry) => setFloatingPanels((prev) => ({ ...prev, [id]: g }));
+  const commitGeo = (id: string, g: PanelGeometry) => {
+    setFloatingPanels((prev) => ({ ...prev, [id]: g }));
+    setLastFloatGeo((last) => ({ ...last, [id]: g }));
+  };
 
   // Docked (stacked) panes = order minus anything floating, minus share-hidden.
   const dockedIds = panelOrder.filter((id) => !floatingPanels[id]).filter(shareVisible);
@@ -351,373 +444,405 @@ export function SystemPanel() {
 
   return (
     <>
-    <aside className="system-panel" style={{ height }}>
+    <aside
+      className={`system-panel${sideBySide ? ' system-panel--side' : ''}`}
+      style={sideBySide ? { width: sideWidth } : { height }}
+    >
       <div className="system-panel__resize-handle" onMouseDown={onResizeMouseDown} />
 
-      {infoCollapsed ? (
-        <button
-          type="button"
-          className="system-panel__expand"
-          onClick={toggleInfoCollapsed}
-          title={t('systemPanel.expandInfo')}
-        >
-          ›
-        </button>
-      ) : (
-      <>
-      <div className="system-panel__left" style={{ width: infoWidth }}>
-        <div className="system-panel__header">
-          <h2 className="system-panel__title">{sys.name || t('systemPanel.unknownSystem')}</h2>
-          <div className="system-panel__actions">
-            {sys.eveSystemId && !isShareMode && (
-              <>
-                <button
-                  type="button"
-                  className={`sys-btn${waypointStatus === 'ok' ? ' sys-btn--ok' : waypointStatus === 'err' ? ' sys-btn--err' : ''}`}
-                  onClick={() => setWaypoint(true)}
-                  title={t('waypoint.setDestination')}
-                >
-                  {t('waypoint.setDestination')}
-                </button>
-                <button
-                  type="button"
-                  className={`sys-btn${waypointStatus === 'ok' ? ' sys-btn--ok' : waypointStatus === 'err' ? ' sys-btn--err' : ''}`}
-                  onClick={() => setWaypoint(false)}
-                  title={t('waypoint.addWaypoint')}
-                >
-                  {t('systemPanel.addWaypointBtn')}
-                </button>
-              </>
-            )}
-          </div>
-          {/* Collapse caret pinned to the panel's top-right corner, independent
-              of the Set Destination / Waypoint buttons (which wrap below). */}
-          <button type="button" className="icon-btn system-panel__collapse" onClick={toggleInfoCollapsed} title={t('systemPanel.collapseInfo')}>‹</button>
-        </div>
+      {/* Everything below the rail scrolls together. In column mode this
+          div is the scroller, so the rail (a sibling, pinned to the panel)
+          can't scroll out of reach; stacked, it's display:contents and has
+          no effect at all. */}
+      <div className="system-panel__scroll">
 
-        <div className="sys-info">
-          <div className="sys-info__headline">
-            <span className="sys-info__badge" style={{ color: CLASS_COLORS[sys.systemClass] }}>
-              {CLASS_LABELS[sys.systemClass]}
-            </span>
-            {esiSys?.securityStatus != null && (
-              <span className="sys-info__truesec" style={{ color: truesecColor(esiSys.securityStatus) }}>
-                {esiSys.securityStatus.toFixed(1)}
-              </span>
-            )}
-            {sys.effect !== 'none' && (
-              <span className="sys-info__effect">{EFFECT_LABELS[sys.effect]}</span>
-            )}
-            {/* Current intel tag — only rendered when the user has actually
-                set one. Pulls colour + label from the same resolver used by
-                the node border + right-click menu so all three stay in
-                sync if the user edits a custom intel definition. */}
-            {sys.intel && intelLabel && (
-              <span className="sys-info__intel" style={{ borderColor: intelColor ?? '#445' }}>
-                <span className="sys-info__intel-swatch" style={{ background: intelColor ?? '#445' }} />
-                {intelLabel}
-              </span>
-            )}
+        {infoCollapsed ? (
+          <button
+            type="button"
+            className="system-panel__expand"
+            onClick={toggleInfoCollapsed}
+            title={t('systemPanel.expandInfo')}
+          >
+            {sideBySide ? '\u2304' : '\u203A'}
+          </button>
+        ) : (
+        <>
+        <div className="system-panel__left" style={sideBySide ? undefined : { width: infoWidth }}>
+          <div className="system-panel__header">
+            <h2 className="system-panel__title">
+              {sys.alias?.trim()
+                ? <>{sys.alias.trim()} <span className="system-panel__real-name">({sys.name})</span></>
+                : (sys.name || t('systemPanel.unknownSystem'))}
+            </h2>
+            <div className="system-panel__actions">
+              {sys.eveSystemId && !isShareMode && (
+                <>
+                  <button
+                    type="button"
+                    className={`sys-btn${waypointStatus === 'ok' ? ' sys-btn--ok' : waypointStatus === 'err' ? ' sys-btn--err' : ''}`}
+                    onClick={() => setWaypoint(true)}
+                    title={t('waypoint.setDestination')}
+                  >
+                    {t('waypoint.setDestination')}
+                  </button>
+                  <button
+                    type="button"
+                    className={`sys-btn${waypointStatus === 'ok' ? ' sys-btn--ok' : waypointStatus === 'err' ? ' sys-btn--err' : ''}`}
+                    onClick={() => setWaypoint(false)}
+                    title={t('waypoint.addWaypoint')}
+                  >
+                    {t('systemPanel.addWaypointBtn')}
+                  </button>
+                </>
+              )}
+            </div>
+            {/* Collapse caret pinned to the panel's top-right corner, independent
+                of the Set Destination / Waypoint buttons (which wrap below). */}
+            <button type="button" className="icon-btn system-panel__collapse" onClick={toggleInfoCollapsed} title={t('systemPanel.collapseInfo')}>{sideBySide ? '\u2303' : '\u2039'}</button>
           </div>
 
-          {(() => {
-            const chainEffects = systems.filter((s) => s.effect !== 'none');
-            if (chainEffects.length === 0) return null;
-            return (
-              <div className="sys-info__chain-fx">
-                <span className="sys-info__chain-fx__label">{t('systemPanel.inChain')}</span>
-                {chainEffects.map((s) => (
-                  <ChainEffectChip
-                    key={s.id}
-                    name={s.name}
-                    effect={s.effect}
-                    isCurrent={s.id === sys.id}
-                    onClick={() => selectSystem(s.id)}
-                  />
-                ))}
-              </div>
-            );
-          })()}
+          <div className={styles.info}>
+            <div className={styles.headline}>
+              <span className={styles.badge} style={{ color: CLASS_COLORS[sys.systemClass] }}>
+                {CLASS_LABELS[sys.systemClass]}
+              </span>
+              {esiSys?.securityStatus != null && (
+                <span className={styles.truesec} style={{ color: truesecColor(esiSys.securityStatus) }}>
+                  {esiSys.securityStatus.toFixed(1)}
+                </span>
+              )}
+              {sys.effect !== 'none' && (
+                <span className={styles.effect}>{EFFECT_LABELS[sys.effect]}</span>
+              )}
+              {/* Current intel tag — only rendered when the user has actually
+                  set one. Pulls colour + label from the same resolver used by
+                  the node border + right-click menu so all three stay in
+                  sync if the user edits a custom intel definition. */}
+              {sys.intel && intelLabel && (
+                <span className={styles.intel} style={{ borderColor: intelColor ?? '#445' }}>
+                  <span className={styles.intelSwatch} style={{ background: intelColor ?? '#445' }} />
+                  {intelLabel}
+                </span>
+              )}
+            </div>
 
-          {incursion && (
-            <div className="sys-info__section sys-info__incursion">
-              <div className="sys-info__section-label">{t('systemPanel.incursion')}</div>
-              <div className="sys-info__incursion-card">
-                {incursion.factionLogoUrl && (
-                  <img className="sys-info__incursion-logo" src={incursion.factionLogoUrl} alt={incursion.factionName} />
-                )}
-                <div className="sys-info__incursion-detail">
-                  <span className="sys-info__incursion-faction">{incursion.factionName}</span>
-                  <div className="sys-info__incursion-meta">
-                    <span className={`sys-info__incursion-state sys-info__incursion-state--${incursion.state}`}>
-                      {incursion.state === 'established' ? t('systemPanel.incursionState.established')
-                        : incursion.state === 'mobilizing' ? t('systemPanel.incursionState.mobilizing')
-                        : incursion.state === 'withdrawing' ? t('systemPanel.incursionState.withdrawing')
-                        : incursion.state.charAt(0).toUpperCase() + incursion.state.slice(1)}
-                    </span>
-                    {incursion.isStaging && <span className="sys-info__incursion-staging">{t('systemPanel.staging')}</span>}
-                    {incursion.hasBoss && <span className="sys-info__incursion-boss">{t('systemPanel.bossPresent')}</span>}
-                  </div>
-                  <div className="sys-info__incursion-influence">
-                    <div className="sys-info__incursion-bar-track">
-                      <div className="sys-info__incursion-bar" style={{ width: `${Math.round(incursion.influence * 100)}%` }} />
-                    </div>
-                    <span className="sys-info__incursion-pct">{t('systemPanel.influence', { pct: Math.round(incursion.influence * 100) })}</span>
-                  </div>
+            {(() => {
+              const chainEffects = systems.filter((s) => s.effect !== 'none' && chainIds.has(s.id));
+              if (chainEffects.length === 0) return null;
+              return (
+                <div className="sys-info__chain-fx">
+                  <span className="sys-info__chain-fx__label">{t('systemPanel.inChain')}</span>
+                  {chainEffects.map((s) => (
+                    <ChainEffectChip
+                      key={s.id}
+                      name={systemDisplayName(s)}
+                      effect={s.effect}
+                      isCurrent={s.id === sys.id}
+                      onClick={() => selectSystem(s.id)}
+                    />
+                  ))}
                 </div>
-              </div>
-            </div>
-          )}
+              );
+            })()}
 
-          {insurgency && (
-            <div className="sys-info__section">
-              <div className="sys-info__section-label">{t('systemPanel.insurgency', { faction: insurgency.factionName })}</div>
-              <div className="sys-info__insurgency-rings">
-                {[
-                  { label: t('systemPanel.corruption'),  pct: insurgency.corruptionPct,  stage: insurgency.corruptionState,  color: '#4ade80', icon: '☣' },
-                  { label: t('systemPanel.suppression'), pct: insurgency.suppressionPct, stage: insurgency.suppressionState, color: '#c8d0e0', icon: '⊕' },
-                ].map(({ label, pct, stage, color, icon }) => {
-                  const R = 22;
-                  const circ = 2 * Math.PI * R;
-                  const fill = (pct / 100) * circ;
-                  return (
-                    <div key={label} className="sys-info__insurgency-ring-cell">
-                      <svg className="sys-info__insurgency-svg" viewBox="0 0 54 54">
-                        <circle cx="27" cy="27" r={R} fill="#0d1421" stroke="#1a2535" strokeWidth="4" />
-                        <circle
-                          cx="27" cy="27" r={R}
-                          fill="none"
-                          stroke={color}
-                          strokeWidth="4"
-                          strokeDasharray={`${fill} ${circ - fill}`}
-                          strokeDashoffset={circ / 4}
-                          strokeLinecap="round"
-                          style={{ transition: 'stroke-dasharray 0.4s ease' }}
-                        />
-                        {icon === '☠' ? (
-                          <FlashingSkull color={color} />
-                        ) : (
-                          <text x="27" y="31" textAnchor="middle" fontSize="14" fill={color}>
-                            {icon}
-                          </text>
-                        )}
-                      </svg>
-                      <div className="sys-info__insurgency-ring-info">
-                        <span className="sys-info__insurgency-ring-label">{label}</span>
-                        <span className="sys-info__insurgency-ring-stage" style={{ color }}>{t('systemPanel.stage', { stage })}</span>
-                        <span className="sys-info__insurgency-ring-pct">{Math.round(pct)}%</span>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
-          {sys.effect !== 'none' && EFFECT_MODIFIERS[sys.effect].length > 0 && (
-            <div className="sys-info__section">
-              <div className="sys-info__section-label">{t('systemPanel.systemEffects')}</div>
-              <div className="sys-info__effect-mods">
-                {EFFECT_MODIFIERS[sys.effect].map(({ label, good }) => (
-                  <span key={label} className={`sys-info__effect-mod${good ? ' sys-info__effect-mod--good' : ' sys-info__effect-mod--bad'}`}>
-                    {good ? '▲' : '▼'} {label}
-                  </span>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {sys.statics.length > 0 && (
-            <div className="sys-info__section">
-              <div className="sys-info__section-label">{t('systemPanel.statics')}</div>
-              <div className="sys-info__row">
-                {sys.statics.map((s) => {
-                  const dest = WORMHOLE_DESTINATIONS[s];
-                  return (
-                    <WHTypeInfo key={s} code={s}>
-                      <span className="sys-info__static">
-                        {s}
-                        {dest && (
-                          <span className="sys-info__static-dest" style={{ color: CLASS_COLORS[dest] }}>
-                            {dest}
-                          </span>
-                        )}
+            {incursion && (
+              <div className={`${styles.section} sys-info__incursion`}>
+                <div className={styles.sectionLabel}>{t('systemPanel.incursion')}</div>
+                <div className={styles.incursionCard}>
+                  {incursion.factionLogoUrl && (
+                    <img className={styles.incursionLogo} src={incursion.factionLogoUrl} alt={incursion.factionName} />
+                  )}
+                  <div className={styles.incursionDetail}>
+                    <span className={styles.incursionFaction}>{incursion.factionName}</span>
+                    <div className={styles.incursionMeta}>
+                      <span className={`${styles.incursionState} ${
+                        incursion.state === 'established' ? styles.incursionStateEstablished
+                          : incursion.state === 'mobilizing' ? styles.incursionStateMobilizing
+                          : incursion.state === 'withdrawing' ? styles.incursionStateWithdrawing
+                          : ''
+                      }`}>
+                        {incursion.state === 'established' ? t('systemPanel.incursionState.established')
+                          : incursion.state === 'mobilizing' ? t('systemPanel.incursionState.mobilizing')
+                          : incursion.state === 'withdrawing' ? t('systemPanel.incursionState.withdrawing')
+                          : incursion.state.charAt(0).toUpperCase() + incursion.state.slice(1)}
                       </span>
-                    </WHTypeInfo>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
-          {(sys.regionName || sys.npcType || esiSys?.constellationName) && (
-            <InfoSection id="location" title={t('systemPanel.location')}>
-              <div className="sys-info__kv-grid">
-                {sys.regionName    && <><span className="sys-info__kv-key">{t('systemPanel.region')}</span><span className="sys-info__kv-val">{sys.regionName}</span></>}
-                {esiSys?.constellationName && <><span className="sys-info__kv-key">{t('systemPanel.constellation')}</span><span className="sys-info__kv-val">{esiSys.constellationName}</span></>}
-                {sys.npcType       && <><span className="sys-info__kv-key">{t('systemPanel.npc')}</span><span className="sys-info__kv-val">{sys.npcType}</span></>}
-              </div>
-            </InfoSection>
-          )}
-
-          {esiSys && (esiSys.sunType || esiSys.planetCount > 0 || esiSys.moonCount > 0 || esiSys.beltCount > 0 || esiSys.stargateCount > 0) && (
-            <InfoSection id="celestials" title={t('systemPanel.celestials')}>
-              {esiSys.sunType && (
-                <div className="sys-info__sun" title={t('systemPanel.sunType')}>
-                  <span className="sys-info__celestial-icon sys-info__celestial-icon--sun">☀</span>
-                  <span>{esiSys.sunType}</span>
-                </div>
-              )}
-              <div className="sys-info__celestials">
-                {esiSys.planetCount > 0 && (
-                  <div className="sys-info__celestial">
-                    <span className="sys-info__celestial-icon">◎</span>
-                    <span>{esiSys.planetCount}</span>
-                    <span className="sys-info__celestial-label">{t('systemPanel.planets', { count: esiSys.planetCount })}</span>
-                  </div>
-                )}
-                {esiSys.moonCount > 0 && (
-                  <div className="sys-info__celestial">
-                    <span className="sys-info__celestial-icon">○</span>
-                    <span>{esiSys.moonCount}</span>
-                    <span className="sys-info__celestial-label">{t('systemPanel.moons', { count: esiSys.moonCount })}</span>
-                  </div>
-                )}
-                {esiSys.beltCount > 0 && (
-                  <div className="sys-info__celestial">
-                    <span className="sys-info__celestial-icon">⁂</span>
-                    <span>{esiSys.beltCount}</span>
-                    <span className="sys-info__celestial-label">{t('systemPanel.belts', { count: esiSys.beltCount })}</span>
-                  </div>
-                )}
-                {esiSys.stargateCount > 0 && (
-                  <div className="sys-info__celestial">
-                    <span className="sys-info__celestial-icon">⬡</span>
-                    <span>{esiSys.stargateCount}</span>
-                    <span className="sys-info__celestial-label">{t('systemPanel.gates', { count: esiSys.stargateCount })}</span>
-                  </div>
-                )}
-              </div>
-            </InfoSection>
-          )}
-
-          {sov && (sov.alliance || sov.corp || sov.faction) && (
-            <InfoSection
-              id="sov"
-              title={t('systemPanel.sovereignty')}
-              headerExtra={<StandingsRefreshButton standings={standings} />}
-            >
-            <div className="sys-info__sov-block">
-              {sov.alliance && sov.allianceId !== undefined && (
-                <div className="sys-info__row sys-info__sov">
-                  <img className="sys-info__sov-logo" src={sov.alliance.logoUrl} alt={sov.alliance.name} />
-                  <div className="sys-info__sov-text">
-                    <span className="sys-info__sov-label">{t('systemPanel.alliance')}</span>
-                    <span className="sys-info__sov-name">{sov.alliance.name}</span>
-                    <span className="sys-info__sov-ticker">[{sov.alliance.ticker}]</span>
-                  </div>
-                  <StandingsBadges
-                    standings={standings}
-                    kind="alliance"
-                    id={sov.allianceId}
-                  />
-                </div>
-              )}
-              {sov.corp && sov.corporationId !== undefined && (
-                <div className="sys-info__row sys-info__sov">
-                  <img className="sys-info__sov-logo" src={sov.corp.logoUrl} alt={sov.corp.name} />
-                  <div className="sys-info__sov-text">
-                    <span className="sys-info__sov-label">{t('systemPanel.corp')}</span>
-                    <span className="sys-info__sov-name">{sov.corp.name}</span>
-                    <span className="sys-info__sov-ticker">[{sov.corp.ticker}]</span>
-                  </div>
-                  <StandingsBadges
-                    standings={standings}
-                    kind="corporation"
-                    id={sov.corporationId}
-                  />
-                </div>
-              )}
-              {sov.faction && (
-                <div className="sys-info__row sys-info__sov">
-                  <img className="sys-info__sov-logo" src={sov.faction.logoUrl} alt={sov.faction.name} />
-                  <div className="sys-info__sov-text">
-                    <span className="sys-info__sov-label">{t('systemPanel.faction')}</span>
-                    <span className="sys-info__sov-name">{sov.faction.name}</span>
+                      {incursion.isStaging && <span className={styles.incursionStaging}>{t('systemPanel.staging')}</span>}
+                      {incursion.hasBoss && <span className={styles.incursionBoss}>{t('systemPanel.bossPresent')}</span>}
+                    </div>
+                    <div className={styles.incursionInfluence}>
+                      <div className={styles.incursionBarTrack}>
+                        <div className={styles.incursionBar} style={{ width: `${Math.round(incursion.influence * 100)}%` }} />
+                      </div>
+                      <span className={styles.incursionPct}>{t('systemPanel.influence', { pct: Math.round(incursion.influence * 100) })}</span>
+                    </div>
                   </div>
                 </div>
-              )}
-            </div>
-            </InfoSection>
-          )}
+              </div>
+            )}
 
-          {(sys.name || sys.eveSystemId) && (
-            <InfoSection id="links" title={t('systemPanel.links')}>
-              <div className="sys-info__links">
-                {/* Dotlan only needs the name. K-space goes to the NPC-delta
-                    map (uses Region + System); j-space and unlinked systems
-                    fall back to the plain /system/<name> URL. */}
-                {sys.name && DOTLAN_CLASSES.has(sys.systemClass) && sys.regionName && (
-                  <Tooltip label={t('systemPanel.openNpcDelta')} placement="right">
-                    <a
-                      href={`https://evemaps.dotlan.net/map/${encodeURIComponent(sys.regionName.replace(/ /g, '_'))}/${encodeURIComponent(sys.name.replace(/ /g, '_'))}#npc_delta`}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="sys-info__ext-link"
-                    >
-                      <img src="/vendor/dotlan.ico" alt="Dotlan" className="sys-info__ext-icon" loading="lazy" />
-                    </a>
-                  </Tooltip>
+            {insurgency && (
+              <div className={styles.section}>
+                <div className={styles.sectionLabel}>{t('systemPanel.insurgency', { faction: insurgency.factionName })}</div>
+                <div className={styles.insurgencyRings}>
+                  {[
+                    { label: t('systemPanel.corruption'),  pct: insurgency.corruptionPct,  stage: insurgency.corruptionState,  color: '#4ade80', icon: '☣' },
+                    { label: t('systemPanel.suppression'), pct: insurgency.suppressionPct, stage: insurgency.suppressionState, color: '#c8d0e0', icon: '⊕' },
+                  ].map(({ label, pct, stage, color, icon }) => {
+                    const R = 22;
+                    const circ = 2 * Math.PI * R;
+                    const fill = (pct / 100) * circ;
+                    return (
+                      <div key={label} className={styles.insurgencyRingCell}>
+                        <svg className={styles.insurgencySvg} viewBox="0 0 54 54">
+                          <circle cx="27" cy="27" r={R} fill="#0d1421" stroke="#1a2535" strokeWidth="4" />
+                          <circle
+                            cx="27" cy="27" r={R}
+                            fill="none"
+                            stroke={color}
+                            strokeWidth="4"
+                            strokeDasharray={`${fill} ${circ - fill}`}
+                            strokeDashoffset={circ / 4}
+                            strokeLinecap="round"
+                            style={{ transition: 'stroke-dasharray 0.4s ease' }}
+                          />
+                          {icon === '☠' ? (
+                            <FlashingSkull color={color} />
+                          ) : (
+                            <text x="27" y="31" textAnchor="middle" fontSize="14" fill={color}>
+                              {icon}
+                            </text>
+                          )}
+                        </svg>
+                        <div className={styles.insurgencyRingInfo}>
+                          <span className={styles.insurgencyRingLabel}>{label}</span>
+                          <span className={styles.insurgencyRingStage} style={{ color }}>{t('systemPanel.stage', { stage })}</span>
+                          <span className={styles.insurgencyRingPct}>{Math.round(pct)}%</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {sys.effect !== 'none' && EFFECT_MODIFIERS[sys.effect].length > 0 && (
+              <div className={styles.section}>
+                <div className={styles.sectionLabel}>{t('systemPanel.systemEffects')}</div>
+                <div className={styles.effectMods}>
+                  {EFFECT_MODIFIERS[sys.effect].map(({ label, good }) => (
+                    <span key={label} className={`${styles.effectMod} ${good ? styles.effectModGood : styles.effectModBad}`}>
+                      {good ? '▲' : '▼'} {label}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {sys.statics.length > 0 && (
+              <div className={styles.section}>
+                <div className={styles.sectionLabel}>{t('systemPanel.statics')}</div>
+                <div className={styles.row}>
+                  {sys.statics.map((s) => {
+                    const dest = whDestClass(s, whTypes);
+                    return (
+                      <WHTypeInfo key={s} code={s}>
+                        <span className={styles.staticChip}>
+                          {s}
+                          {dest && (
+                            <span className={styles.staticDest} style={{ color: CLASS_COLORS[dest] }}>
+                              {dest}
+                            </span>
+                          )}
+                        </span>
+                      </WHTypeInfo>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {(sys.regionName || sys.npcType || esiSys?.constellationName) && (
+              <InfoSection id="location" title={t('systemPanel.location')}>
+                <div className={styles.kvGrid}>
+                  {sys.regionName    && <><span className={styles.kvKey}>{t('systemPanel.region')}</span><span className={styles.kvVal}>{sys.regionName}</span></>}
+                  {esiSys?.constellationName && <><span className={styles.kvKey}>{t('systemPanel.constellation')}</span><span className={styles.kvVal}>{esiSys.constellationName}</span></>}
+                  {sys.npcType       && <><span className={styles.kvKey}>{t('systemPanel.npc')}</span><span className={styles.kvVal}>{sys.npcType}</span></>}
+                </div>
+              </InfoSection>
+            )}
+
+            {esiSys && (esiSys.sunType || esiSys.planetCount > 0 || esiSys.moonCount > 0 || esiSys.beltCount > 0 || esiSys.stargateCount > 0) && (
+              <InfoSection id="celestials" title={t('systemPanel.celestials')}>
+                {esiSys.sunType && (
+                  <div className={styles.sun} title={t('systemPanel.sunType')}>
+                    <span className={`${styles.celestialIcon} ${styles.celestialIconSun}`}>☀</span>
+                    <span>{esiSys.sunType}</span>
+                  </div>
                 )}
-                {sys.name && !(DOTLAN_CLASSES.has(sys.systemClass) && sys.regionName) && (
-                  <Tooltip label={t('systemPanel.openDotlan')} placement="right">
-                    <a
-                      href={`https://evemaps.dotlan.net/system/${encodeURIComponent(sys.name.replace(/ /g, '_'))}`}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="sys-info__ext-link"
-                    >
-                      <img src="/vendor/dotlan.ico" alt="Dotlan" className="sys-info__ext-icon" loading="lazy" />
-                    </a>
-                  </Tooltip>
+                <div className={styles.celestials}>
+                  {esiSys.planetCount > 0 && (
+                    <div className={styles.celestial}>
+                      <span className={styles.celestialIcon}>◎</span>
+                      <span>{esiSys.planetCount}</span>
+                      <span className={styles.celestialLabel}>{t('systemPanel.planets', { count: esiSys.planetCount })}</span>
+                    </div>
+                  )}
+                  {esiSys.moonCount > 0 && (
+                    <div className={styles.celestial}>
+                      <span className={styles.celestialIcon}>○</span>
+                      <span>{esiSys.moonCount}</span>
+                      <span className={styles.celestialLabel}>{t('systemPanel.moons', { count: esiSys.moonCount })}</span>
+                    </div>
+                  )}
+                  {esiSys.beltCount > 0 && (
+                    <div className={styles.celestial}>
+                      <span className={styles.celestialIcon}>⁂</span>
+                      <span>{esiSys.beltCount}</span>
+                      <span className={styles.celestialLabel}>{t('systemPanel.belts', { count: esiSys.beltCount })}</span>
+                    </div>
+                  )}
+                  {esiSys.stargateCount > 0 && (
+                    <div className={styles.celestial}>
+                      <span className={styles.celestialIcon}>⬡</span>
+                      <span>{esiSys.stargateCount}</span>
+                      <span className={styles.celestialLabel}>{t('systemPanel.gates', { count: esiSys.stargateCount })}</span>
+                    </div>
+                  )}
+                </div>
+              </InfoSection>
+            )}
+
+            {sov && (sov.alliance || sov.corp || sov.faction) && (
+              <InfoSection
+                id="sov"
+                title={t('systemPanel.sovereignty')}
+                headerExtra={<StandingsRefreshButton standings={standings} />}
+              >
+              <div className={styles.sovBlock}>
+                {sov.alliance && sov.allianceId !== undefined && (
+                  <div className={`${styles.row} ${styles.sov}`}>
+                    <img className={styles.sovLogo} src={sov.alliance.logoUrl} alt={sov.alliance.name} />
+                    <div className={styles.sovText}>
+                      <span className={styles.sovLabel}>{t('systemPanel.alliance')}</span>
+                      <span className={styles.sovName}>{sov.alliance.name}</span>
+                      <span className={styles.sovTicker}>[{sov.alliance.ticker}]</span>
+                    </div>
+                    <StandingsBadges
+                      standings={standings}
+                      kind="alliance"
+                      id={sov.allianceId}
+                    />
+                  </div>
                 )}
-                {sys.eveSystemId && (
-                  <Tooltip label={t('systemPanel.openZkb')} placement="right">
-                    <a
-                      href={`https://zkillboard.com/system/${sys.eveSystemId}/`}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="sys-info__ext-link"
-                    >
-                      <img src="/vendor/zkillboard-wreck.png" alt="zKillboard" className="sys-info__ext-icon" loading="lazy" />
-                    </a>
-                  </Tooltip>
+                {sov.corp && sov.corporationId !== undefined && (
+                  <div className={`${styles.row} ${styles.sov}`}>
+                    <img className={styles.sovLogo} src={sov.corp.logoUrl} alt={sov.corp.name} />
+                    <div className={styles.sovText}>
+                      <span className={styles.sovLabel}>{t('systemPanel.corp')}</span>
+                      <span className={styles.sovName}>{sov.corp.name}</span>
+                      <span className={styles.sovTicker}>[{sov.corp.ticker}]</span>
+                    </div>
+                    <StandingsBadges
+                      standings={standings}
+                      kind="corporation"
+                      id={sov.corporationId}
+                    />
+                  </div>
+                )}
+                {sov.faction && (
+                  <div className={`${styles.row} ${styles.sov}`}>
+                    <img className={styles.sovLogo} src={sov.faction.logoUrl} alt={sov.faction.name} />
+                    <div className={styles.sovText}>
+                      <span className={styles.sovLabel}>{t('systemPanel.faction')}</span>
+                      <span className={styles.sovName}>{sov.faction.name}</span>
+                    </div>
+                  </div>
                 )}
               </div>
-            </InfoSection>
-          )}
+              </InfoSection>
+            )}
 
-        </div>
-      </div>
-      <div
-        className="system-panel__col-resize"
-        onMouseDown={onColResizeMouseDown}
-        title={t('systemPanel.resizeInfo')}
-      />
-      </>
-      )}
+            {(sys.name || sys.eveSystemId) && (
+              <InfoSection id="links" title={t('systemPanel.links')}>
+                <div className={styles.links}>
+                  {/* Dotlan only needs the name. K-space goes to the NPC-delta
+                      map (uses Region + System); j-space and unlinked systems
+                      fall back to the plain /system/<name> URL. */}
+                  {sys.name && DOTLAN_CLASSES.has(sys.systemClass) && sys.regionName && (
+                    <Tooltip label={t('systemPanel.openNpcDelta')} placement="right">
+                      <a
+                        href={`https://evemaps.dotlan.net/map/${encodeURIComponent(sys.regionName.replace(/ /g, '_'))}/${encodeURIComponent(sys.name.replace(/ /g, '_'))}#npc_delta`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className={styles.extLink}
+                      >
+                        <img src="/vendor/dotlan.ico" alt="Dotlan" className={styles.extIcon} loading="lazy" />
+                      </a>
+                    </Tooltip>
+                  )}
+                  {sys.name && !(DOTLAN_CLASSES.has(sys.systemClass) && sys.regionName) && (
+                    <Tooltip label={t('systemPanel.openDotlan')} placement="right">
+                      <a
+                        href={`https://evemaps.dotlan.net/system/${encodeURIComponent(sys.name.replace(/ /g, '_'))}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className={styles.extLink}
+                      >
+                        <img src="/vendor/dotlan.ico" alt="Dotlan" className={styles.extIcon} loading="lazy" />
+                      </a>
+                    </Tooltip>
+                  )}
+                  {sys.eveSystemId && (
+                    <Tooltip label={t('systemPanel.openZkb')} placement="right">
+                      <a
+                        href={`https://zkillboard.com/system/${sys.eveSystemId}/`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className={styles.extLink}
+                      >
+                        <img src="/vendor/zkillboard-wreck.png" alt="zKillboard" className={styles.extIcon} loading="lazy" />
+                      </a>
+                    </Tooltip>
+                  )}
+                </div>
+              </InfoSection>
+            )}
 
-      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-        <SortableContext items={dockedIds} strategy={verticalListSortingStrategy}>
-          <div className="panel-stack">
-            {dockedIds.map((id) => (
-              <DraggableCard key={id} id={id} title={panelTitle[id] ?? id} onUndock={() => undock(id)}>
-                {cards[id]}
-              </DraggableCard>
-            ))}
           </div>
-        </SortableContext>
-      </DndContext>
+        </div>
+        {/* Drags the info column's width — meaningless in column mode, where
+            info spans the panel and the panes sit under it. */}
+        {!sideBySide && (
+          <div
+            className="system-panel__col-resize"
+            onMouseDown={onColResizeMouseDown}
+            title={t('systemPanel.resizeInfo')}
+          />
+        )}
+        </>
+        )}
+
+        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+          <SortableContext items={dockedIds} strategy={verticalListSortingStrategy}>
+            <div className="panel-stack">
+              {dockedIds.map((id) => (
+                <DraggableCard
+                  key={id}
+                  id={id}
+                  title={panelTitle[id] ?? id}
+                  onUndock={() => undock(id)}
+                  // Signatures and anomalies split a single window-level paste
+                  // between them, so both must stay mounted to receive it even
+                  // when collapsed. See DraggableCard's keepMounted.
+                  keepMounted={id === 'signatures' || id === 'anomalies'}
+                >
+                  {cards[id]}
+                </DraggableCard>
+              ))}
+            </div>
+          </SortableContext>
+  </DndContext>
+      </div>
     </aside>
 
     {/* Undocked panes — portaled floating windows that follow the selection. */}
@@ -770,7 +895,7 @@ function StandingsRefreshButton({ standings }: { standings: ReturnType<typeof us
     <Tooltip label={t('systemPanel.refreshStandings')} placement="above">
       <button
         type="button"
-        className={`sys-info__refresh-btn${standings.refreshing ? ' sys-info__refresh-btn--busy' : ''}${status === 'ok' ? ' sys-info__refresh-btn--ok' : ''}${status === 'err' ? ' sys-info__refresh-btn--err' : ''}`}
+        className={[styles.refreshBtn, standings.refreshing && styles.refreshBtnBusy, status === 'ok' && styles.refreshBtnOk, status === 'err' && styles.refreshBtnErr].filter(Boolean).join(' ')}
         onClick={onClick}
         disabled={standings.refreshing || busy}
       >

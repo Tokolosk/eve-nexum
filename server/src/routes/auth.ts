@@ -2,10 +2,13 @@ import { Router, type Request, type Response } from 'express';
 import { randomBytes } from 'node:crypto';
 import { db } from '../db.js';
 import { config } from '../config.js';
+import { WALLET_SCOPE } from '../services/iskDonations.js';
 import { encryptToken } from '../utils/tokenCrypto.js';
 import { createLogger } from '../utils/logger.js';
 import { esiFetch } from '../utils/esi.js';
 import { refreshStandingsForUser } from '../services/standings.js';
+import { syncCorpStructures } from '../services/structureSync.js';
+import { isLoginPermitted, standingsPermitLogin } from '../services/accessGrants.js';
 import { seedDemoMap } from '../services/demoMap.js';
 
 const log = createLogger('auth');
@@ -20,10 +23,15 @@ const FRONTEND_URL  = process.env.FRONTEND_URL ?? 'http://localhost:5174';
 const EVE_AUTH_URL  = 'https://login.eveonline.com/v2/oauth/authorize';
 const EVE_TOKEN_URL = 'https://login.eveonline.com/v2/oauth/token';
 
+// Base scopes: every one of these must be enabled on the deployment's EVE
+// application, or SSO refuses every login with invalid_scope. Nothing may be
+// added here without operators enabling it first — see OPTIONAL_SCOPES below
+// for how a new scope is introduced safely.
 const SSO_SCOPES = [
   'esi-location.read_location.v1',
   'esi-location.read_ship_type.v1',
   'esi-universe.read_structures.v1',
+  'esi-corporations.read_structures.v1',
   'esi-corporations.read_corporation_membership.v1',
   'esi-ui.open_window.v1',
   'esi-ui.write_waypoint.v1',
@@ -40,7 +48,19 @@ const SSO_SCOPES = [
   // dots. Requires the character to be the fleet boss or a wing/squad
   // commander; ESI returns 403 to everyone else and the UI degrades silently.
   'esi-fleets.read_fleet.v1',
-].join(' ');
+];
+
+// Scopes a deployment opts into AFTER enabling them on its own EVE application.
+// They can never be added to the list above: requesting a scope the application
+// doesn't have makes SSO reject the entire authorize request with invalid_scope,
+// so an unconditional addition would lock every user out of every deployment on
+// upgrade — not degrade a feature, break the door. Off by default; each feature
+// behind one degrades to its pre-existing behaviour while it's off.
+function ssoScopes(): string {
+  const scopes = [...SSO_SCOPES];
+  if (config.cloneScope) scopes.push('esi-clones.read_clones.v1');
+  return scopes.join(' ');
+}
 
 // Build the SSO authorize redirect with a fresh CSRF state and send the user.
 function beginSso(req: Request, res: Response): void {
@@ -50,7 +70,7 @@ function beginSso(req: Request, res: Response): void {
     response_type: 'code',
     redirect_uri:  CALLBACK_URL,
     client_id:     CLIENT_ID,
-    scope:         SSO_SCOPES,
+    scope:         ssoScopes(),
     state,
   });
   req.session.save((err) => {
@@ -92,6 +112,83 @@ authRouter.get('/add-character', async (req, res) => {
   beginSso(req, res);
 });
 
+// GET /auth/wallet-reader — admin-only authorisation of the corp wallet reader
+// used by ISK-for-maps. A separate errand from logging in: it asks for ONE extra
+// scope, and that scope stays out of ssoScopes() so no ordinary user is ever
+// prompted for wallet access (and a deployment whose EVE application lacks the
+// scope can't have every login broken by it).
+authRouter.get('/wallet-reader', async (req, res) => {
+  const role = req.session.role;
+  if (!req.session.userId || !(role === 'admin' || role === 'alliance_admin')) {
+    res.redirect(`${FRONTEND_URL}?error=not_authenticated`);
+    return;
+  }
+  if (!config.iskMaps.enabled || config.iskMaps.readerCharId <= 0) {
+    res.redirect(`${FRONTEND_URL}/admin?wallet_error=not_configured`);
+    return;
+  }
+  req.session.walletReaderFlow = true;
+  const state = randomBytes(32).toString('hex');
+  req.session.oauthState = state;
+  const params = new URLSearchParams({
+    response_type: 'code',
+    redirect_uri:  CALLBACK_URL,
+    client_id:     CLIENT_ID,
+    scope:         WALLET_SCOPE,
+    state,
+  });
+  req.session.save((err) => {
+    if (err) { res.status(500).json({ error: 'Session error' }); return; }
+    res.redirect(`${EVE_AUTH_URL}?${params}`);
+  });
+});
+
+// Finish a wallet-reader authorisation. Stores the token ONLY for the character
+// the deployment nominated, so an admin can't point the reader at themselves (or
+// anyone else) by accident, and a stolen admin session can't attach a wallet.
+async function completeWalletReaderAuth(code: string, res: Response): Promise<void> {
+  const tokenRes = await fetch(EVE_TOKEN_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      Authorization: `Basic ${Buffer.from(`${CLIENT_ID}:${CLIENT_SECRET}`).toString('base64')}`,
+    },
+    body: new URLSearchParams({ grant_type: 'authorization_code', code, redirect_uri: CALLBACK_URL }),
+  });
+  if (!tokenRes.ok) { res.redirect(`${FRONTEND_URL}/admin?wallet_error=token_exchange`); return; }
+
+  const tokens = await tokenRes.json() as { access_token: string; refresh_token: string };
+  const claims = JSON.parse(
+    Buffer.from(tokens.access_token.split('.')[1], 'base64url').toString('utf8'),
+  ) as { sub: string; name?: string; scp?: string | string[] };
+
+  const characterId = parseInt(claims.sub.split(':')[2], 10);
+  if (characterId !== config.iskMaps.readerCharId) {
+    res.redirect(`${FRONTEND_URL}/admin?wallet_error=wrong_character`);
+    return;
+  }
+  const scopes = Array.isArray(claims.scp) ? claims.scp : (claims.scp ? [claims.scp] : []);
+  if (!scopes.includes(WALLET_SCOPE)) {
+    res.redirect(`${FRONTEND_URL}/admin?wallet_error=missing_scope`);
+    return;
+  }
+
+  // credit_from is set once, on first connect, and preserved on re-auth: it is
+  // what stops the 30 days of history ESI still returns from being credited
+  // retroactively, and a token refresh must not move that line.
+  await db.query(
+    `INSERT INTO wallet_reader (character_id, character_name, refresh_token, scopes)
+     VALUES ($1, $2, $3, $4)
+     ON CONFLICT (character_id) DO UPDATE
+       SET refresh_token = EXCLUDED.refresh_token,
+           character_name = EXCLUDED.character_name,
+           scopes = EXCLUDED.scopes,
+           last_error = NULL`,
+    [characterId, claims.name ?? '', encryptToken(tokens.refresh_token), scopes.join(' ')],
+  );
+  res.redirect(`${FRONTEND_URL}/admin?wallet=connected`);
+}
+
 // GET /auth/callback  — EVE SSO returns here
 authRouter.get('/callback', async (req, res) => {
   const { code, state } = req.query as Record<string, string>;
@@ -102,6 +199,15 @@ authRouter.get('/callback', async (req, res) => {
     return;
   }
   delete req.session.oauthState;
+
+  // A wallet-reader authorisation shares this callback but is not a login: it
+  // must never fall through into the user upsert below.
+  if (req.session.walletReaderFlow) {
+    delete req.session.walletReaderFlow;
+    await completeWalletReaderAuth(code, res);
+    return;
+  }
+
   // Captured before any session.regenerate(): if set, this SSO round-trip is
   // an authenticated "add character" link, not a fresh login.
   const addCharacterOwnerId = req.session.addCharacterOwnerId;
@@ -173,14 +279,21 @@ authRouter.get('/callback', async (req, res) => {
         const charData = await esiChar.json() as { corporation_id: number; alliance_id?: number };
         userCorpId     = charData.corporation_id;
         userAllianceId = charData.alliance_id ?? null;
-        // Restricted deployment: admit the character if EITHER their corp is in
-        // CORP_ID or their alliance is in ALLIANCE_ID. Lets a whole alliance be
-        // permitted without listing every member corp.
-        const corpPermitted     = config.corpIds.includes(userCorpId);
-        const alliancePermitted = userAllianceId != null && config.allianceIds.includes(userAllianceId);
-        if (config.restrictedMode && !corpPermitted && !alliancePermitted) {
-          res.redirect(failUrl('not_in_corp'));
-          return;
+        // Restricted deployment: admit the character if the login allow-list
+        // (access_grants) has a matching character/corp/alliance grant. The list
+        // is seeded from .env CORP_ID/ALLIANCE_ID on boot (the immutable core)
+        // and extended live from the admin area, so a friendly corp can be
+        // admitted without editing .env. See access-control-design.md.
+        if (config.restrictedMode) {
+          const ids = { characterId, corpId: userCorpId, allianceId: userAllianceId };
+          // Admitted by an explicit allow-list grant, OR (Phase 3) by the
+          // standings auto-admit when it's enabled and the pilot is stood at or
+          // above the configured friendly threshold.
+          const permitted = await isLoginPermitted(ids) || await standingsPermitLogin(ids);
+          if (!permitted) {
+            res.redirect(failUrl('not_in_corp'));
+            return;
+          }
         }
       }
     } catch {
@@ -198,10 +311,24 @@ authRouter.get('/callback', async (req, res) => {
     //     'admin' and force-upgrade existing rows on every login.
     //   - Restricted mode: ADMIN_CHAR_ID is pinned to the deployment's top tier
     //     (alliance_admin when alliance mode is on, else admin); other new users
-    //     default to readonly so an admin has to promote them.
+    //     default to config.defaultUserRole (DEFAULT_USER_ROLE, 'readonly' unless
+    //     the deployment opts members straight into 'edit'/'full').
+    //   - Invited: an admin can attach a role to a character allow-list entry
+    //     ahead of that person ever logging in (the invite flow in the admin
+    //     Access tab). It only feeds the INSERT below, so it seeds the account
+    //     being created and never touches an existing one — a stale invite can't
+    //     re-promote someone an admin has since demoted. ADMIN_CHAR_ID and solo
+    //     mode still win, since both are deployment-level policy.
     const isAdminChar = characterId === config.adminCharId;
     const bootstrapRole = config.allianceMode ? 'alliance_admin' : 'admin';
-    const defaultRole = !config.restrictedMode ? 'admin' : isAdminChar ? bootstrapRole : 'readonly';
+    const { rows: invite } = await db.query<{ role: string | null }>(
+      `SELECT role FROM access_grants WHERE kind = 'character' AND eve_id = $1`,
+      [characterId],
+    );
+    const invitedRole = invite[0]?.role ?? null;
+    const defaultRole = !config.restrictedMode ? 'admin'
+      : isAdminChar ? bootstrapRole
+      : (invitedRole ?? config.defaultUserRole);
 
     const { rows } = await db.query<{ id: number; role: string; blocked: boolean }>(
       `INSERT INTO users (character_id, character_name, access_token, refresh_token, token_expires_at, role, corp_id, alliance_id, last_login_at)
@@ -228,7 +355,7 @@ authRouter.get('/callback', async (req, res) => {
     );
 
     const userId = rows[0].id;
-    const role   = rows[0].role as 'alliance_admin' | 'admin' | 'full' | 'edit' | 'readonly';
+    const role   = rows[0].role as 'alliance_admin' | 'admin' | 'full' | 'edit' | 'contributor' | 'readonly';
 
     // Blocked users can never sign in. ADMIN_CHAR_ID is the safety hatch:
     // it can't be blocked by the role/block flow, but if the DB row somehow
@@ -246,6 +373,12 @@ authRouter.get('/callback', async (req, res) => {
       accessToken: tokens.access_token,
     }).catch((err) => log.error('standings refresh kickoff failed:', err));
 
+    // Fire-and-forget corp-structures sync (TTL-gated, role- and scope-gated
+    // inside the service). A Station Manager / Director login auto-populates the
+    // corp's jump-planner structures; everyone else no-ops and just reads them.
+    const kickStructures = () => syncCorpStructures(userId)
+      .catch((err) => log.error('structure sync kickoff failed:', err));
+
     // ── Add-character link ────────────────────────────────────────────────
     // Authenticated "add character" flow: attach this character to the
     // initiating account and return WITHOUT touching the active session — no
@@ -259,6 +392,7 @@ authRouter.get('/callback', async (req, res) => {
       req.session.ownerId = addCharacterOwnerId;
       await new Promise<void>((resolve, reject) => { req.session.save((err) => err ? reject(err) : resolve()); });
       kickStandings();
+      kickStructures();
       res.redirect(`${FRONTEND_URL}?added=${encodeURIComponent(jwtPayload.name)}`);
       return;
     }
@@ -277,8 +411,8 @@ authRouter.get('/callback', async (req, res) => {
     }
 
     // First login: seed a starter "Demo Map" so the canvas isn't blank.
-    // No-op when the user already has a map.
-    await seedDemoMap(userId);
+    // No-op when the user already has a map. Skipped when INCLUDE_DEMO_MAP is off.
+    if (config.includeDemoMap) await seedDemoMap(userId);
 
     // Snapshot prefs into the session so /auth/me can answer without a DB call.
     const prefRows = await db.query<{ compact_mode: boolean; snap_to_grid: boolean; show_minimap: boolean; uniform_size: boolean; show_statics: boolean; easy_connect: boolean; connection_thickness: string; route_mode: string; ui_zoom: string; ui_settings: Record<string, unknown>; panel_order: string[] }>(
@@ -319,6 +453,7 @@ authRouter.get('/callback', async (req, res) => {
     });
 
     kickStandings();
+    kickStructures();
     // ?login=success lets the frontend fire a one-time analytics "login" event
     // (it's only present on the post-callback redirect, not on normal loads).
     res.redirect(`${FRONTEND_URL}?login=success`);
@@ -365,7 +500,7 @@ authRouter.post('/switch-character', async (req, res) => {
   req.session.userId        = targetId;
   req.session.characterId   = u.character_id;
   req.session.characterName = u.character_name;
-  req.session.role          = u.role as 'alliance_admin' | 'admin' | 'full' | 'edit' | 'readonly';
+  req.session.role          = u.role as 'alliance_admin' | 'admin' | 'full' | 'edit' | 'contributor' | 'readonly';
   req.session.userCorpId    = u.corp_id;
   // Critical: refresh the alliance too, else the switched-to character keeps the
   // PREVIOUS character's alliance and gets cross-alliance map access/write/mgmt.
@@ -439,7 +574,7 @@ authRouter.get('/me', async (req, res) => {
       uiSettings:  row?.ui_settings ?? {},
       panelOrder:  row?.panel_order  ?? ['notes', 'signatures'],
     };
-    role = (row?.role as 'alliance_admin' | 'admin' | 'full' | 'edit' | 'readonly') ?? 'readonly';
+    role = (row?.role as 'alliance_admin' | 'admin' | 'full' | 'edit' | 'contributor' | 'readonly') ?? 'readonly';
     req.session.prefs = prefs;
     req.session.role  = role;
   }
@@ -510,6 +645,8 @@ authRouter.get('/me', async (req, res) => {
       uiSettings:    prefs.uiSettings ?? {},
       panelOrder:    prefs.panelOrder,
       canViewReports: config.reportsCharId !== null && req.session.characterId === config.reportsCharId,
+      // When the external API is off, the UI hides/disables API-key creation.
+      externalApiDisabled: config.externalApiDisabled,
     },
   });
 });
@@ -586,6 +723,13 @@ authRouter.patch('/preferences', async (req, res) => {
 // shallow-merged into users.ui_settings via Postgres' `||` operator,
 // so unrelated keys are preserved. Allow-list keeps junk out.
 const SETTINGS_ALLOWLIST = new Set<string>([
+  // Activity charts: which are shown, and the order they read in.
+  'nexum.activity.showJumps',
+  'nexum.activity.showShipKills',
+  'nexum.activity.showPodKills',
+  'nexum.activity.showNpcKills',
+  'nexum.activity.showNpcDelta',
+  'nexum.activity.order',
   'nexum.closestSystems.hiddenHome',
   'nexum.closestSystems.list',
   'nexum.killboardIncludeNpc',
@@ -616,12 +760,16 @@ const SETTINGS_ALLOWLIST = new Set<string>([
   'nexum.notify.proximity.desktop',
   'nexum.notify.proximity.sound',
   'nexum.notify.watchlist.desktop',
+  'nexum.notify.exits.desktop',
+  'nexum.notify.exits.sound',
+  'nexum.notify.exitsMinSecurity',
   'nexum.customIntel',
   'nexum.crossMapSync',
   'nexum.watchlist',
   'nexum.watchlist.sound',
   'nexum.watchlist.panelOpen',
   'nexum.sig.bookmarkFormat',
+  'nexum.sig.siteBookmarkFormat',
   'nexum.sigPane.overwriteOnPaste',
   'nexum.sigPane.overwriteDelay',
   'nexum.anomPane.overwriteOnPaste',

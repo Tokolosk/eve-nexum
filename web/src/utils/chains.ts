@@ -1,4 +1,5 @@
 import type { WormholeMap, MapSystem, SavedRoute, Signature } from '../types';
+import { systemDisplayName } from './systemName';
 
 // A computed path through the map's own connections: the ordered system ids and
 // the connection traversed between each consecutive pair (length = systems - 1).
@@ -51,6 +52,19 @@ export function buildChainPath(map: WormholeMap, fromId: string, toId: string): 
   }
   systemIds.unshift(fromId);
   return { systemIds, connectionIds };
+}
+
+// Flip a saved chain's direction for display only (never persisted): what was
+// the destination becomes the source and vice-versa. Reversing BOTH the system
+// and connection lists keeps hop i aligned (from=systemIds[i], conn=connIds[i]),
+// so buildChainSteps then recomputes each hop's near-side signature for the
+// return direction automatically. Pure — returns a new route, same id/name.
+export function reverseRoute(route: SavedRoute): SavedRoute {
+  return {
+    ...route,
+    systemIds:     [...route.systemIds].reverse(),
+    connectionIds: [...route.connectionIds].reverse(),
+  };
 }
 
 // gate = in-game stargate (warp to gate), wormhole = warp to its sig,
@@ -130,8 +144,8 @@ export function buildChainSteps(
     steps.push({
       index: i + 1,
       fromId, toId,
-      fromName: sysById.get(fromId)?.name ?? '?',
-      toName:   sysById.get(toId)?.name ?? '?',
+      fromName: (() => { const s = sysById.get(fromId); return s ? systemDisplayName(s) : '?'; })(),
+      toName:   (() => { const s = sysById.get(toId);   return s ? systemDisplayName(s) : '?'; })(),
       kind, whType, sigId, broken,
     });
   }

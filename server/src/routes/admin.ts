@@ -1,5 +1,6 @@
 import { Router, type Request } from 'express';
 import { esiFetch } from '../utils/esi.js';
+import { getValidToken } from '../utils/eveToken.js';
 import { db } from '../db.js';
 import { requireAdmin } from '../middleware/requireAdmin.js';
 import { requireAdminRead } from '../middleware/requireAdminRead.js';
@@ -7,14 +8,32 @@ import { requireReportsAccess, isReportsCharacter, corpScopeFor } from '../middl
 import { isAdmin, isAllianceAdmin } from '../middleware/authContext.js';
 import { config } from '../config.js';
 import { isDiscordWebhookUrl } from '../services/discord.js';
+import { getVersionStatus } from '../services/versionCheck.js';
 import { createLogger } from '../utils/logger.js';
 import { invalidateSessionsForUser } from '../utils/sessionInvalidate.js';
 import { audit } from '../services/audit.js';
+import { resolveEntityNames } from '../services/entityNames.js';
+import {
+  standingPermitsTarget, grantKindAllowedForInstall,
+  requiresPositiveStanding, type GrantKind,
+} from '../services/accessGrants.js';
+import {
+  getStandingsLoginSettings, setSetting,
+  STANDINGS_LOGIN_ENABLED, STANDINGS_LOGIN_THRESHOLD,
+} from '../services/appSettings.js';
+import { revalidateActiveSessions } from '../services/accessRevalidate.js';
 
 const log = createLogger('admin');
 
 export const adminRouter = Router();
 adminRouter.use(requireAdmin);
+
+// GET /api/admin/version — running version vs the latest upstream GitHub release.
+// Admin + alliance-admin only (requireAdmin). Result is cached server-side, so
+// admin clients can poll it cheaply without hitting GitHub's rate limit.
+adminRouter.get('/version', async (_req, res) => {
+  res.json(await getVersionStatus());
+});
 
 export const adminReadRouter = Router();
 adminReadRouter.use(requireAdminRead);
@@ -22,7 +41,7 @@ adminReadRouter.use(requireAdminRead);
 export const reportsRouter = Router();
 reportsRouter.use(requireReportsAccess);
 
-const ROLES = ['alliance_admin', 'admin', 'full', 'edit', 'readonly'] as const;
+const ROLES = ['alliance_admin', 'admin', 'full', 'edit', 'contributor', 'readonly'] as const;
 type Role = (typeof ROLES)[number];
 
 // Small in-memory cache for ESI corporation lookups. Tickers don't change
@@ -147,11 +166,15 @@ adminReadRouter.get('/users', async (_req, res) => {
       SELECT user_id, COUNT(*)::int AS cnt FROM user_events GROUP BY user_id
     ) e ON e.user_id = u.id
     LEFT JOIN (
-      SELECT m.user_id, COUNT(*)::int AS cnt
-      FROM reportable_signatures ms
-      JOIN map_systems sys ON sys.id = ms.system_id
-      JOIN maps m          ON m.id  = sys.map_id
-      GROUP BY m.user_id
+      -- Attribute each signature to the character who SCANNED it
+      -- (created_by_user_id), not the map's owner. Grouping by the owner piled
+      -- every corp-map signature onto the one director and showed 0 for everyone
+      -- else, while the systems count (from user_events, keyed on the actor)
+      -- stayed correct — the reported "systems work, signatures don't" bug.
+      SELECT created_by_user_id AS user_id, COUNT(*)::int AS cnt
+      FROM reportable_signatures
+      WHERE created_by_user_id IS NOT NULL
+      GROUP BY created_by_user_id
     ) s ON s.user_id = u.id
     ORDER BY u.last_login_at DESC NULLS LAST
   `);
@@ -228,6 +251,10 @@ adminRouter.patch('/users/:id/role', async (req, res) => {
   const newRole = role as Role;
   await db.query(`UPDATE users SET role = $1, updated_at = NOW() WHERE id = $2`, [newRole, userId]);
   await audit(req, userId, target.character_id, 'role_change', target.role, newRole);
+  // A live session carries a login-time role snapshot; drop the user's sessions so
+  // the change takes effect immediately (a demotion otherwise keeps its old map
+  // write access until re-login / the 7-day cookie TTL). Matches the block handler.
+  await invalidateSessionsForUser(userId);
 
   res.json({ ok: true });
 });
@@ -358,6 +385,271 @@ adminRouter.post('/users/:id/recheck-corp', async (req, res) => {
     inAllowedCorp,
     blocked:       shouldBlock || target.blocked,
   });
+});
+
+// ── Login allow-list (access_grants) ─────────────────────────────────────────
+// Who may sign in beyond the .env core. .env rows (source='env') are immutable
+// here. Every non-env grant must clear the positive-standing prerequisite
+// (design 4.0). See access-control-design.md.
+
+// GET /api/admin/access-grants — list all grants with resolved names.
+adminRouter.get('/access-grants', async (_req, res) => {
+  const { rows } = await db.query<{
+    id: string; kind: GrantKind; eve_id: string; source: string;
+    note: string | null; created_at: string; added_by_name: string | null;
+    role: string | null;
+  }>(
+    `SELECT g.id, g.kind, g.eve_id, g.source, g.note, g.created_at, g.role,
+            u.character_name AS added_by_name
+       FROM access_grants g
+       LEFT JOIN users u ON u.id = g.added_by_user
+      ORDER BY g.kind, g.created_at`,
+  );
+  // eve_id is BIGINT — node-pg hands it back as a string, which the ESI/name
+  // resolvers (they filter on Number.isInteger) and the Map lookups reject.
+  // Normalise to a number once. EVE ids fit safely in a JS number.
+  const eid = (r: { eve_id: string }) => Number(r.eve_id);
+  const [corps, alliances, names] = await Promise.all([
+    resolveCorps(rows.filter((r) => r.kind === 'corp').map(eid)),
+    resolveAlliances(rows.filter((r) => r.kind === 'alliance').map(eid)),
+    resolveEntityNames(rows.filter((r) => r.kind === 'character').map(eid)),
+  ]);
+  const label = (r: { kind: GrantKind; eve_id: string }): string => {
+    const id = eid(r);
+    if (r.kind === 'corp')     { const c = corps.get(id);     return c ? `${c.name} [${c.ticker}]` : String(id); }
+    if (r.kind === 'alliance') { const a = alliances.get(id); return a ? `${a.name} [${a.ticker}]` : String(id); }
+    return names.get(id)?.name ?? String(id);
+  };
+  res.json(rows.map((r) => ({
+    id: r.id, kind: r.kind, eveId: eid(r), source: r.source, note: r.note,
+    addedByName: r.added_by_name, createdAt: r.created_at,
+    label: label(r), immutable: r.source === 'env',
+  })));
+});
+
+// GET /api/admin/standings-view — the deployment's OWN contact list (the corp's
+// contacts in a corp install, the alliance's in an alliance install), limited to
+// corporation + alliance contacts and resolved to name + ticker + standing. Feeds
+// the access-page standings viewer. Read-only; access control itself only ever
+// reads these same corp/alliance buckets. See access-control-design.md.
+adminRouter.get('/standings-view', async (_req, res) => {
+  interface Contact { contactKind: 'corporation' | 'alliance'; id: number; name: string; ticker: string | null; standing: number }
+
+  async function loadContacts(table: 'corp_standings' | 'alliance_standings', ownerCol: 'corp_id' | 'alliance_id', ownerIds: number[]): Promise<Contact[]> {
+    if (ownerIds.length === 0) return [];
+    // MAX(standing): with multiple deployment owner ids the gate admits on the
+    // best standing toward a contact, so surface that same effective value.
+    const { rows } = await db.query<{ contact_kind: 'corporation' | 'alliance'; contact_id: string; standing: number }>(
+      `SELECT contact_kind, contact_id, MAX(standing)::real AS standing
+         FROM ${table}
+        WHERE ${ownerCol} = ANY($1::bigint[])
+          AND contact_kind IN ('corporation', 'alliance')
+        GROUP BY contact_kind, contact_id`,
+      [ownerIds],
+    );
+    const corpIds = rows.filter((r) => r.contact_kind === 'corporation').map((r) => Number(r.contact_id));
+    const allyIds = rows.filter((r) => r.contact_kind === 'alliance').map((r) => Number(r.contact_id));
+    const [corps, alliances] = await Promise.all([resolveCorps(corpIds), resolveAlliances(allyIds)]);
+    return rows.map((r) => {
+      const id   = Number(r.contact_id);
+      const info = r.contact_kind === 'corporation' ? corps.get(id) : alliances.get(id);
+      return { contactKind: r.contact_kind, id, name: info?.name ?? String(id), ticker: info?.ticker ?? null, standing: r.standing };
+    });
+  }
+
+  const [corp, alliance] = await Promise.all([
+    config.corpMode     ? loadContacts('corp_standings',     'corp_id',     config.corpIds)     : Promise.resolve(null),
+    config.allianceMode ? loadContacts('alliance_standings', 'alliance_id', config.allianceIds) : Promise.resolve(null),
+  ]);
+  res.json({ corp, alliance });
+});
+
+// POST /api/admin/access-grants — add a corp/alliance/character to the allow-list.
+adminRouter.post('/access-grants', async (req, res) => {
+  const kind = req.body?.kind as GrantKind;
+  const eveId = parseInt(String(req.body?.eveId), 10);
+  const note = typeof req.body?.note === 'string' ? req.body.note.trim().slice(0, 200) || null : null;
+
+  if (kind !== 'corp' && kind !== 'alliance' && kind !== 'character') {
+    res.status(400).json({ error: 'kind must be corp, alliance, or character' }); return;
+  }
+
+  // Optional role to hand the character on first login. Same guards as
+  // PATCH /users/:id/role, because this grants exactly the same thing — just
+  // ahead of the account existing, where there's no users row to check against.
+  const roleRaw = req.body?.role;
+  let invitedRole: Role | null = null;
+  if (roleRaw !== undefined && roleRaw !== null && roleRaw !== '') {
+    if (kind !== 'character') {
+      // A corp/alliance grant admits everyone in it; a role there would promote
+      // an entire organisation on first login.
+      res.status(400).json({ error: 'role_character_only', message: 'A role can only be set on a character grant.' }); return;
+    }
+    if (!ROLES.includes(roleRaw as Role)) {
+      res.status(400).json({ error: `role must be one of: ${ROLES.join(', ')}` }); return;
+    }
+    // Only an alliance admin may mint an alliance admin — mirrors the guard on
+    // PATCH /users/:id/role, so an invite can't be used to route around it.
+    if (roleRaw === 'alliance_admin' && !isAllianceAdmin(req.session.role ?? 'readonly')) {
+      res.status(403).json({ error: 'Only an alliance admin can manage the alliance admin role' }); return;
+    }
+    invitedRole = roleRaw as Role;
+  }
+  if (!Number.isInteger(eveId) || eveId <= 0) {
+    res.status(400).json({ error: 'invalid eveId' }); return;
+  }
+  // Alliance grants are alliance-install-only (a corp install ignores alliance
+  // standings, so an alliance target could never clear the positive gate).
+  if (!grantKindAllowedForInstall(kind)) {
+    res.status(400).json({ error: 'alliance_not_supported', message: 'Alliance grants are only available on an alliance installation.' }); return;
+  }
+  // Positive-standing prerequisite (design 4.0): corp/alliance targets must be
+  // held at positive standing; individual characters are exempt (deliberate 1:1
+  // grant). Fail-closed for the group kinds.
+  if (requiresPositiveStanding(kind) && !(await standingPermitsTarget(kind, eveId))) {
+    res.status(403).json({ error: 'standing_not_positive', message: 'The deployment does not hold this entity at positive standing (contacts must be synced and standing must be > 0).' }); return;
+  }
+
+  const { rows } = await db.query<{ id: string }>(
+    `INSERT INTO access_grants (kind, eve_id, source, note, added_by_user, role)
+     VALUES ($1, $2, 'admin', $3, $4, $5)
+     ON CONFLICT (kind, eve_id) DO NOTHING
+     RETURNING id`,
+    [kind, eveId, note, req.session.userId ?? null, invitedRole],
+  );
+  if (!rows.length) { res.status(409).json({ error: 'already_granted' }); return; }
+  await audit(req, null, kind === 'character' ? eveId : null, 'access_grant_add', null,
+    invitedRole ? `${kind}:${eveId} role=${invitedRole}` : `${kind}:${eveId}`);
+  res.status(201).json({ ok: true, id: rows[0].id });
+});
+
+// POST /api/admin/access-grants/:id/invite-mail — open a pre-filled EVE mail in
+// the ADMIN's own client, inviting the granted character to the deployment.
+//
+// Uses ESI's openwindow/newmail, which is covered by esi-ui.open_window.v1 —
+// already in SSO_SCOPES, so this needs no new consent and no re-login. It also
+// sends nothing on anyone's behalf: the window opens in the caller's client and
+// they press send, exactly like the autopilot-waypoint route.
+//
+// Wording comes from the caller (the admin UI has the translations); the LINK
+// does not — the server substitutes %URL% with FRONTEND_URL, so the invite always
+// points at this deployment and a client can't aim it somewhere else.
+const FRONTEND_URL = process.env.FRONTEND_URL ?? 'http://localhost:5174';
+// Deliberately NOT i18next's {{ }} syntax: the wording is translated client-side,
+// so a {{url}} token would be interpolated away there and never reach us.
+const URL_PLACEHOLDER = '%URL%';
+
+adminRouter.post('/access-grants/:id/invite-mail', async (req, res) => {
+  const { rows } = await db.query<{ kind: GrantKind; eve_id: string }>(
+    `SELECT kind, eve_id FROM access_grants WHERE id = $1`, [req.params.id],
+  );
+  if (!rows.length) { res.status(404).json({ error: 'not_found' }); return; }
+  if (rows[0].kind !== 'character') {
+    // Corp and alliance grants have no single mail recipient.
+    res.status(400).json({ error: 'character_only', message: 'Only a character grant can be mailed an invite.' }); return;
+  }
+  const recipientId = Number(rows[0].eve_id);
+  if (!Number.isInteger(recipientId) || recipientId <= 0) {
+    res.status(400).json({ error: 'invalid_recipient' }); return;
+  }
+
+  const subject = String(req.body?.subject ?? '').trim().slice(0, 200);
+  const bodyRaw = String(req.body?.body ?? '').trim().slice(0, 4000);
+  if (!subject || !bodyRaw) { res.status(400).json({ error: 'subject and body are required' }); return; }
+
+  // Always end up with the link in the mail: substitute the placeholder, and if
+  // a translation has lost it, append rather than send an invite with no URL.
+  const body = bodyRaw.includes(URL_PLACEHOLDER)
+    ? bodyRaw.split(URL_PLACEHOLDER).join(FRONTEND_URL)
+    : `${bodyRaw}\n\n${FRONTEND_URL}`;
+
+  try {
+    const token = await getValidToken(req.session.userId!);
+    const esiRes = await esiFetch('https://esi.evetech.net/latest/ui/openwindow/newmail/', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      // recipients is an array of bare character ids. NOT the {recipient_id,
+      // recipient_type} objects that POST /characters/{id}/mail/ takes — the two
+      // endpoints look alike and don't share a schema. Sending the object form
+      // gets: "failed to coerce value '{...}' into type integer".
+      body: JSON.stringify({ subject, body, recipients: [recipientId] }),
+    });
+    if (!esiRes.ok) {
+      // Say WHICH failure it was. The two that actually happen:
+      //   520 — ESI can't reach a running client for this character. Either the
+      //         game isn't open, or it's open as a different pilot than the one
+      //         this Nexum session is bound to.
+      //   403 — the token predates esi-ui.open_window.v1 (it has been in
+      //         SSO_SCOPES from the start, but a session issued before a scope
+      //         change carries the older grant), so a re-login fixes it.
+      // Anything else is passed through verbatim rather than guessed at.
+      const detail = await esiRes.text().catch(() => '');
+      log.warn(`invite mail openwindow failed: ESI ${esiRes.status} ${detail.slice(0, 200)}`);
+      const code = esiRes.status === 520 ? 'client_unreachable'
+                 : esiRes.status === 403 ? 'scope_missing'
+                 : 'esi_failed';
+      res.status(502).json({ error: code, status: esiRes.status, message: `ESI returned ${esiRes.status}` });
+      return;
+    }
+    await audit(req, null, recipientId, 'access_grant_invite_mail', null, String(recipientId));
+    res.json({ ok: true });
+  } catch (err) {
+    log.error('Invite mail failed:', err);
+    res.status(500).json({ error: 'invite_mail_failed' });
+  }
+});
+
+// DELETE /api/admin/access-grants/:id — revoke a grant. env rows are immutable.
+// Kills the sessions of anyone this grant was the sole reason for admitting.
+adminRouter.delete('/access-grants/:id', async (req, res) => {
+  const { rows } = await db.query<{ kind: GrantKind; eve_id: number; source: string }>(
+    `SELECT kind, eve_id, source FROM access_grants WHERE id = $1`, [req.params.id],
+  );
+  if (!rows.length) { res.status(404).json({ error: 'not found' }); return; }
+  const g = rows[0];
+  if (g.source === 'env') {
+    res.status(400).json({ error: 'env_immutable', message: 'This grant is seeded from .env and can only be removed by editing .env.' }); return;
+  }
+
+  await db.query(`DELETE FROM access_grants WHERE id = $1`, [req.params.id]);
+  await audit(req, null, g.kind === 'character' ? g.eve_id : null, 'access_grant_remove', `${g.kind}:${g.eve_id}`, null);
+
+  // Immediately log out anyone the gate no longer permits. Reuse the shared
+  // re-validation so the check matches the login gate exactly: it evaluates
+  // isLoginPermitted OR standingsPermitLogin, so a user still admitted via the
+  // standings auto-admit isn't spuriously logged out just because this explicit
+  // grant was removed. Never evicts ADMIN_CHAR_ID.
+  const { sessionsKilled } = await revalidateActiveSessions();
+  res.json({ ok: true, sessionsKilled });
+});
+
+// ── Standings auto-admit ("friends") settings — Phase 3 ──────────────────────
+
+// GET /api/admin/access-settings — current standings auto-admit toggle + level.
+adminRouter.get('/access-settings', async (_req, res) => {
+  const s = await getStandingsLoginSettings();
+  res.json({ standingsLoginEnabled: s.enabled, standingsLoginThreshold: s.threshold });
+});
+
+// PATCH /api/admin/access-settings — update the standings auto-admit settings.
+adminRouter.patch('/access-settings', async (req, res) => {
+  const { enabled, threshold } = req.body as { enabled?: unknown; threshold?: unknown };
+  if (enabled !== undefined) {
+    if (typeof enabled !== 'boolean') { res.status(400).json({ error: 'enabled must be a boolean' }); return; }
+    await setSetting(STANDINGS_LOGIN_ENABLED, enabled ? 'true' : 'false', req.session.userId ?? null);
+  }
+  if (threshold !== undefined) {
+    if (threshold !== 5 && threshold !== 10) { res.status(400).json({ error: 'threshold must be 5 or 10' }); return; }
+    await setSetting(STANDINGS_LOGIN_THRESHOLD, String(threshold), req.session.userId ?? null);
+  }
+  await audit(req, null, null, 'access_settings_update', null, JSON.stringify({ enabled, threshold }));
+  // A settings change can NARROW who's admitted (disabling, or raising the
+  // threshold), so immediately evict any live session the new gate no longer
+  // permits — otherwise a de-authorised user lingers to the cookie TTL.
+  // Widening changes evict nobody, so it's safe to always run.
+  const { sessionsKilled } = await revalidateActiveSessions();
+  const s = await getStandingsLoginSettings();
+  res.json({ standingsLoginEnabled: s.enabled, standingsLoginThreshold: s.threshold, sessionsKilled });
 });
 
 // GET /api/admin/maps — every corp map in the system with owner + stats.
@@ -507,19 +799,25 @@ const WH_TYPE_RE = /^[A-Z][0-9]{3}$/;
 
 interface WhSettingsRow {
   allRegions: boolean; regions: string[]; notifyChains: boolean;
+  notifyK162: boolean; notifyExits: boolean;
   whTypes: string[]; whClasses: string[]; whSizes: string[];
   connectionsWebhook: string | null; chainsWebhook: string | null;
+  exitsMinSecurity: number;
+  killWebhook: string | null; killMinIsk: string; // kill_min_isk is BIGINT -> string
 }
 const WH_SETTINGS_COLS = `all_regions AS "allRegions", regions, notify_chains AS "notifyChains",
+                          notify_k162 AS "notifyK162", notify_exits AS "notifyExits",
                           wh_types AS "whTypes", wh_classes AS "whClasses", wh_sizes AS "whSizes",
-                          connections_webhook AS "connectionsWebhook", chains_webhook AS "chainsWebhook"`;
+                          connections_webhook AS "connectionsWebhook", chains_webhook AS "chainsWebhook",
+                          exits_min_security AS "exitsMinSecurity",
+                          kill_webhook AS "killWebhook", kill_min_isk AS "killMinIsk"`;
 
 // GET /api/admin/discord — current settings + this org's maps with their
 // excluded state (excluded = NOT discord_notify).
 adminRouter.get('/discord', async (req, res) => {
   const scope = resolveDiscordScope(req);
   if (!scope) {
-    res.json({ scope: null, allRegions: true, regions: [], notifyChains: true, whTypes: [], whClasses: [], whSizes: [], connectionsWebhook: '', chainsWebhook: '', maps: [] });
+    res.json({ scope: null, allRegions: true, regions: [], notifyChains: true, notifyK162: false, notifyExits: false, whTypes: [], whClasses: [], whSizes: [], connectionsWebhook: '', chainsWebhook: '', exitsMinSecurity: 0.45, killWebhook: '', killMinIsk: 0, maps: [] });
     return;
   }
   // Literal SQL per branch (no interpolated identifiers) so the settings table /
@@ -539,11 +837,17 @@ adminRouter.get('/discord', async (req, res) => {
     allRegions:   row?.allRegions ?? true,
     regions:      row?.regions ?? [],
     notifyChains: row?.notifyChains ?? true,
+    // Opt-in, so an org with no saved row reads as off rather than on.
+    notifyK162:   row?.notifyK162 ?? false,
+    notifyExits:  row?.notifyExits ?? false,
     whTypes:      row?.whTypes ?? [],
     whClasses:    row?.whClasses ?? [],
     whSizes:      row?.whSizes ?? [],
     connectionsWebhook: row?.connectionsWebhook ?? '',
     chainsWebhook:      row?.chainsWebhook ?? '',
+    exitsMinSecurity:   row?.exitsMinSecurity ?? 0.45,
+    killWebhook:        row?.killWebhook ?? '',
+    killMinIsk:         Number(row?.killMinIsk ?? 0),
     maps:         maps.rows,
   });
 });
@@ -555,11 +859,30 @@ adminRouter.put('/discord', async (req, res) => {
 
   const body = req.body as {
     allRegions?: unknown; regions?: unknown; notifyChains?: unknown;
+    notifyK162?: unknown; notifyExits?: unknown;
     whTypes?: unknown; whClasses?: unknown; whSizes?: unknown;
-    connectionsWebhook?: unknown; chainsWebhook?: unknown;
+    connectionsWebhook?: unknown; chainsWebhook?: unknown; exitsMinSecurity?: unknown;
+    killWebhook?: unknown; killMinIsk?: unknown;
   };
   const allRegions   = body.allRegions !== false;   // default true
   const notifyChains = body.notifyChains !== false; // default true
+  // These two are opt-in: anything but an explicit true reads as off.
+  const notifyK162   = body.notifyK162  === true;
+  const notifyExits  = body.notifyExits === true;
+
+  // Minimum kill ISK for the Discord kill alert. Non-negative integer; default 0
+  // (notify for every kill the feed surfaces). Always written like the security
+  // threshold above (not a secret).
+  const killMinIsk = typeof body.killMinIsk === 'number' && Number.isFinite(body.killMinIsk) && body.killMinIsk >= 0
+    ? Math.floor(body.killMinIsk)
+    : 0;
+
+  // Minimum k-space exit security for the rich exit embed. A finite number
+  // clamped to EVE's [-1.0, 1.0] range; default 0.45 (high-sec) when absent or
+  // invalid. Not a secret — always written (no webhook-style masking).
+  const exitsMinSecurity = typeof body.exitsMinSecurity === 'number' && Number.isFinite(body.exitsMinSecurity)
+    ? Math.min(1.0, Math.max(-1.0, body.exitsMinSecurity))
+    : 0.45;
 
   // Webhook URLs. A field that's PRESENT sets the value: empty string clears
   // (NULL), a non-empty value MUST be a real Discord webhook (SSRF guard) or the
@@ -574,7 +897,8 @@ adminRouter.put('/discord', async (req, res) => {
   };
   const conn  = resolveWebhook(body.connectionsWebhook);
   const chain = resolveWebhook(body.chainsWebhook);
-  if (conn.bad || chain.bad) {
+  const kill  = resolveWebhook(body.killWebhook);
+  if (conn.bad || chain.bad || kill.bad) {
     res.status(400).json({ error: 'Webhook must be a Discord webhook URL (https://discord.com/api/webhooks/…)' });
     return;
   }
@@ -600,35 +924,43 @@ adminRouter.put('/discord', async (req, res) => {
 
   // On an existing row, only overwrite a webhook column when the field was
   // provided (CASE on the `provided` flag); otherwise keep the stored value.
-  const params = [scope.id, allRegions, regions, notifyChains, whTypes, whClasses, whSizes, conn.value, chain.value, conn.provided, chain.provided];
+  const params = [scope.id, allRegions, regions, notifyChains, whTypes, whClasses, whSizes, conn.value, chain.value, conn.provided, chain.provided, exitsMinSecurity, kill.value, kill.provided, killMinIsk, notifyK162, notifyExits];
   if (scope.kind === 'alliance') {
     await db.query(
-      `INSERT INTO alliance_discord_settings (alliance_id, all_regions, regions, notify_chains, wh_types, wh_classes, wh_sizes, connections_webhook, chains_webhook, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
+      `INSERT INTO alliance_discord_settings (alliance_id, all_regions, regions, notify_chains, wh_types, wh_classes, wh_sizes, connections_webhook, chains_webhook, exits_min_security, kill_webhook, kill_min_isk, notify_k162, notify_exits, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $12, $13, $15, $16, $17, NOW())
        ON CONFLICT (alliance_id) DO UPDATE
          SET all_regions = EXCLUDED.all_regions, regions = EXCLUDED.regions,
              notify_chains = EXCLUDED.notify_chains, wh_types = EXCLUDED.wh_types,
              wh_classes = EXCLUDED.wh_classes, wh_sizes = EXCLUDED.wh_sizes,
              connections_webhook = CASE WHEN $10 THEN EXCLUDED.connections_webhook ELSE alliance_discord_settings.connections_webhook END,
              chains_webhook      = CASE WHEN $11 THEN EXCLUDED.chains_webhook      ELSE alliance_discord_settings.chains_webhook END,
+             exits_min_security = EXCLUDED.exits_min_security,
+             kill_webhook = CASE WHEN $14 THEN EXCLUDED.kill_webhook ELSE alliance_discord_settings.kill_webhook END,
+             kill_min_isk = EXCLUDED.kill_min_isk,
+             notify_k162 = EXCLUDED.notify_k162, notify_exits = EXCLUDED.notify_exits,
              updated_at = NOW()`,
       params,
     );
   } else {
     await db.query(
-      `INSERT INTO corp_discord_settings (corp_id, all_regions, regions, notify_chains, wh_types, wh_classes, wh_sizes, connections_webhook, chains_webhook, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
+      `INSERT INTO corp_discord_settings (corp_id, all_regions, regions, notify_chains, wh_types, wh_classes, wh_sizes, connections_webhook, chains_webhook, exits_min_security, kill_webhook, kill_min_isk, notify_k162, notify_exits, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $12, $13, $15, $16, $17, NOW())
        ON CONFLICT (corp_id) DO UPDATE
          SET all_regions = EXCLUDED.all_regions, regions = EXCLUDED.regions,
              notify_chains = EXCLUDED.notify_chains, wh_types = EXCLUDED.wh_types,
              wh_classes = EXCLUDED.wh_classes, wh_sizes = EXCLUDED.wh_sizes,
              connections_webhook = CASE WHEN $10 THEN EXCLUDED.connections_webhook ELSE corp_discord_settings.connections_webhook END,
              chains_webhook      = CASE WHEN $11 THEN EXCLUDED.chains_webhook      ELSE corp_discord_settings.chains_webhook END,
+             exits_min_security = EXCLUDED.exits_min_security,
+             kill_webhook = CASE WHEN $14 THEN EXCLUDED.kill_webhook ELSE corp_discord_settings.kill_webhook END,
+             kill_min_isk = EXCLUDED.kill_min_isk,
+             notify_k162 = EXCLUDED.notify_k162, notify_exits = EXCLUDED.notify_exits,
              updated_at = NOW()`,
       params,
     );
   }
-  res.json({ ok: true, allRegions, regions, notifyChains, whTypes, whClasses, whSizes });
+  res.json({ ok: true, allRegions, regions, notifyChains, notifyK162, notifyExits, whTypes, whClasses, whSizes, exitsMinSecurity, killMinIsk });
 });
 
 // PATCH /api/admin/maps/:id/discord — exclude / re-include one of the org's
@@ -707,12 +1039,10 @@ reportsRouter.get('/users', async (req, res) => {
       conditions.push(`u.updated_at >= NOW() - ${intervalParam}`);
     } else if (filter === 'signatures') {
       conditions.push(`EXISTS (
-        SELECT 1 FROM reportable_signatures s
-        JOIN map_systems sys ON sys.id = s.system_id
-        JOIN maps        m   ON m.id   = sys.map_id
-        WHERE s.created_by_user_id = u.id
-          AND ${corpSql}
-          AND s.created_at >= NOW() - ${intervalParam}
+        SELECT 1 FROM user_events e
+        WHERE e.user_id = u.id
+          AND e.event_type = 'signature'
+          AND e.created_at >= NOW() - ${intervalParam}
       )`);
     } else if (filter === 'structures') {
       conditions.push(`EXISTS (
@@ -728,10 +1058,8 @@ reportsRouter.get('/users', async (req, res) => {
     // filter + 'all' window → at least one such activity ever
     if (filter === 'signatures') {
       conditions.push(`EXISTS (
-        SELECT 1 FROM reportable_signatures s
-        JOIN map_systems sys ON sys.id = s.system_id
-        JOIN maps        m   ON m.id   = sys.map_id
-        WHERE s.created_by_user_id = u.id AND ${corpSql}
+        SELECT 1 FROM user_events e
+        WHERE e.user_id = u.id AND e.event_type = 'signature'
       )`);
     } else if (filter === 'structures') {
       conditions.push(`EXISTS (
@@ -747,12 +1075,12 @@ reportsRouter.get('/users', async (req, res) => {
 
   const { rows } = await db.query(`
     WITH last_corp_sig AS (
-      SELECT s.created_by_user_id AS user_id, MAX(s.created_at) AS ts
-      FROM reportable_signatures s
-      JOIN map_systems sys ON sys.id = s.system_id
-      JOIN maps         m  ON m.id   = sys.map_id
-      WHERE ${corpSql} AND s.created_by_user_id IS NOT NULL
-      GROUP BY s.created_by_user_id
+      -- Last signature the user scanned, anywhere (from the scan-event log,
+      -- map-agnostic). Surfaced as the "Last Signature" column.
+      SELECT user_id, MAX(created_at) AS ts
+      FROM user_events
+      WHERE event_type = 'signature'
+      GROUP BY user_id
     ),
     -- "Last active" = the most recent time a user did something of value on a
     -- corp map: added or edited a signature, anomaly, or structure. Combined
@@ -761,11 +1089,9 @@ reportsRouter.get('/users', async (req, res) => {
     -- just the original add.
     last_active AS (
       SELECT user_id, MAX(ts) AS ts FROM (
-        SELECT s.created_by_user_id AS user_id, GREATEST(s.created_at, s.updated_at) AS ts
-          FROM reportable_signatures s
-          JOIN map_systems sys ON sys.id = s.system_id
-          JOIN maps         m  ON m.id   = sys.map_id
-          WHERE ${corpSql} AND s.created_by_user_id IS NOT NULL
+        SELECT user_id, created_at AS ts
+          FROM user_events
+          WHERE event_type = 'signature'
         UNION ALL
         SELECT a.created_by_user_id, GREATEST(a.created_at, a.updated_at)
           FROM map_anomalies a
@@ -782,17 +1108,16 @@ reportsRouter.get('/users', async (req, res) => {
       GROUP BY user_id
     ),
     sig_breakdown AS (
-      -- Count live signatures (not the historical event log) so deletions
-      -- are reflected. corp scope applies via the maps join so an admin
-      -- viewing the report only sees activity on their corp's maps.
-      SELECT s.created_by_user_id AS user_id, s.sig_type, COUNT(*)::int AS cnt
-      FROM reportable_signatures s
-      JOIN map_systems sys ON sys.id = s.system_id
-      JOIN maps         m  ON m.id   = sys.map_id
-      WHERE s.created_by_user_id IS NOT NULL
-        AND s.sig_type IS NOT NULL
-        AND ${corpSql}
-      GROUP BY s.created_by_user_id, s.sig_type
+      -- Historical scan activity from the event log — every signature the user
+      -- ever scanned, like Systems Added — NOT current live sigs. So a scan
+      -- still counts after the hole collapses / the sig despawns / an
+      -- overwrite-paste removes it, and cross-map-synced copies don't inflate
+      -- it (only real scans via createSignature log an event). Map-agnostic:
+      -- the count reflects the user's scanning wherever they did it.
+      SELECT user_id, sig_type, COUNT(*)::int AS cnt
+      FROM user_events
+      WHERE event_type = 'signature' AND sig_type IS NOT NULL
+      GROUP BY user_id, sig_type
     ),
     corp_system_events AS (
       SELECT e.user_id, e.event_type, COUNT(*)::int AS cnt
@@ -1053,4 +1378,106 @@ adminRouter.get('/audit', async (_req, res) => {
     LIMIT 200
   `);
   res.json({ entries: rows });
+});
+
+// ── ISK for extra maps ───────────────────────────────────────────────────────
+// Operating surface for the donation feature: whether the wallet reader is
+// working, donations that arrived from a character nobody has linked, and a
+// manual lever for refunds and goodwill.
+//
+// Every route here is behind requireAdmin (applied to the whole router) and
+// returns nothing unless the feature is enabled, so a corp or alliance
+// deployment sees an inert, empty surface.
+
+adminRouter.get('/isk-maps', async (_req, res) => {
+  if (!config.iskMaps.enabled) { res.json({ enabled: false }); return; }
+
+  const { rows: reader } = await db.query(
+    `SELECT character_id AS "characterId", character_name AS "characterName",
+            scopes, credit_from AS "creditFrom", last_ok_at AS "lastOkAt", last_error AS "lastError"
+       FROM wallet_reader WHERE character_id = $1`,
+    [config.iskMaps.readerCharId],
+  );
+  // Donations whose character isn't linked to any account. The poller re-matches
+  // these automatically if the donor links that character later, so anything
+  // lingering here genuinely needs a human.
+  const { rows: unmatched } = await db.query(
+    `SELECT journal_id AS "journalId", character_id AS "characterId", amount,
+            reason, occurred_at AS "occurredAt"
+       FROM isk_donations WHERE owner_id IS NULL
+      ORDER BY occurred_at DESC LIMIT 100`,
+  );
+  const { rows: totals } = await db.query<{ credited: string; matched: string }>(
+    `SELECT COALESCE(SUM(amount), 0) AS credited,
+            COALESCE(SUM(amount) FILTER (WHERE owner_id IS NOT NULL), 0) AS matched
+       FROM isk_donations`,
+  );
+
+  res.json({
+    enabled:      true,
+    corpId:       config.iskMaps.corpId,
+    readerCharId: config.iskMaps.readerCharId,
+    priceIsk:     config.iskMaps.priceIsk,
+    mapsPerGrant: config.iskMaps.mapsPerGrant,
+    reader:       reader[0] ?? null,
+    unmatched,
+    totalIsk:     Number(totals[0]?.credited ?? 0),
+    matchedIsk:   Number(totals[0]?.matched ?? 0),
+  });
+});
+
+// Attach an unmatched donation to an account, by any character of that account.
+adminRouter.post('/isk-maps/assign', async (req, res) => {
+  if (!config.iskMaps.enabled) { res.status(404).json({ error: 'not enabled' }); return; }
+  const journalId  = Number(req.body?.journalId);
+  const characterId = Number(req.body?.characterId);
+  if (!Number.isFinite(journalId) || !Number.isInteger(characterId) || characterId <= 0) {
+    res.status(400).json({ error: 'journalId and characterId are required' }); return;
+  }
+
+  const { rows: owner } = await db.query<{ owner_id: number | null }>(
+    `SELECT owner_id FROM users WHERE character_id = $1`, [characterId],
+  );
+  if (!owner.length || owner[0].owner_id == null) {
+    res.status(404).json({ error: 'No account found for that character' }); return;
+  }
+
+  // Only ever fills a NULL owner. An already-credited donation cannot be moved
+  // between accounts here, so a mis-click can't silently take maps off someone.
+  const { rowCount } = await db.query(
+    `UPDATE isk_donations SET owner_id = $1 WHERE journal_id = $2 AND owner_id IS NULL`,
+    [owner[0].owner_id, journalId],
+  );
+  if (!rowCount) { res.status(409).json({ error: 'Donation not found, or already assigned' }); return; }
+
+  await audit(req, req.session.userId!, characterId, 'isk_donation_assign', String(journalId), String(owner[0].owner_id));
+  res.json({ ok: true });
+});
+
+// Manual allowance adjustment: goodwill, a refund, or crediting something that
+// arrived outside the donation flow entirely.
+adminRouter.post('/isk-maps/bonus', async (req, res) => {
+  const characterId = Number(req.body?.characterId);
+  const bonus       = Number(req.body?.bonus);
+  if (!Number.isInteger(characterId) || characterId <= 0 || !Number.isInteger(bonus)) {
+    res.status(400).json({ error: 'characterId and an integer bonus are required' }); return;
+  }
+  if (bonus < -1000 || bonus > 1000) { res.status(400).json({ error: 'bonus out of range' }); return; }
+
+  const { rows } = await db.query<{ owner_id: number | null }>(
+    `SELECT owner_id FROM users WHERE character_id = $1`, [characterId],
+  );
+  if (!rows.length || rows[0].owner_id == null) {
+    res.status(404).json({ error: 'No account found for that character' }); return;
+  }
+
+  // Read the old value first rather than trying to get it back from RETURNING:
+  // a subquery there reads the statement's own snapshot and it is not obvious
+  // which value you get.
+  const { rows: before } = await db.query<{ map_bonus: number }>(
+    `SELECT map_bonus FROM owners WHERE id = $1`, [rows[0].owner_id],
+  );
+  await db.query(`UPDATE owners SET map_bonus = $1 WHERE id = $2`, [bonus, rows[0].owner_id]);
+  await audit(req, req.session.userId!, characterId, 'map_bonus', String(before[0]?.map_bonus ?? 0), String(bonus));
+  res.json({ ok: true });
 });

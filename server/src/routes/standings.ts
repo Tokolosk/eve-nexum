@@ -1,7 +1,9 @@
 import { Router } from 'express';
 import { db } from '../db.js';
+import { config } from '../config.js';
 import { requireAuth } from '../middleware/requireAuth.js';
-import { refreshStandingsForUser } from '../services/standings.js';
+import { refreshStandingsForUser, loadOrgContacts } from '../services/standings.js';
+import { revalidateActiveSessions } from '../services/accessRevalidate.js';
 import { decryptToken } from '../utils/tokenCrypto.js';
 import { createLogger } from '../utils/logger.js';
 
@@ -30,26 +32,16 @@ standingsRouter.get('/me', async (req, res) => {
   if (!userRows.length) { res.status(404).json({ error: 'User not found' }); return; }
   const { character_id, corp_id, alliance_id } = userRows[0];
 
-  const [charRows, corpRows, allianceRows, refreshRows] = await Promise.all([
+  const [charRows, corpContacts, allianceContacts, refreshRows] = await Promise.all([
     db.query<{ contact_kind: ContactKind; contact_id: number; standing: number }>(
       `SELECT contact_kind, contact_id, standing
        FROM character_standings WHERE character_id = $1`,
       [character_id],
     ),
-    corp_id !== null
-      ? db.query<{ contact_kind: ContactKind; contact_id: number; standing: number }>(
-          `SELECT contact_kind, contact_id, standing
-           FROM corp_standings WHERE corp_id = $1`,
-          [corp_id],
-        )
-      : Promise.resolve({ rows: [] as Array<{ contact_kind: ContactKind; contact_id: number; standing: number }> }),
-    alliance_id !== null
-      ? db.query<{ contact_kind: ContactKind; contact_id: number; standing: number }>(
-          `SELECT contact_kind, contact_id, standing
-           FROM alliance_standings WHERE alliance_id = $1`,
-          [alliance_id],
-        )
-      : Promise.resolve({ rows: [] as Array<{ contact_kind: ContactKind; contact_id: number; standing: number }> }),
+    // Corp/alliance buckets go through the shared read cache — these lists are
+    // shared across members and re-fetched by everyone on every poll.
+    corp_id !== null ? loadOrgContacts('corp', corp_id) : Promise.resolve([]),
+    alliance_id !== null ? loadOrgContacts('alliance', alliance_id) : Promise.resolve([]),
     db.query<{ owner_kind: string; last_fetched_at: string }>(
       `SELECT owner_kind, last_fetched_at FROM standings_refresh
        WHERE (owner_kind = 'character' AND owner_id = $1)
@@ -59,7 +51,7 @@ standingsRouter.get('/me', async (req, res) => {
     ),
   ]);
 
-  function toMap(rows: Array<{ contact_kind: ContactKind; contact_id: number; standing: number }>): Record<string, number> {
+  function toMap(rows: Array<{ contact_kind: string; contact_id: number; standing: number }>): Record<string, number> {
     const out: Record<string, number> = {};
     for (const r of rows) out[`${r.contact_kind}:${r.contact_id}`] = r.standing;
     return out;
@@ -73,8 +65,8 @@ standingsRouter.get('/me', async (req, res) => {
     corpId:      corp_id,
     allianceId:  alliance_id,
     character:   toMap(charRows.rows),
-    corp:        toMap(corpRows.rows),
-    alliance:    toMap(allianceRows.rows),
+    corp:        toMap(corpContacts),
+    alliance:    toMap(allianceContacts),
     refreshedAt,
   });
 });
@@ -84,8 +76,13 @@ standingsRouter.get('/me', async (req, res) => {
 // ESI calls succeeded (200), came back forbidden (403 — missing scope or
 // role), or failed otherwise. Useful both as a debug tool and as a
 // "refresh my standings now" button.
+//
+// Body { scope: 'org' } refreshes ONLY corp + alliance (skips personal) — used
+// by the access-page sync, which must never touch personal contacts. The
+// default ('all') refreshes personal too, for the system-info map tint.
 standingsRouter.post('/refresh', async (req, res) => {
   const userId = req.session.userId!;
+  const orgOnly = (req.body as { scope?: string } | undefined)?.scope === 'org';
 
   const { rows } = await db.query<{
     character_id: number;
@@ -99,13 +96,19 @@ standingsRouter.post('/refresh', async (req, res) => {
   if (!rows.length) { res.status(404).json({ error: 'User not found' }); return; }
   const { character_id, corp_id, alliance_id, access_token } = rows[0];
 
-  // Clear the throttle row(s) so refreshStandingsForUser doesn't skip.
+  // Clear the throttle row(s) so refreshStandingsForUser doesn't skip. An
+  // org-only sync leaves the personal throttle alone (it isn't refreshed).
+  if (!orgOnly) {
+    await db.query(
+      `DELETE FROM standings_refresh WHERE owner_kind = 'character' AND owner_id = $1`,
+      [character_id],
+    );
+  }
   await db.query(
     `DELETE FROM standings_refresh
-     WHERE (owner_kind = 'character' AND owner_id = $1)
-        OR (owner_kind = 'corp'      AND owner_id = $2)
-        OR (owner_kind = 'alliance'  AND owner_id = $3)`,
-    [character_id, corp_id ?? 0, alliance_id ?? 0],
+     WHERE (owner_kind = 'corp'     AND owner_id = $1)
+        OR (owner_kind = 'alliance' AND owner_id = $2)`,
+    [corp_id ?? 0, alliance_id ?? 0],
   );
 
   let token: string;
@@ -123,6 +126,7 @@ standingsRouter.post('/refresh', async (req, res) => {
       corpId:      corp_id,
       allianceId:  alliance_id,
       accessToken: token,
+      scope:       orgOnly ? 'org' : 'all',
     });
   } catch (err) {
     log.error('manual refresh failed:', err);
@@ -151,8 +155,26 @@ standingsRouter.post('/refresh', async (req, res) => {
   const refreshedAt: Record<string, string> = {};
   for (const r of refreshRows.rows) refreshedAt[r.owner_kind] = r.last_fetched_at;
 
+  // Access-page (org) sync: the freshly-pulled corp/alliance standings can mean a
+  // currently-logged-in user is no longer permitted (e.g. an auto-admitted corp's
+  // standing dropped below the threshold). Re-check live sessions and evict the
+  // no-longer-permitted now, instead of waiting for the periodic sweep. No-op in
+  // solo mode; never evicts the bootstrap admin. Skipped for the map-tint refresh
+  // (scope 'all'), which any user can trigger and which isn't an access action.
+  const revalidation = orgOnly
+    ? await revalidateActiveSessions()
+    : { usersEvicted: 0, sessionsKilled: 0, grantsPruned: 0 };
+
+  // Whether the syncing character actually belongs to the deployment's
+  // configured corp/alliance. Only a member can read that org's ESI contacts,
+  // so when this is false the org sync did nothing — the UI uses it to say
+  // "a member must sync" instead of a misleading "no role".
+  const inOrg = (corp_id !== null && config.corpIds.includes(corp_id))
+             || (alliance_id !== null && config.allianceIds.includes(alliance_id));
+
   res.json({
     ok: true,
+    inOrg,
     counts: {
       character: charCnt.rows[0]?.count ?? 0,
       corp:      corpCnt.rows[0]?.count ?? 0,
@@ -167,5 +189,6 @@ standingsRouter.post('/refresh', async (req, res) => {
       corp:      'corp'      in refreshedAt,
       alliance:  'alliance'  in refreshedAt,
     },
+    sessionsKilled: revalidation.sessionsKilled,
   });
 });

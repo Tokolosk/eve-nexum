@@ -1,9 +1,11 @@
 import { useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ArrowRightIcon, CaretDownIcon, CaretUpIcon } from '@phosphor-icons/react';
+import { ArrowRightIcon, CaretDownIcon, CaretUpIcon } from '../../icons';
 import type { MapSystem, SystemClass } from '../../types';
 import { CLASS_COLORS, CLASS_LABELS } from '../../data/wormholes';
+import { LEADS_TO_BANDS } from '../../utils/whDest';
 import { usePopover } from '../../hooks/usePopover';
+import { useSystemAlias } from '../../hooks/useSystemAlias';
 
 interface Props {
   value: string;
@@ -21,10 +23,9 @@ interface DestOption { value: string; label: string; color: string; }
 // worst class so the threat reads green → orange → red. C13 / Thera / Pochven /
 // Drifter stay individual (their descriptions are distinct), as does K-space.
 const J_SPACE: DestOption[] = [
-  // Stored values stay 'C1-C3' / 'C4-C5' (unchanged for existing data + matching);
-  // only the display labels get spaced hyphens.
-  { value: 'C1-C3', label: 'C1 - C3', color: CLASS_COLORS.C3 },
-  { value: 'C4-C5', label: 'C4 - C5', color: CLASS_COLORS.C5 },
+  // Bands (C1-C3 / C4-C5) come from the single source in whDest.ts; stored
+  // values stay 'C1-C3' / 'C4-C5' (unchanged for existing data + matching).
+  ...Object.entries(LEADS_TO_BANDS).map(([value, b]) => ({ value, label: b.label, color: b.color })),
   { value: 'C6',    label: 'C6',    color: CLASS_COLORS.C6 },
   { value: 'C13',     label: CLASS_LABELS.C13,     color: CLASS_COLORS.C13 },
   { value: 'Thera',   label: CLASS_LABELS.Thera,   color: CLASS_COLORS.Thera },
@@ -35,6 +36,7 @@ const K_SPACE: SystemClass[] = ['HS', 'LS', 'NS'];
 
 export function LeadsToDropdown({ value, onChange, connectedSystems = [] }: Props) {
   const { t } = useTranslation();
+  const aliasName = useSystemAlias();
   const { open, setOpen, pos, btnRef, dropdownRef, openAt } = usePopover();
   const [search, setSearch] = useState('');
   const searchRef = useRef<HTMLInputElement>(null);
@@ -68,7 +70,9 @@ export function LeadsToDropdown({ value, onChange, connectedSystems = [] }: Prop
   const band = value ? J_SPACE.find((o) => o.value === value) : undefined;
   const isClass = value ? value in CLASS_LABELS : false;
   const displayColor = band ? band.color : isClass ? CLASS_COLORS[value as SystemClass] : '#c0d0e8';
-  const displayLabel = band ? band.label : isClass ? CLASS_LABELS[value as SystemClass] : value;
+  // Free-form connected-system value: show its per-map alias when set (display
+  // only — the stored `value` stays the real system name).
+  const displayLabel = band ? band.label : isClass ? CLASS_LABELS[value as SystemClass] : aliasName(value);
 
   return (
     <div className="wh-picker">
@@ -128,7 +132,7 @@ export function LeadsToDropdown({ value, onChange, connectedSystems = [] }: Prop
                     onMouseDown={() => select(sys.name || sys.id)}
                   >
                     <span className="wh-picker__code" style={{ color: '#c0d0e8', minWidth: 'auto', marginRight: 4 }}>
-                      {sys.name || t('mapNode.unknown')}
+                      {aliasName(sys.name) || t('mapNode.unknown')}
                     </span>
                     <span className="wh-picker__arrow"><ArrowRightIcon size={11} weight="bold" /></span>
                     <span className="wh-picker__dest" style={{ color: CLASS_COLORS[sys.systemClass] }}>

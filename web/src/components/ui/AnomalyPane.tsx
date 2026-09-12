@@ -1,24 +1,25 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { api } from '../../api/client';
-import { useMapStore } from '../../store/mapStore';
+import i18n from '../../i18n';
+import { useMapStore, awaitSystemCreate } from '../../store/mapStore';
 import { useCanEditContent } from '../../hooks/useCanEditContent';
 import { useShareMode } from '../../context/ShareModeContext';
+import { systemDisplayName } from '../../utils/systemName';
 import { useUserSetting } from '../../hooks/useUserSetting';
 import { useClickOutside } from '../../hooks/useClickOutside';
 import type { Anomaly, AnomType } from '../../types';
-import { ConfirmModal, shouldSkipConfirm } from './ConfirmModal';
+import { parseAnomClipboard, type ParsedAnom } from '../../utils/anomParse';
+import { ConfirmModal } from './ConfirmModal';
+import { shouldSkipConfirm } from '../../utils/confirmPref';
 import { NotesEditor } from './NotesEditor';
-import { XIcon, ColumnsIcon } from '@phosphor-icons/react';
-import { toast } from './Toaster';
+import { Select } from './Select';
+import { XIcon, ColumnsIcon } from '../../icons';
+import { toast } from '../../utils/toastStore';
 import { duration, DASH } from '../../i18n/format';
 
 // Cosmic anomalies don't need scanning — the probe scanner lists them at 100%
-// straight away. The scanner's "group" column is "Cosmic Anomaly" (vs "Cosmic
-// Signature" for sigs), so a single Ctrl+A / Ctrl+C of the whole window can be
-// routed by group: this pane takes the anomalies, the signature pane takes the
-// signatures (see SignaturePane's parser, which now rejects anomaly rows).
-const ANOM_GROUP = 'cosmic anomaly';
+// straight away. Paste parsing and classification live in utils/anomParse.
 
 const ANOM_TYPE_LABELS: Record<AnomType, string> = {
   unknown:   'Unknown',
@@ -26,36 +27,6 @@ const ANOM_TYPE_LABELS: Record<AnomType, string> = {
   ore:       'Ore',
   homefront: 'Homefront',
 };
-
-// Scanner "type" column → our enum. Combat Site / Ore Site (ice belts also
-// report as Ore Sites — only the name differs) / Homefront Operations.
-const EVE_ANOM_TYPE: Record<string, AnomType> = {
-  'combat site':         'combat',
-  'ore site':            'ore',
-  'homefront operations': 'homefront',
-};
-
-interface ParsedAnom { anomId: string; anomType: AnomType; name: string; }
-
-function parseAnomClipboard(text: string): ParsedAnom[] {
-  return text
-    .split('\n')
-    .map((l) => l.trim())
-    .filter(Boolean)
-    .flatMap((line): ParsedAnom[] => {
-      const parts = line.split('\t');
-      const anomId = parts[0]?.trim().toUpperCase() ?? '';
-      if (!/^[A-Z]{3}-\d{3}$/.test(anomId)) return [];
-      // Only rows the scanner classes as a Cosmic Anomaly — everything else
-      // (signatures) is left for the signature pane.
-      if ((parts[1]?.trim().toLowerCase() ?? '') !== ANOM_GROUP) return [];
-      const type = parts[2]?.trim().toLowerCase() ?? '';
-      const anomType = EVE_ANOM_TYPE[type] ?? 'unknown';
-      const col3 = parts[3]?.trim() ?? '';
-      const name = /^\d+\.?\d*%$/.test(col3) ? '' : col3;
-      return [{ anomId, anomType, name }];
-    });
-}
 
 type SortCol = 'anomId' | 'anomType' | 'name' | 'createdAt' | 'updatedAt';
 type ColKey  = 'id' | 'type' | 'name' | 'notes' | 'created' | 'updated';
@@ -222,6 +193,8 @@ export function AnomalyPane({ systemId }: { systemId: string }) {
     if (!activeMapId) return;
     for (const tm of removalTimers.current.values()) clearTimeout(tm);
     removalTimers.current.clear();
+    // Deliberate: clears this pane's own state when the record it shows changes.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setRemoving(new Set());
     setAnoms([]);
     setSelected(new Set());
@@ -231,9 +204,18 @@ export function AnomalyPane({ systemId }: { systemId: string }) {
     // panel is hidden in share mode (see SystemPanel), so just bail.
     if (isShareMode) return;
 
-    api<Anomaly[]>(`/api/maps/${activeMapId}/systems/${systemId}/anomalies`)
-      .then(setAnoms)
-      .catch(() => toast.error(t('anomalies.loadFailed')));
+    // Wait for a just-jumped-to system's create POST to commit before fetching,
+    // or the GET 404s ("Failed to load anomalies"). Existing systems fetch now.
+    let cancelled = false;
+    const fetchAnoms = () => {
+      if (cancelled) return;
+      api<Anomaly[]>(`/api/maps/${activeMapId}/systems/${systemId}/anomalies`)
+        .then((data) => { if (!cancelled) setAnoms(data); })
+        .catch(() => { if (!cancelled) toast.error(i18n.t('anomalies.loadFailed')); });
+    };
+    const pending = awaitSystemCreate(systemId);
+    if (pending) void pending.then(fetchAnoms); else fetchAnoms();
+    return () => { cancelled = true; };
   }, [activeMapId, systemId, isShareMode]);
 
   // Live sync: re-fetch in place when a remote client changes this system's
@@ -359,8 +341,10 @@ export function AnomalyPane({ systemId }: { systemId: string }) {
       const delaySec = overwriteDelay;
 
       if (currentSystemId && currentSystemId !== systemId) {
-        const currentName  = map.systems.find((s) => s.id === currentSystemId)?.name  ?? 'unknown';
-        const selectedName = map.systems.find((s) => s.id === systemId)?.name ?? 'unknown';
+        const cur = map.systems.find((s) => s.id === currentSystemId);
+        const sel = map.systems.find((s) => s.id === systemId);
+        const currentName  = cur ? systemDisplayName(cur) : 'unknown';
+        const selectedName = sel ? systemDisplayName(sel) : 'unknown';
         setPendingAction({
           message: t('anomalies.pasteDifferentSystem', { current: currentName, selected: selectedName }),
           fn: () => processPaste(parsed, overwrite, delaySec),
@@ -475,6 +459,11 @@ export function AnomalyPane({ systemId }: { systemId: string }) {
       {anoms.length === 0 && (
         <p className="sig-pane__hint">{t('anomalies.pasteHint')}</p>
       )}
+      {/* Filters and actions share ONE row. This pane is tall and vertical space
+          is the scarce resource here, so the two no longer take a line each.
+          The filter is placed on the left with CSS `order` rather than by
+          moving the markup, which keeps the tab order (actions first) intact. */}
+      <div className="sig-pane__controls">
       {canEdit && (
         <div className="sig-pane__toolbar">
           <button className="icon-btn" onClick={addAnom} title={t('anomalies.addAnomaly')}>{t('anomalies.addAnomaly')}</button>
@@ -490,19 +479,16 @@ export function AnomalyPane({ systemId }: { systemId: string }) {
             />
             <span>{t('anomalies.overwriteToggle')}</span>
           </label>
-          <select
-            className="sig-toolbar-btn"
-            value={overwriteDelay}
-            onChange={(e) => setOverwriteDelay(Number(e.target.value))}
-            aria-label={t('anomalies.removeDelayLabel')}
-            data-tooltip={t('anomalies.removeDelayTooltip')}
-          >
-            {OVERWRITE_DELAY_OPTIONS.map((s) => (
-              <option key={s} value={s}>
-                {s === 0 ? t('anomalies.removeDelayInstant') : formatDelay(s)}
-              </option>
-            ))}
-          </select>
+          <Select
+            value={String(overwriteDelay)}
+            onChange={(v) => setOverwriteDelay(Number(v))}
+            ariaLabel={t('anomalies.removeDelayLabel')}
+            title={t('anomalies.removeDelayTooltip')}
+            options={OVERWRITE_DELAY_OPTIONS.map((s) => ({
+              value: String(s),
+              label: s === 0 ? t('anomalies.removeDelayInstant') : formatDelay(s),
+            }))}
+          />
           {selected.size > 0 && (
             <button className="sig-toolbar-btn sig-toolbar-btn--danger" onClick={deleteSelected}>
               {t('anomalies.deleteSelected', { count: selected.size })}
@@ -563,6 +549,7 @@ export function AnomalyPane({ systemId }: { systemId: string }) {
           </div>
         </div>
       )}
+      </div>
 
       {anoms.length === 0 ? (
         <div className="sig-pane__empty">{t('anomalies.empty')}</div>
@@ -651,15 +638,16 @@ export function AnomalyPane({ systemId }: { systemId: string }) {
                   />
                 </td>
                 <td>
-                  <select
-                    className={`sig-select sig-select--type sig-select--type-${anom.anomType}`}
+                  <Select
+                    className="sig-type-select"
                     value={anom.anomType}
-                    onChange={(e) => updateAnom(anom.id, { anomType: e.target.value as AnomType })}
-                  >
-                    {ANOM_TYPE_OPTIONS.map((at) => (
-                      <option key={at} value={at}>{anomTypeLabel(at)}</option>
-                    ))}
-                  </select>
+                    onChange={(v) => updateAnom(anom.id, { anomType: v as AnomType })}
+                    options={ANOM_TYPE_OPTIONS.map((at) => ({
+                      value: at,
+                      text:  anomTypeLabel(at),
+                      label: <span className={`sig-select--type-${at}`}>{anomTypeLabel(at)}</span>,
+                    }))}
+                  />
                 </td>
                 <td>
                   <input

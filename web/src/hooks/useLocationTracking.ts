@@ -1,10 +1,14 @@
 import { useEffect, useRef } from 'react';
 import { useMapStore, getPlacementCell, registerPlacementFix } from '../store/mapStore';
-import { useCharacterLocation } from './useCharacterLocation';
+import { useCharacterLocation, useCharacterLocationCheckedAt } from './useCharacterLocation';
+import { useClones, cloneSystemIds } from './useClones';
 import { useCanEdit } from './useCanEdit';
+import { useAuth } from '../context/AuthContext';
 import { readUserSetting } from './useUserSetting';
 import { pickHandles } from '../components/map/edgeUtils';
 import { maybeConfirmWhJump } from './whJumpConfirm';
+import { prefetchStargateNeighbors, isDefiniteWormholeHop } from '../utils/stargateAdjacency';
+import { recordConnectionJump } from '../utils/recordConnectionJump';
 import type { SystemClass, WormholeEffect } from '../types';
 
 interface Box { position: { x: number; y: number } }
@@ -19,7 +23,7 @@ const GRID = 20;
 // Auto-placed systems always sit a consistent 3 grid squares clear of the
 // system they're placed next to — rather than a node-width-dependent gap that
 // drifted as the uniform-size max grew.
-const PLACEMENT_GAP = 3 * GRID;
+export const PLACEMENT_GAP = 3 * GRID;
 const ceilToGrid  = (n: number) => Math.ceil(n / GRID) * GRID;
 const roundToGrid = (n: number) => Math.round(n / GRID) * GRID;
 
@@ -57,7 +61,7 @@ const FALLBACK_BY_DIR: Record<PlacementDirection, [number, number]> = {
 // the source when horizontal, below it when vertical), then the rest of the
 // ring, then outward on wider rings. Each candidate is collision-checked
 // against every node, so it also dodges unrelated systems sitting in a slot.
-function findFreePosition(
+export function findFreePosition(
   source: { x: number; y: number },
   systems: Box[],
   w: number,
@@ -66,8 +70,15 @@ function findFreePosition(
   direction: PlacementDirection,
   snap: boolean,
 ): { x: number; y: number } {
+  // When snap-to-grid is on and the source isn't grid-aligned, `place()` rounds
+  // each candidate up to GRID/2 toward its neighbours. The up/left cardinal
+  // slots sit at an exact box boundary, so that rounding tips them into a false
+  // collision and the ring silently skips those directions — nothing ever lands
+  // above/left of the source. Relax the collision margin by that rounding
+  // tolerance so every slot stays reachable; the step spacing is unchanged.
+  const collideGap = snap ? Math.max(0, gap - GRID / 2) : gap;
   const collides = (x: number, y: number) =>
-    systems.some((s) => boxesOverlap(x, y, s.position.x, s.position.y, w, h, gap));
+    systems.some((s) => boxesOverlap(x, y, s.position.x, s.position.y, w, h, collideGap));
 
   // Grid-aligned step: a whole node footprint rounded up to the grid plus the
   // fixed gap, so spacing is consistent instead of drifting with node width.
@@ -98,6 +109,12 @@ export interface JumpSystem {
   npcType:     string | null;
 }
 
+// K-space classes suppressed by the opt-in "don't track K-space" setting.
+// Pochven is deliberately NOT here — it's wormhole-relevant, so it's always
+// tracked like J-space.
+const KSPACE_SKIP = new Set(['HS', 'LS', 'NS']);
+const isKspaceSkip = (cls: string) => KSPACE_SKIP.has(cls);
+
 /**
  * Apply one "the player is now in `system`, arriving from `prevMapSystemId`"
  * jump to the active map: reuse the system if it's already placed, otherwise
@@ -109,13 +126,54 @@ export interface JumpSystem {
  * Shared by the live tracker below and `nexumDebug.simulateJumps`, so the
  * console debug tool drives the exact same placement code as a real jump.
  */
-export function applyJump(system: JumpSystem, prevMapSystemId: string | null, canAdd: boolean): string | null {
-  const { map, addSystem, addConnection, updateConnection, snapToGrid } = useMapStore.getState();
+/** Fired when a jump traversed a mapped connection — carries the connection and
+ *  its endpoints so a caller can log the crossing (jump log). Never affects
+ *  placement or mass. */
+export type OnConnectionJump = (info: { connId: string; fromMapSystemId: string; toMapSystemId: string }) => void;
+
+// A jump is only trusted when the two readings that bracket it are close
+// together. This sits well clear of one minute on purpose: a hidden tab -- which
+// is where the mapper usually is, behind the game client -- gets its timers
+// clamped by the browser to roughly one tick per minute, so a threshold near 60s
+// would start discarding perfectly real connections during ordinary background
+// use. Three minutes is long enough that normal throttling never trips it, and
+// short enough to catch the case this guards: a pilot crossing several systems
+// while tracking was stalled.
+const MAX_TRACKING_GAP_MS = 180_000;
+
+export function applyJump(
+  system: JumpSystem,
+  prevMapSystemId: string | null,
+  canAdd: boolean,
+  onJump?: OnConnectionJump,
+  /** True when the pilot got here by clone jump rather than by flying — the
+   *  system is still recorded, but no connection is drawn to it. */
+  teleported = false,
+): string | null {
+  const { map, addSystem, addConnection, updateConnection, updateSystem, snapToGrid } = useMapStore.getState();
 
   let mapSystemId: string;
-  const existing = map.systems.find((s) => s.eveSystemId === system.eveSystemId);
+  // Match by eve id; also match an UNRESOLVED (null eve id) node by name — e.g. a
+  // demo-map or manually-typed node that never resolved its system id — so the
+  // jump upgrades it in place instead of dropping a duplicate. "Unknown"
+  // placeholders never collide (their name isn't a real system name).
+  const existing = map.systems.find((s) =>
+    (s.eveSystemId != null && s.eveSystemId === system.eveSystemId) ||
+    (s.eveSystemId == null && s.name.toLowerCase() === system.name.toLowerCase()),
+  );
   if (existing) {
     mapSystemId = existing.id;
+    // Fill an unresolved node in with the real system's details.
+    if (existing.eveSystemId == null && system.eveSystemId != null) {
+      updateSystem(existing.id, {
+        eveSystemId: system.eveSystemId,
+        systemClass: system.systemClass as SystemClass,
+        effect:      system.effect as WormholeEffect,
+        statics:     system.statics,
+        regionName:  system.regionName,
+        npcType:     system.npcType,
+      });
+    }
   } else {
     if (!canAdd) return null;
     // Placement cell = the largest full node footprint (height included), so
@@ -157,8 +215,12 @@ export function applyJump(system: JumpSystem, prevMapSystemId: string | null, ca
     }
   }
 
+  // `teleported` records the system but draws no connection: a clone jump puts
+  // the pilot somewhere with no hole between the two, and drawing one invents a
+  // wormhole that was never there.
   let jumpConnId: string | null = null;
-  if (canAdd && prevMapSystemId && prevMapSystemId !== mapSystemId && map.systems.some((s) => s.id === prevMapSystemId)) {
+  if (!teleported
+      && canAdd && prevMapSystemId && prevMapSystemId !== mapSystemId && map.systems.some((s) => s.id === prevMapSystemId)) {
     const freshConnections = useMapStore.getState().map.connections;
     const existingConn = freshConnections.find(
       (c) =>
@@ -193,9 +255,83 @@ export function applyJump(system: JumpSystem, prevMapSystemId: string | null, ca
       toName:          system.name,
       connId:          jumpConnId,
     });
+    // Log this crossing for the jump log (wormhole connections only — the callback
+    // itself gates on the connection's gate classification). Intel only.
+    onJump?.({ connId: jumpConnId, fromMapSystemId: prevMapSystemId, toMapSystemId: mapSystemId });
   }
 
   return mapSystemId;
+}
+
+/**
+ * One jump through the "don't track K-space" filter, funnelling to `applyJump`.
+ * Shared by the live tracker AND `nexumDebug.simulateJumps`, so the simulator
+ * reproduces exactly what real flying records.
+ *
+ * With `skipKspace` off it's a plain `applyJump`. With it on, only the K-space
+ * systems bordering a J-space jump are recorded: the first entered from J-space,
+ * and the last before jumping back into J-space (added retroactively here).
+ * Intermediate K-space is dropped. Returns the resulting map-system id (or null
+ * when nothing was recorded) plus how the caller should advance its connection
+ * anchor: a node id, null (clear), or 'keep' (a skipped system must not become
+ * the anchor). `prev` is the previous PHYSICAL system, mapped or not.
+ */
+export function applyTrackedJump(
+  curr: JumpSystem,
+  prev: JumpSystem | null,
+  prevMapSystemId: string | null,
+  opts: { skipKspace: boolean; canAdd: boolean; teleported?: boolean },
+  onJump?: OnConnectionJump,
+): { mapSystemId: string | null; anchor: string | null | 'keep' } {
+  const tp = opts.teleported ?? false;
+  const skip = opts.skipKspace && opts.canAdd;
+  const systems = () => useMapStore.getState().map.systems;
+
+  if (skip && isKspaceSkip(curr.systemClass)) {
+    // Warm this system's stargate neighbours so the NEXT hop out of it can be
+    // classified (gate vs wormhole) synchronously.
+    prefetchStargateNeighbors(curr.eveSystemId);
+    // Arriving in K-space: keep it when jumping in FROM J-space (the first
+    // K-space of this excursion), OR when the hop from a previous K-space system
+    // was NOT via a stargate — non-adjacent K-space systems mean a wormhole /
+    // Ansiblex was used, and that connection is exactly what the map is for.
+    // Only a plain gate hop through intermediate K-space is dropped.
+    const fromJspace = prev !== null && !isKspaceSkip(prev.systemClass);
+    const viaWormhole = prev !== null && isKspaceSkip(prev.systemClass)
+      && isDefiniteWormholeHop(prev.eveSystemId, curr.eveSystemId);
+    if (fromJspace) {
+      // First K-space of this excursion, entered from J-space: the J-space
+      // departure is the live anchor, so connect straight from it.
+      const mapSystemId = applyJump(curr, prevMapSystemId, true, onJump, tp);
+      return { mapSystemId, anchor: mapSystemId };
+    }
+    if (viaWormhole) {
+      // Wormhole / Ansiblex out of a K-space system into another K-space one.
+      // The departure system (`prev`) may itself have been a skipped gate
+      // arrival, in which case the anchor (`prevMapSystemId`) is a stale, far-off
+      // system — connecting from it would fabricate a bogus link and record the
+      // crossing against the wrong system's holes. Connect from the ACTUAL
+      // departure, adding it if it was skipped, exactly like the K-space ->
+      // J-space jump below.
+      const prevOnMap = systems().find((s) => s.eveSystemId === prev!.eveSystemId)?.id ?? null;
+      const source = prevOnMap ?? applyJump(prev!, null, true, undefined, tp);
+      const mapSystemId = applyJump(curr, source, true, onJump, tp);
+      return { mapSystemId, anchor: mapSystemId };
+    }
+    return { mapSystemId: systems().find((s) => s.eveSystemId === curr.eveSystemId)?.id ?? null, anchor: 'keep' };
+  }
+
+  if (skip && prev !== null && isKspaceSkip(prev.systemClass)) {
+    // Arriving in J-space (or Pochven) from K-space: record the K-space system
+    // we jumped from — retroactively if it was skipped — and link it to here.
+    const prevOnMap = systems().find((s) => s.eveSystemId === prev.eveSystemId)?.id ?? null;
+    const source = prevOnMap ?? applyJump(prev, null, true, undefined, tp); // add the last K-space isolated
+    const mapSystemId = applyJump(curr, source, true, onJump, tp); // then connect it through
+    return { mapSystemId, anchor: mapSystemId };
+  }
+
+  const mapSystemId = applyJump(curr, prevMapSystemId, opts.canAdd, onJump, tp);
+  return { mapSystemId, anchor: mapSystemId };
 }
 
 /**
@@ -206,15 +342,41 @@ export function applyJump(system: JumpSystem, prevMapSystemId: string | null, ca
  */
 export function useLocationTracking(enabled: boolean) {
   const location = useCharacterLocation();
+  // When the location was last READ successfully, not when it last changed. The
+  // gap between consecutive reads is what says whether a jump can be trusted.
+  const checkedAt = useCharacterLocationCheckedAt();
+  const clones = useClones();
+  const { user } = useAuth();
+  // The effective acting character (pin, else this tab's own character). Any
+  // change to it must reset the jump refs below, so the new character's system
+  // isn't linked back to the previous character's as a bogus connection.
+  const followedId = useMapStore((s) => s.routeOrigin?.charId ?? null) ?? user?.id ?? null;
   const canEdit  = useCanEdit();
   const lastEveSystemId = useRef<number | null>(null);
   const lastMapSystemId = useRef<string | null>(null);
   const lastActiveMapId = useRef<string | null>(null);
+  // The character we were following on the last pass. Switching the followed
+  // character must reset the jump refs (see below) so the new character's
+  // current system isn't drawn as a jump FROM the previous character's system.
+  const lastFollowedId = useRef<number | null>(null);
+  // The pilot's previous PHYSICAL system (whether or not it was recorded on the
+  // map). Needed for the "don't track K-space" option, which has to look at the
+  // departure system's class — and retroactively add the last K-space system
+  // when the pilot jumps from it into J-space.
+  const prevPhysical = useRef<JumpSystem | null>(null);
   // The eve system we last auto-selected. Guards the "follow the character"
   // selection so it fires only on a GENUINE move — not when ESI's online flag
   // flickers (which resets lastEveSystemId and would otherwise re-select the
   // same system, yanking the user off whatever they'd manually clicked).
   const lastSelectedEveId = useRef<number | null>(null);
+  // The ship's ITEM id when we last saw the pilot — the specific hull, not its
+  // type. Fly a hole or a gate and it's the same hull the whole way; die or
+  // activate a jump clone and you wake in a different one. The type alone
+  // isn't enough: being podded while already in a pod, or clone jumping from a
+  // pod, is Capsule to Capsule and looks like nothing changed.
+  const lastShipItemId = useRef<number | null>(null);
+  // The previous successful location read, for measuring the gap to this one.
+  const lastCheckedAt = useRef<number | null>(null);
 
   useEffect(() => {
     if (!enabled) return;
@@ -224,21 +386,72 @@ export function useLocationTracking(enabled: boolean) {
     // next location update rather than racing addSystem against an empty store.
     if (!map.id) return;
 
-    // Reset refs when the active map changes
-    if (map.id !== lastActiveMapId.current) {
+    // Reset refs when the active map changes OR the followed character changes.
+    // A new followed character's current system must not be linked back to the
+    // previous character's last system (a bogus cross-character connection).
+    if (map.id !== lastActiveMapId.current || followedId !== lastFollowedId.current) {
       lastActiveMapId.current = map.id;
+      lastFollowedId.current = followedId;
       lastEveSystemId.current = null;
       lastMapSystemId.current = null;
       lastSelectedEveId.current = null;
+      prevPhysical.current = null;
+      lastShipItemId.current = null;
+      lastCheckedAt.current = null;
     }
 
     const system = location.system;
     if (!location.online || !system) {
       lastEveSystemId.current = null;
       lastMapSystemId.current = null;
+      prevPhysical.current = null;
+      lastShipItemId.current = null;
+      lastCheckedAt.current = null;
       setCurrentSystem(null);
       return;
     }
+
+    // Did they fly here, or wake up here? A clone jump has to satisfy BOTH of
+    // these, because either one alone gets it wrong:
+    //
+    //   hull changed  — fly a hole or a gate and it's the same hull the whole
+    //     way; die or activate a jump clone and you wake in a different one.
+    //     Alone it's wrong when you're podded AT a hole and jump through it in
+    //     the pod, which would suppress a wormhole that really exists.
+    //   arrived at one of this pilot's clones — medical or jump. Alone it's
+    //     wrong when you legitimately fly to a system you keep a clone in, which
+    //     for staging systems is most of the time.
+    //
+    // Only a clone jump makes both true: dying at a hole doesn't put you at your
+    // medical clone, and flying to your staging doesn't change your hull.
+    //
+    // Computed and recorded BEFORE the unchanged-system return below: swapping
+    // ship while sitting still has to update the remembered hull too, or the
+    // next genuine jump would compare against a stale one and lose its
+    // connection.
+    const shipItemIdNow = location.ship?.itemId ?? null;
+    const hullChanged =
+      lastShipItemId.current != null && shipItemIdNow != null
+      && lastShipItemId.current !== shipItemIdNow;
+    if (shipItemIdNow != null) lastShipItemId.current = shipItemIdNow;
+    // No clone data (scope not yet granted, ESI down) means no suppression at
+    // all — the old behaviour. A missing connection nobody notices is worse than
+    // a wrong one somebody deletes.
+    const cloneJumped = hullChanged && cloneSystemIds(clones).has(system.eveSystemId);
+
+    // How long since the last SUCCESSFUL read. A pilot who has been unobserved
+    // for minutes may have crossed several systems, so the change we are looking
+    // at is not necessarily one jump: connecting its ends would assert a hole
+    // that does not exist, which is worse than drawing nothing. A missing
+    // connection is obvious and a scout adds it; a false one makes the map lie
+    // about topology and routes people through a hole that isn't there.
+    const prevCheckedAt = lastCheckedAt.current;
+    if (checkedAt != null) lastCheckedAt.current = checkedAt;
+    const unobserved = prevCheckedAt != null && checkedAt != null
+      && checkedAt - prevCheckedAt > MAX_TRACKING_GAP_MS;
+
+    // Same treatment as a clone jump: record the system, draw no connection.
+    const teleported = cloneJumped || unobserved;
 
     if (system.eveSystemId === lastEveSystemId.current) return;
 
@@ -252,31 +465,64 @@ export function useLocationTracking(enabled: boolean) {
     }
     lastEveSystemId.current = system.eveSystemId;
 
+    const curr: JumpSystem = {
+      eveSystemId: system.eveSystemId,
+      name:        system.name,
+      systemClass: system.systemClass,
+      effect:      system.effect,
+      statics:     system.statics,
+      regionName:  system.regionName ?? null,
+      npcType:     system.npcType ?? null,
+    };
+    const prev = prevPhysical.current;
+    prevPhysical.current = curr; // remember the physical location for the next jump
+
+    // When this tab follows a PINNED character (a routeOrigin override, not the
+    // session-active one), keep that override's location live as they fly — so
+    // route calcs and centring track their current system, not the pin-time
+    // snapshot. Only the location fields change; charId / name are preserved.
+    if (followedId != null) {
+      const ro = useMapStore.getState().routeOrigin;
+      if (ro && ro.charId === followedId) {
+        useMapStore.getState().setRouteOrigin({
+          ...ro,
+          eveSystemId: system.eveSystemId,
+          systemName:  system.name,
+          systemClass: system.systemClass,
+        });
+      }
+    }
+
     // A locked map never grows from passive tracking, nor does one a readonly /
     // no-topology user is viewing; track-jumps off opts out of auto-add too.
     const trackJumps = useMapStore.getState().trackJumps;
     const canAdd = trackJumps && !map.locked && canEdit;
-    const mapSystemId = applyJump(
-      {
-        eveSystemId: system.eveSystemId,
-        name:        system.name,
-        systemClass: system.systemClass,
-        effect:      system.effect,
-        statics:     system.statics,
-        regionName:  system.regionName ?? null,
-        npcType:     system.npcType ?? null,
-      },
-      prevMapSystemId,
-      canAdd,
-    );
+    // On a corp/alliance map the map-level policy overrides everyone's personal
+    // setting; personal maps keep using the per-user setting.
+    const skipKspace = (map.isCorpMap || map.isAllianceMap)
+      ? !!map.skipKspace
+      : readUserSetting<boolean>('nexum.tracking.skipKspace', false);
+
+    // Log this pilot's own wormhole crossings to the connection jump log (shared
+    // intel). Only when we know their ship; attributed to the acting character
+    // (a pinned alt or this tab's own char), verified server-side. Fires only for
+    // a real mapped connection, and never mutates mass.
+    const shipTypeId = location.ship?.typeId ?? null;
+    const onJump: OnConnectionJump | undefined = (canAdd && shipTypeId != null)
+      ? ({ connId, fromMapSystemId, toMapSystemId }) => recordConnectionJump({
+          mapId: map.id, connId, fromMapSystemId, toMapSystemId, shipTypeId, actingCharId: followedId,
+        })
+      : undefined;
+
+    const { mapSystemId, anchor } = applyTrackedJump(curr, prev, prevMapSystemId, { skipKspace, canAdd, teleported }, onJump);
+    if (anchor !== 'keep') lastMapSystemId.current = anchor;
+
     if (mapSystemId === null) {
-      // Not on the map and not allowed to add — record nothing, just clear.
-      lastMapSystemId.current = null;
+      // On an untracked system (skipped K-space, or can't-add and not on map).
       setCurrentSystem(null);
       return;
     }
 
-    lastMapSystemId.current = mapSystemId;
     setCurrentSystem(mapSystemId);
     // Follow the character onto the new system only when it's genuinely a
     // different system than the one we last auto-selected. An ESI online-status
@@ -286,5 +532,5 @@ export function useLocationTracking(enabled: boolean) {
       lastSelectedEveId.current = system.eveSystemId;
       selectSystem(mapSystemId, { fromJump: true });
     }
-  }, [enabled, location, canEdit]);
+  }, [enabled, location, checkedAt, canEdit, followedId, clones]);
 }

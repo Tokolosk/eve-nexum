@@ -8,11 +8,18 @@ import {
 import type { Connection, Node, Edge, EdgeChange, NodeChange } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 
-import { useMapStore } from '../../store/mapStore';
+import { useMapStore, getPlacementCell } from '../../store/mapStore';
 import { useAuth } from '../../context/AuthContext';
 import { useAccountLocations } from '../../hooks/useAccountLocations';
 import { useWatchlistAlerts } from '../../hooks/useWatchlistAlerts';
+import { useExitAlerts } from '../../hooks/useExitAlerts';
 import { useMapSignatureIndex } from '../../hooks/useMapSignatureIndex';
+import { useUndivedWormholeIndex } from '../../hooks/useUndivedWormholeIndex';
+import { useLeadsToIndex } from '../../hooks/useLeadsToIndex';
+import { useReviveBackedConnections } from '../../hooks/useReviveBackedConnections';
+import { useJumpRange } from '../../hooks/useJumpRange';
+import { useWormholeTypes } from '../../hooks/useWormholeTypes';
+import { knownMaxLifeHours, effectiveExpiryMs, lifeBucket, type TimeBucket } from '../../utils/whLifetime';
 import { useCanEdit } from '../../hooks/useCanEdit';
 import { useMinimapPosition } from '../../hooks/useMinimapPosition';
 import { useShareMode } from '../../context/ShareModeContext';
@@ -20,25 +27,44 @@ import { SystemNode } from './SystemNode';
 import { ConnectionEdge } from './ConnectionEdge';
 import { AddSystemModal } from '../ui/AddSystemModal';
 import { ContextMenu } from '../ui/ContextMenu';
-import { ConfirmModal, shouldSkipConfirm } from '../ui/ConfirmModal';
+import type { ContextMenuItem } from '../ui/ContextMenu';
+import { ConfirmModal } from '../ui/ConfirmModal';
+import { shouldSkipConfirm } from '../../utils/confirmPref';
 import {
   PathIcon, MapPinSimpleIcon, HouseIcon, LockIcon, LockOpenIcon,
   XIcon, CheckIcon, PlusIcon, SelectionAllIcon, EyeIcon, CrosshairSimpleIcon,
   LinkSimpleIcon, LinkBreakIcon, ArrowsOutIcon, BookmarkSimpleIcon, TextAaIcon, TrashIcon,
   HashIcon, ProhibitIcon,
-} from '@phosphor-icons/react';
+} from '../../icons';
 import { PREDEFINED_LABELS } from '../../data/labels';
 
 // Quick-tag character set: all letters then all digits, laid out in the grid
 // flyout. A single one of these (or none) marks a system via map_systems.tag.
 const TAG_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'.split('');
+
+// K-space class values (from solar_systems.class). Only these systems have
+// stargates, so the "Add adjacent" menu item is offered for them alone.
+const KSPACE_CLASSES = new Set<string>(['HS', 'LS', 'NS']);
+type AdjacentSystem = {
+  eveSystemId: number; name: string; security: number | null;
+  systemClass: string; regionName: string | null;
+};
 import { CustomLabelDialog } from '../ui/CustomLabelDialog';
-import type { MapSystem, SystemIntel } from '../../types';
+import { PromptModal } from '../ui/PromptModal';
+import type { MapSystem, SystemIntel, SystemClass } from '../../types';
+import { isDefiniteWormholeHop, prefetchStargateNeighbors } from '../../utils/stargateAdjacency';
+import { api } from '../../api/client';
+import { truesecColor } from '../../utils/truesec';
+import { readUserSetting } from '../../hooks/useUserSetting';
+import { findFreePosition, normalizePlacement, PLACEMENT_GAP } from '../../hooks/useLocationTracking';
 import { CLASS_COLORS } from '../../data/wormholes';
 import { cssVarToHex } from '../../utils/cssVar';
+import { useJumpRangeStore } from '../../store/jumpRangeStore';
+import { useGateJumps } from '../../hooks/useGateJumps';
 import { pickHandles } from './edgeUtils';
 import { setDestination, addWaypoint } from '../../api/waypoint';
-import { toast } from '../ui/Toaster';
+import { toast } from '../../utils/toastStore';
+import i18n from '../../i18n';
 import { useCustomIntel } from '../../hooks/useCustomIntel';
 import { useUserSetting } from '../../hooks/useUserSetting';
 import { useCurrentHourKills } from '../../hooks/useCurrentHourKills';
@@ -46,6 +72,18 @@ import { useFleet } from '../../hooks/useFleet';
 import { HeatmapContext } from '../../context/HeatmapContext';
 import { heatValue, type HeatMetric } from '../../utils/heatmap';
 import { resolveIntelColor } from '../../utils/intelColors';
+
+// Modifier keys that add a system to the current selection on click, alongside
+// the shift-drag selection box.
+//
+// Ctrl on Windows/Linux, Cmd on macOS — NOT both. On a Mac, Ctrl+click IS a
+// right-click: it fires `contextmenu`, which opens the node menu, and no click
+// event follows. Binding Ctrl there would advertise a gesture that either does
+// nothing or fights the context menu, so each platform gets the modifier its
+// users already expect for multi-select.
+const IS_MAC = typeof navigator !== 'undefined'
+  && /mac|iphone|ipad|ipod/i.test(navigator.userAgent);
+const MULTI_SELECT_KEYS = ['Shift', IS_MAC ? 'Meta' : 'Control'];
 
 const NODE_TYPES = { system: SystemNode };
 
@@ -94,6 +132,9 @@ interface CtxMenu {
   nodeId?: string;
   edgeId?: string;
   selectedNodeIds?: string[]; // snapshot taken at right-click time before RF resets selection
+  openedAt?: number;          // Date.now() when opened, so the lifetime submenu can
+                              // show the same live bucket as the edge without calling
+                              // Date.now() during render (react-compiler purity rule)
 }
 
 function systemToNode(sys: MapSystem, selectedId: string | null, easyConnect = false, canEdit = true, dimmed = false, routeHighlighted = false): Node {
@@ -109,11 +150,21 @@ function systemToNode(sys: MapSystem, selectedId: string | null, easyConnect = f
 
 export function MapCanvas() {
   const { t } = useTranslation();
+  const whTypes = useWormholeTypes();
   useMapSignatureIndex();
+  useUndivedWormholeIndex();
+  useLeadsToIndex();
+  useReviveBackedConnections();
+  // Drives the jump-range overlay from the store's staging system, so the
+  // "Jump range from here" context-menu action highlights reachable systems
+  // even when the Jump Range pane isn't open.
+  useJumpRange();
   useWatchlistAlerts();
+  useExitAlerts();
   const systems              = useMapStore((s) => s.map.systems);
   const connections          = useMapStore((s) => s.map.connections);
   const selectedSystemId     = useMapStore((s) => s.selectedSystemId);
+  const selectSystem         = useMapStore((s) => s.selectSystem);
   const selectedConnectionId = useMapStore((s) => s.selectedConnectionId);
   const routeHighlight       = useMapStore((s) => s.routeHighlight);
   const snapToGrid           = useMapStore((s) => s.snapToGrid);
@@ -131,7 +182,9 @@ export function MapCanvas() {
   const edgeStyle            = useMapStore((s) => s.edgeStyle);
   const connectionThickness  = useMapStore((s) => s.connectionThickness);
   const addConnection        = useMapStore((s) => s.addConnection);
+  const addSystem            = useMapStore((s) => s.addSystem);
   const moveSystem           = useMapStore((s) => s.moveSystem);
+  useGateJumps();   // publish gate-jump distances from the route origin for per-node hover
   const lockSystem           = useMapStore((s) => s.lockSystem);
   const updateSystem         = useMapStore((s) => s.updateSystem);
   const removeSystem         = useMapStore((s) => s.removeSystem);
@@ -191,14 +244,53 @@ export function MapCanvas() {
     [heatMetric, heatMax, heatIntensity, colorVision],
   );
 
+  // Precompute each node's minimap colour once. Resolving it inside the MiniMap's
+  // nodeColor callback did a systems.find (O(n)) plus a cssVarToHex
+  // (getComputedStyle = forced reflow) PER NODE — re-run every frame the minimap
+  // redraws while the viewport pans, which is the pan stutter. Resolve each class
+  // once (colorVision drives the --cv-* vars, so recompute when it changes).
+  const minimapColorById = useMemo(() => {
+    const byClass = new Map<string, string>();
+    const byId = new Map<string, string>();
+    for (const s of systems) {
+      let hex = byClass.get(s.systemClass);
+      if (hex === undefined) {
+        const color = CLASS_COLORS[s.systemClass];
+        hex = color ? cssVarToHex(color) : '#333';
+        byClass.set(s.systemClass, hex);
+      }
+      byId.set(s.id, hex);
+    }
+    return byId;
+  // colorVision is an implicit dep: it drives the --cv-* CSS vars cssVarToHex
+  // reads, which eslint can't see — keep it so colours refresh on a mode change.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [systems, colorVision]);
+
   const [pendingPosition, setPendingPosition] = useState<{ x: number; y: number } | null>(null);
   // systemId whose custom-label dialog is open (null = closed).
   const [labelDialogFor, setLabelDialogFor] = useState<string | null>(null);
+  const [aliasDialogFor, setAliasDialogFor] = useState<string | null>(null);
   const [contextMenu, setContextMenu]         = useState<CtxMenu | null>(null);
   // Pending "remove orphan systems" sweep, held while the confirm modal is up.
   const [orphanConfirm, setOrphanConfirm]     = useState<{ ids: string[] } | null>(null);
+  // Gate-adjacent systems per k-space eveSystemId, fetched lazily when a node's
+  // context menu opens. 'loading'/'error' are transient states for the submenu.
+  const [adjacent, setAdjacent] = useState<Record<number, AdjacentSystem[] | 'loading' | 'error'>>({});
   const [customIntel] = useCustomIntel();
   const wrapperRef = useRef<HTMLDivElement>(null);
+
+  // The canvas how-to hint is onboarding: show it only on a visitor's first
+  // ever visit, then remember (per-device) that they've seen it and hide it.
+  const [showCanvasHint] = useState(() => {
+    try { return localStorage.getItem('nexum.seenMapHint') !== '1'; }
+    catch { return true; } // private mode / storage blocked: just show it
+  });
+  useEffect(() => {
+    if (showCanvasHint) {
+      try { localStorage.setItem('nexum.seenMapHint', '1'); } catch { /* quota / private mode */ }
+    }
+  }, [showCanvasHint]);
 
   // Inverted-zoom handler. When on, React Flow's own wheel AND pinch zoom are
   // off (zoomOnScroll / zoomOnPinch = !invertZoom) and we handle both here with
@@ -252,6 +344,16 @@ export function MapCanvas() {
   // only ever ran once before being overwritten.
   const [nodes, setNodes] = useNodesState<Node>([]);
 
+  // Per-id cache of the last-built node plus the inputs it was built from. The
+  // store keeps the SAME `sys` reference for systems that didn't change, so on
+  // any single-system edit we can reuse the exact node object for every other
+  // system — keeping its `data` reference stable so SystemNode's memo holds and
+  // only the one changed node re-renders (instead of all N).
+  const nodeCache = useRef<Map<string, {
+    sys: MapSystem; selected: boolean; easyConnect: boolean;
+    canEdit: boolean; dimmed: boolean; routeHighlighted: boolean; node: Node;
+  }>>(new Map());
+
   const onNodesChange = useCallback(
     (changes: NodeChange[]) => {
       changes.forEach((c) => {
@@ -297,8 +399,14 @@ export function MapCanvas() {
   // "Centre on me" map-control: recentre on the pilot's current system node
   // (the you-are-here node). Disabled when the pilot isn't in a mapped system.
   const centerOnMe = useCallback(() => {
-    if (currentSystemId) centerOnSystem(currentSystemId);
-  }, [currentSystemId, centerOnSystem]);
+    if (!currentSystemId) return;
+    // Also select the pilot's system so its details open. Selecting opens the
+    // bottom panel (which shrinks the canvas), so recentre a frame later — the
+    // centre-on-select toggle only recentres when it's on, and this button must
+    // always recentre.
+    selectSystem(currentSystemId);
+    requestAnimationFrame(() => centerOnSystem(currentSystemId));
+  }, [currentSystemId, centerOnSystem, selectSystem]);
 
   // On first load after login, centre the viewport on the pilot's last known
   // system (from /auth/me) if it's present on this map — so you land where you
@@ -407,7 +515,7 @@ export function MapCanvas() {
         if (home) {
           centerOnSystem(home.id);
         } else {
-          toast.info(t('ctxMenu.noHomeSet'));
+          toast.info(i18n.t('ctxMenu.noHomeSet'));
         }
       }
     };
@@ -438,10 +546,31 @@ export function MapCanvas() {
 
   useEffect(() => {
     const hl = routeHighlight ? new Set(routeHighlight.systemIds) : null;
-    setNodes(systems.map((s) => {
-      const inRoute = !!hl && hl.has(s.id);
-      return systemToNode(s, selectedSystemId, easyConnect, canEdit, !!hl && !inRoute, inRoute);
-    }));
+    const prevCache = nodeCache.current;
+    const nextCache = new Map<string, {
+      sys: MapSystem; selected: boolean; easyConnect: boolean;
+      canEdit: boolean; dimmed: boolean; routeHighlighted: boolean; node: Node;
+    }>();
+    const nextNodes = systems.map((s) => {
+      const inRoute  = !!hl && hl.has(s.id);
+      const dimmed   = !!hl && !inRoute;
+      const selected = s.id === selectedSystemId;
+      // Reuse the previous node object outright when nothing this node renders
+      // from has changed — same `sys` ref (unchanged system) and same derived
+      // flags. Reference-identical node -> React Flow skips it entirely.
+      const prev = prevCache.get(s.id);
+      if (prev && prev.sys === s && prev.selected === selected
+          && prev.easyConnect === easyConnect && prev.canEdit === canEdit
+          && prev.dimmed === dimmed && prev.routeHighlighted === inRoute) {
+        nextCache.set(s.id, prev);
+        return prev.node;
+      }
+      const node = systemToNode(s, selectedSystemId, easyConnect, canEdit, dimmed, inRoute);
+      nextCache.set(s.id, { sys: s, selected, easyConnect, canEdit, dimmed, routeHighlighted: inRoute, node });
+      return node;
+    });
+    nodeCache.current = nextCache;
+    setNodes(nextNodes);
   }, [systems, selectedSystemId, easyConnect, setNodes, canEdit, routeHighlight]);
 
   useEffect(() => {
@@ -600,9 +729,30 @@ export function MapCanvas() {
   const onNodeMouseEnter = useCallback((_: React.MouseEvent, node: Node) => setHoveredNodeId(node.id), []);
   const onNodeMouseLeave = useCallback(() => setHoveredNodeId(null), []);
 
-  // Edges driven directly from store — no local duplicate state, except for
-  // the live drag-handle overrides above.
-  const edges = useMemo(
+  // Precomputed at drag-start so each drag frame doesn't re-scan every
+  // connection and rebuild a position Map of every system: connections touching
+  // a moved node never change during a drag, and neither do the non-moved
+  // systems' positions.
+  const dragConns   = useRef<typeof connections>([]);
+  const dragBasePos = useRef<Map<string, { x: number; y: number }>>(new Map());
+  const onNodeDragStart = useCallback(
+    (_: React.MouseEvent, _node: Node, movedNodes: Node[]) => {
+      if (!canEdit) return;
+      const movedIds = new Set(movedNodes.map((n) => n.id));
+      dragConns.current = connections.filter(
+        (c) => movedIds.has(c.sourceId) || movedIds.has(c.targetId),
+      );
+      dragBasePos.current = new Map(systems.map((s) => [s.id, s.position]));
+    },
+    [canEdit, connections, systems],
+  );
+
+  // Base edges — everything EXCEPT the mouse-hover highlight. Kept off the
+  // hover state so moving the mouse across nodes doesn't rebuild all E edge
+  // objects (which would re-render every ConnectionEdge). `highlighted` here
+  // reflects only the route-chain highlight; the transient hover highlight is
+  // layered on below, touching just the edges under the cursor.
+  const baseEdges = useMemo(
     () => {
       // Group connections by unordered system pair so multiples between the
       // same two systems can be fanned apart (parallelIndex / parallelCount)
@@ -620,12 +770,7 @@ export function MapCanvas() {
         const ov = dragHandles.get(c.id);
         const key = c.sourceId < c.targetId ? `${c.sourceId}|${c.targetId}` : `${c.targetId}|${c.sourceId}`;
         const group = pairGroups.get(key)!;
-        // Hover-only: a *selected* system would keep its links lit permanently
-        // (e.g. your located system on a 2-node map), which reads as a stuck
-        // hover effect — so highlight only follows the mouse.
         const inRoute = !!routeConns && routeConns.has(c.id);
-        const highlighted =
-          inRoute || (hoveredNodeId != null && (c.sourceId === hoveredNodeId || c.targetId === hoveredNodeId));
         const dimmed = !!routeConns && !inRoute;
         return {
           id: c.id,
@@ -635,17 +780,32 @@ export function MapCanvas() {
           targetHandle: ov?.targetHandle ?? c.targetHandle ?? undefined,
           type: 'connection',
           // Lift highlighted edges above the rest so the traced link sits on top.
-          zIndex: highlighted ? 10 : 0,
+          zIndex: inRoute ? 10 : 0,
           data: {
-            ...c, edgeStyle, connectionThickness, highlighted, dimmed,
+            ...c, edgeStyle, connectionThickness, highlighted: inRoute, dimmed,
             parallelIndex: group.indexOf(c.id), parallelCount: group.length,
           } as unknown as Record<string, unknown>,
           selected: c.id === selectedConnectionId,
         };
       });
     },
-    [connections, selectedConnectionId, edgeStyle, connectionThickness, dragHandles, hoveredNodeId, routeHighlight],
+    [connections, selectedConnectionId, edgeStyle, connectionThickness, dragHandles, routeHighlight],
   );
+
+  // Layer the hover highlight on top of the base edges. Only edges touching the
+  // hovered node are rebuilt; every other edge keeps its exact object reference
+  // so ConnectionEdge's memo holds. Hover-only: a *selected* system would keep
+  // its links lit permanently (reads as a stuck hover), so highlight follows
+  // the mouse. When nothing is hovered this returns baseEdges unchanged.
+  const edges = useMemo(() => {
+    if (hoveredNodeId == null) return baseEdges;
+    return baseEdges.map((e) => {
+      if (e.source !== hoveredNodeId && e.target !== hoveredNodeId) return e;
+      const data = e.data as { highlighted?: boolean };
+      if (data.highlighted) return e; // already lit by the route chain
+      return { ...e, zIndex: 10, data: { ...e.data, highlighted: true } };
+    });
+  }, [baseEdges, hoveredNodeId]);
 
   const onEdgesChange = useCallback(
     (changes: EdgeChange[]) => {
@@ -682,17 +842,16 @@ export function MapCanvas() {
   const onNodeDrag = useCallback(
     (_: React.MouseEvent, _node: Node, movedNodes: Node[]) => {
       if (!canEdit) return;
-      const movedIds = new Set(movedNodes.map((n) => n.id));
-      // Live positions: store positions overridden by the in-flight drag.
-      const posMap = new Map(systems.map((s) => [s.id, s.position]));
-      movedNodes.forEach((n) => posMap.set(n.id, n.position));
+      // Only the moved nodes' live positions override the drag-start snapshot;
+      // every other endpoint is read straight from dragBasePos.
+      const moved = new Map(movedNodes.map((n) => [n.id, n.position]));
+      const posOf = (id: string) => moved.get(id) ?? dragBasePos.current.get(id);
 
       setDragHandles((prev) => {
         let next = prev;
-        for (const conn of connections) {
-          if (!movedIds.has(conn.sourceId) && !movedIds.has(conn.targetId)) continue;
-          const src = posMap.get(conn.sourceId);
-          const tgt = posMap.get(conn.targetId);
+        for (const conn of dragConns.current) {
+          const src = posOf(conn.sourceId);
+          const tgt = posOf(conn.targetId);
           if (!src || !tgt) continue;
           const { sourceHandle, targetHandle } = pickHandles(src, tgt);
           const cur = next.get(conn.id);
@@ -706,7 +865,7 @@ export function MapCanvas() {
         return next;
       });
     },
-    [canEdit, systems, connections],
+    [canEdit],
   );
 
   const onNodeDragStop = useCallback(
@@ -714,16 +873,14 @@ export function MapCanvas() {
       if (!canEdit) return;
       movedNodes.forEach((n) => moveSystem(n.id, n.position));
 
-      const movedIds = new Set(movedNodes.map((n) => n.id));
-      // Build position map from store, then override with the just-dragged positions
-      // (store hasn't updated yet when this fires)
-      const posMap = new Map(systems.map((s) => [s.id, s.position]));
-      movedNodes.forEach((n) => posMap.set(n.id, n.position));
+      // Reuse the drag-start snapshot (store hasn't committed the move yet),
+      // overriding only the just-dragged positions.
+      const moved = new Map(movedNodes.map((n) => [n.id, n.position]));
+      const posOf = (id: string) => moved.get(id) ?? dragBasePos.current.get(id);
 
-      for (const conn of connections) {
-        if (!movedIds.has(conn.sourceId) && !movedIds.has(conn.targetId)) continue;
-        const src = posMap.get(conn.sourceId);
-        const tgt = posMap.get(conn.targetId);
+      for (const conn of dragConns.current) {
+        const src = posOf(conn.sourceId);
+        const tgt = posOf(conn.targetId);
         if (!src || !tgt) continue;
         const { sourceHandle, targetHandle } = pickHandles(src, tgt);
         if (conn.sourceHandle !== sourceHandle || conn.targetHandle !== targetHandle) {
@@ -734,7 +891,7 @@ export function MapCanvas() {
       // drop the overrides (no flicker — the store write above is synchronous).
       setDragHandles((prev) => (prev.size ? new Map() : prev));
     },
-    [moveSystem, systems, connections, updateConnection, canEdit],
+    [moveSystem, updateConnection, canEdit],
   );
 
   const nodeCtxFired = useRef(false);
@@ -753,8 +910,19 @@ export function MapCanvas() {
       setTimeout(() => { nodeCtxFired.current = false; }, 0);
       const selectedNodeIds = nodes.filter((n) => n.selected).map((n) => n.id);
       setContextMenu({ screenX: e.clientX, screenY: e.clientY, flowX: 0, flowY: 0, nodeId: node.id, selectedNodeIds });
+
+      // Prefetch k-space stargate neighbours for the "Add adjacent" submenu
+      // (edit-only, once per system for the session).
+      const sys = systems.find((s) => s.id === node.id);
+      const eveId = sys?.eveSystemId ?? null;
+      if (canEdit && eveId != null && KSPACE_CLASSES.has(sys!.systemClass) && adjacent[eveId] === undefined) {
+        setAdjacent((m) => ({ ...m, [eveId]: 'loading' }));
+        api<AdjacentSystem[]>(`/api/systems/${eveId}/adjacent`)
+          .then((rows) => setAdjacent((m) => ({ ...m, [eveId]: rows })))
+          .catch(() => setAdjacent((m) => ({ ...m, [eveId]: 'error' })));
+      }
     },
-    [nodes, isShareMode],
+    [nodes, isShareMode, systems, canEdit, adjacent],
   );
 
   const onPaneContextMenu = useCallback(
@@ -790,9 +958,16 @@ export function MapCanvas() {
       if (isShareMode) return;
       e.preventDefault();
       e.stopPropagation();
-      setContextMenu({ screenX: e.clientX, screenY: e.clientY, flowX: 0, flowY: 0, edgeId: edge.id });
+      // Warm this pair's stargate neighbours so the jump-type submenu can tell a
+      // real gate from an impossible one. Fire-and-forget and cached — if it
+      // hasn't landed by the time the menu renders, the option stays enabled and
+      // the server rejects it instead.
+      const conn = connections.find((c) => c.id === edge.id);
+      const srcEve = systems.find((x) => x.id === conn?.sourceId)?.eveSystemId;
+      if (srcEve != null) prefetchStargateNeighbors(srcEve);
+      setContextMenu({ screenX: e.clientX, screenY: e.clientY, flowX: 0, flowY: 0, edgeId: edge.id, openedAt: Date.now() });
     },
-    [isShareMode],
+    [isShareMode, connections, systems],
   );
 
   // Click on the SVG edge path itself (the curve) selects the connection so
@@ -828,6 +1003,18 @@ export function MapCanvas() {
             icon: <PathIcon size={16} weight="regular" color="#5a9af8" />,
             action: () => { addWaypoint(sys.eveSystemId!, sys.name).catch(() => {}); },
           },
+          {
+            label: t('ctxMenu.jumpRangeFrom'),
+            icon: <MapPinSimpleIcon size={16} weight="regular" color="#b57bff" />,
+            action: () => useJumpRangeStore.getState().setStaging(sys.eveSystemId!, sys.name),
+          },
+          // Only while the overlay is active, on any system, so the dimming can be
+          // cleared without opening the Jump Range pane.
+          ...(useJumpRangeStore.getState().stagingId != null ? [{
+            label: t('ctxMenu.jumpRangeClear'),
+            icon: <XIcon size={16} weight="regular" color="#b57bff" />,
+            action: () => useJumpRangeStore.getState().setStaging(null),
+          }] : []),
         ];
       }
       // Pane menu — only "Select All" survives.
@@ -844,6 +1031,22 @@ export function MapCanvas() {
     if (contextMenu.edgeId) {
       const conn = connections.find((c) => c.id === contextMenu.edgeId);
       const connType    = conn?.connectionType ?? 'standard';
+      // Jump types the SDE rules out for this pair, greyed rather than offered
+      // and rejected by the server: a stargate needs actual stargate
+      // neighbours, and an Ansiblex / cyno can't touch wormhole space.
+      // Conservative on both counts — an unresolved endpoint, or neighbours not
+      // in the client cache yet, leaves the option enabled and the server has
+      // the final say.
+      const edgeSrc = systems.find((x) => x.id === conn?.sourceId);
+      const edgeTgt = systems.find((x) => x.id === conn?.targetId);
+      const jspace = (c?: SystemClass) => c !== undefined && c !== 'unknown'
+        && !['HS', 'LS', 'NS', 'Pochven'].includes(c);
+      const touchesJspace = jspace(edgeSrc?.systemClass as SystemClass | undefined)
+        || jspace(edgeTgt?.systemClass as SystemClass | undefined);
+      const noGate = touchesJspace || (
+        edgeSrc?.eveSystemId != null && edgeTgt?.eveSystemId != null
+        && isDefiniteWormholeHop(edgeSrc.eveSystemId, edgeTgt.eveSystemId)
+      );
       const timeStatus  = conn?.timeStatus  ?? 'fresh';
       const massStatus  = conn?.massStatus  ?? 'stable';
       const eid = contextMenu.edgeId;
@@ -865,53 +1068,85 @@ export function MapCanvas() {
             {
               label: t('ctxMenu.jumpStargate'),
               checked: connType === 'gate',
+              disabled: noGate && connType !== 'gate',
               action: () => updateConnection(eid, { connectionType: 'gate' }),
             },
             {
               label: t('ctxMenu.jumpAnsiblex'),
               checked: connType === 'jumpgate',
+              disabled: touchesJspace && connType !== 'jumpgate',
               action: () => updateConnection(eid, { connectionType: 'jumpgate' }),
+            },
+            {
+              label: t('ctxMenu.jumpCyno'),
+              checked: connType === 'cyno',
+              disabled: touchesJspace && connType !== 'cyno',
+              action: () => updateConnection(eid, { connectionType: 'cyno' }),
             },
           ],
         },
         {
           label: t('ctxMenu.whLifetime'),
           submenu: (() => {
-            // The submenu's checked indicator reflects what the user last
-            // selected (categorical), not the live derived stage. Live stage
-            // lives on the edge label; this is just "what option did I click?".
-            const hasEol = !!conn?.eolAt;
-            const stage: 'fresh' | 'lessThan24h' | 'eol' =
-              timeStatus === 'lessThan24h' ? 'lessThan24h' :
-              hasEol || timeStatus === 'eol' ? 'eol' :
-              'fresh';
-            const eolFromOffset = (hrsBack: number) =>
-              new Date(Date.now() - hrsBack * 3_600_000).toISOString();
-            return [
-              {
-                label: t('ctxMenu.lifeFresh'),
-                checked: stage === 'fresh',
-                action: () => updateConnection(eid, { timeStatus: 'fresh', eolAt: null }),
-              },
+            // The checked row is the SAME live bucket the edge label shows, so the
+            // menu never drifts from the label. Derived from the hole's effective
+            // expiry as of when the menu opened (openedAt) — calling Date.now()
+            // while building the items trips the react-compiler purity rule. When
+            // the lifetime is unknown (untyped) fall back to the stored category.
+            const openedAt = contextMenu.openedAt ?? 0;
+            const expiryMs = conn ? effectiveExpiryMs(conn, whTypes) : null;
+            const current: TimeBucket =
+              expiryMs != null && openedAt ? lifeBucket(expiryMs - openedAt)
+              : timeStatus === 'lessThan24h' ? 'lessThan24h'
+              : (timeStatus === 'lessThan4h' || timeStatus === 'eol') ? 'lessThan4h'
+              : timeStatus === 'lessThan1h' ? 'lessThan1h'
+              : timeStatus === 'expired' ? 'expired'
+              : 'fresh';
+            // Date.now() only inside the action closures — calling it while
+            // building the items trips the react-compiler "impure in render" rule.
+            const expiresIn = (hrs: number) =>
+              new Date(Date.now() + hrs * 3_600_000).toISOString();
+            // "Fresh" carries the hole's max lifetime when we know it: the type's
+            // charted life, or the 48h ceiling for a bare K162 (reverse side,
+            // forward type unidentified). Only an untyped connection has none.
+            const lifeHrs = knownMaxLifeHours({ type: conn?.type ?? null }, whTypes) ?? undefined;
+            // Fresh = more than a day of life left, only reachable by a >24h hole.
+            // Hide it for a known 24h/16h hole (it opens straight into "< 1 day");
+            // keep it when the life is unknown (K162/untyped) since we can't rule
+            // it out. Setting it clears any legacy eol_at so the override wins.
+            const showFresh = !lifeHrs || lifeHrs > 24;
+            const rows: { label: string; checked: boolean; action: () => void }[] = [];
+            if (showFresh) rows.push({
+              label: lifeHrs ? t('ctxMenu.lifeFreshMax', { hours: lifeHrs }) : t('ctxMenu.lifeFresh'),
+              checked: current === 'fresh',
+              action: () => updateConnection(eid, {
+                timeStatus: 'fresh', eolAt: null,
+                lifetimeExpiresAt: lifeHrs ? expiresIn(lifeHrs) : null,
+              }),
+            });
+            rows.push(
               {
                 label: t('ctxMenu.life1d'),
-                checked: stage === 'lessThan24h',
-                action: () => updateConnection(eid, { timeStatus: 'lessThan24h', eolAt: null }),
+                checked: current === 'lessThan24h',
+                action: () => updateConnection(eid, { timeStatus: 'lessThan24h', eolAt: null, lifetimeExpiresAt: expiresIn(24) }),
               },
               {
                 label: t('ctxMenu.life4h'),
-                checked: stage === 'eol',
-                action: () => updateConnection(eid, { timeStatus: 'eol', eolAt: eolFromOffset(0) }),
+                checked: current === 'lessThan4h',
+                action: () => updateConnection(eid, { timeStatus: 'lessThan4h', eolAt: null, lifetimeExpiresAt: expiresIn(4) }),
               },
               {
                 label: t('ctxMenu.life1h'),
-                action: () => updateConnection(eid, { timeStatus: 'eol', eolAt: eolFromOffset(3) }),
+                checked: current === 'lessThan1h',
+                action: () => updateConnection(eid, { timeStatus: 'lessThan1h', eolAt: null, lifetimeExpiresAt: expiresIn(1) }),
               },
               {
                 label: t('ctxMenu.lifeExpired'),
-                action: () => updateConnection(eid, { timeStatus: 'eol', eolAt: eolFromOffset(4) }),
+                checked: current === 'expired',
+                action: () => updateConnection(eid, { timeStatus: 'expired', eolAt: null, lifetimeExpiresAt: expiresIn(0) }),
               },
-            ];
+            );
+            return rows;
           })(),
         },
         {
@@ -955,6 +1190,16 @@ export function MapCanvas() {
           icon: <PathIcon size={16} weight="regular" color="#5a9af8" />,
           action: () => { addWaypoint(sys.eveSystemId!, sys.name).catch(() => {}); },
         },
+        {
+          label: t('ctxMenu.jumpRangeFrom'),
+          icon: <MapPinSimpleIcon size={16} weight="regular" color="#b57bff" />,
+          action: () => useJumpRangeStore.getState().setStaging(sys.eveSystemId!, sys.name),
+        },
+        ...(useJumpRangeStore.getState().stagingId != null ? [{
+          label: t('ctxMenu.jumpRangeClear'),
+          icon: <XIcon size={16} weight="regular" color="#b57bff" />,
+          action: () => useJumpRangeStore.getState().setStaging(null),
+        }] : []),
       ] : [];
 
       const multiItems = multiSelected ? [
@@ -995,6 +1240,22 @@ export function MapCanvas() {
                   updateSystem(oldHome.id, { isHome: false });
                 updateSystem(contextMenu.nodeId!, { isHome: true });
               },
+            },
+      ] : [];
+
+      // Display-only alias — rename the node on this map. Toggles to "Clear alias"
+      // (restoring the real name) once one is set. The real name is untouched.
+      const aliasItem = !multiSelected ? [
+        sys?.alias
+          ? {
+              label: t('ctxMenu.clearAlias'),
+              icon:  <TextAaIcon size={16} weight="regular" />,
+              action: () => updateSystem(contextMenu.nodeId!, { alias: null }),
+            }
+          : {
+              label: t('ctxMenu.setAlias'),
+              icon:  <TextAaIcon size={16} weight="regular" />,
+              action: () => setAliasDialogFor(contextMenu.nodeId!),
             },
       ] : [];
 
@@ -1137,6 +1398,51 @@ export function MapCanvas() {
         ],
       }] : [];
 
+      // "Add adjacent" — k-space only. Lists the source system's gate neighbours
+      // (map_stargates); ones already on the map show checked + disabled. Picking
+      // a missing one drops it in beside the source with a stargate connection.
+      const isKspace = !multiSelected && !!sys?.eveSystemId && KSPACE_CLASSES.has(sys.systemClass);
+      const addAdjacent = (adj: AdjacentSystem) => {
+        const src = systems.find((s) => s.id === contextMenu.nodeId);
+        if (!src) return;
+        // Reuse the exact placement live tracking uses: the next free slot around
+        // the source, starting in the user's preferred direction and rotating
+        // clockwise, collision-checked against every node. Reading the current
+        // `systems` each call means successive adds don't overlap each other.
+        const cell = getPlacementCell();
+        const direction = normalizePlacement(readUserSetting<string>('nexum.map.placement', 'east'));
+        const pos = findFreePosition(src.position, systems, cell.w || 220, cell.h || 120, PLACEMENT_GAP, direction, snapToGrid);
+        const newId = addSystem(adj.name, adj.systemClass as SystemClass, pos, {
+          eveSystemId: adj.eveSystemId,
+          regionName:  adj.regionName,
+        });
+        const { sourceHandle, targetHandle } = pickHandles(src.position, pos);
+        const connId = addConnection(contextMenu.nodeId!, newId, sourceHandle, targetHandle);
+        updateConnection(connId, { connectionType: 'gate' });
+      };
+      const adjacentSubmenu = (): ContextMenuItem[] => {
+        const state = sys?.eveSystemId != null ? adjacent[sys.eveSystemId] : undefined;
+        if (state === undefined || state === 'loading') return [{ label: t('ctxMenu.addAdjacentLoading'), disabled: true }];
+        if (state === 'error') return [{ label: t('ctxMenu.addAdjacentError'), disabled: true }];
+        if (state.length === 0) return [{ label: t('ctxMenu.addAdjacentNone'), disabled: true }];
+        const present = new Set(systems.map((s) => s.eveSystemId).filter((x): x is number => x != null));
+        return state.map((adj) => {
+          const already = present.has(adj.eveSystemId);
+          return {
+            label:   adj.name,
+            icon:    <span className="intel-swatch" style={{ background: truesecColor(adj.security ?? 0) }} aria-hidden="true" />,
+            checked: already,
+            disabled: already,
+            action:  already ? undefined : () => addAdjacent(adj),
+          };
+        });
+      };
+      const adjacentItem: ContextMenuItem[] = isKspace ? [{
+        label: t('ctxMenu.addAdjacent'),
+        icon:  <PlusIcon size={16} weight="regular" color="#5a9af8" />,
+        submenu: adjacentSubmenu(),
+      }] : [];
+
       return [
         {
           label: sys?.locked ? t('ctxMenu.unlockSystem') : t('ctxMenu.lockSystem'),
@@ -1159,9 +1465,11 @@ export function MapCanvas() {
           },
         }] : []),
         ...homeItem,
+        ...aliasItem,
         ...tagItem,
         ...intelItem,
         ...labelItem,
+        ...adjacentItem,
         ...multiItems,
         ...waypointItems,
       ];
@@ -1224,6 +1532,7 @@ export function MapCanvas() {
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
+        onNodeDragStart={onNodeDragStart}
         onNodeDrag={onNodeDrag}
         onNodeDragStop={onNodeDragStop}
         onNodeMouseEnter={onNodeMouseEnter}
@@ -1241,7 +1550,10 @@ export function MapCanvas() {
         connectionMode={ConnectionMode.Loose}
         nodesConnectable={canEdit}
         nodesDraggable={canEdit}
-        multiSelectionKeyCode="Shift"
+        // Selection BOX stays shift-only: dragging with Ctrl/Cmd held is a
+        // pan or zoom gesture on most setups, so co-opting it would be worse
+        // than leaving it. Only click-to-add gains the extra modifier.
+        multiSelectionKeyCode={MULTI_SELECT_KEYS}
         selectionKeyCode="Shift"
         snapToGrid={snapToGrid}
         snapGrid={[20, 20]}
@@ -1274,10 +1586,7 @@ export function MapCanvas() {
             pannable
             zoomable
             position={minimapPosition}
-            nodeColor={(n) => {
-              const sys = systems.find((s) => s.id === n.id);
-              return sys ? cssVarToHex(CLASS_COLORS[sys.systemClass]) : '#333';
-            }}
+            nodeColor={(n) => minimapColorById.get(n.id) ?? '#333'}
             maskColor="rgba(13,17,23,0.85)"
             onClick={(_e, position) => {
               const zoom = getZoom();
@@ -1304,7 +1613,7 @@ export function MapCanvas() {
         )}
       </ReactFlow>
 
-      <div className="map-canvas__hint">{t('ctxMenu.canvasHint')}</div>
+      {showCanvasHint && <div className="map-canvas__hint">{t('ctxMenu.canvasHint')}</div>}
 
       {contextMenu && (
         <ContextMenu
@@ -1327,6 +1636,22 @@ export function MapCanvas() {
             customLabels={sys.customLabels ?? []}
             onChange={(next) => updateSystem(labelDialogFor, { customLabels: next })}
             onClose={() => setLabelDialogFor(null)}
+          />
+        );
+      })()}
+
+      {aliasDialogFor && (() => {
+        const sys = systems.find((s) => s.id === aliasDialogFor);
+        if (!sys) return null;
+        return (
+          <PromptModal
+            title={t('ctxMenu.aliasTitle')}
+            message={t('ctxMenu.aliasMessage', { name: sys.name })}
+            defaultValue={sys.alias ?? ''}
+            placeholder={sys.name}
+            confirmLabel={t('ctxMenu.aliasConfirm')}
+            onConfirm={(value) => { updateSystem(aliasDialogFor, { alias: value }); setAliasDialogFor(null); }}
+            onCancel={() => setAliasDialogFor(null)}
           />
         );
       })()}

@@ -1,4 +1,5 @@
 import { db } from '../db.js';
+import { config } from '../config.js';
 import { esiFetch } from '../utils/esi.js';
 import { createLogger } from '../utils/logger.js';
 
@@ -10,6 +11,33 @@ const log = createLogger('standings');
 // every login. ESI's own contacts cache is 5 minutes; anything faster
 // here just makes the server work harder for no fresher data.
 const REFRESH_TTL_MS = 6 * 60 * 60 * 1000;
+
+// ── Corp/alliance contact-bucket read cache ──────────────────────────────────
+// The corp/alliance buckets are shared across every member and change only on a
+// Contact-Manager sync, but /api/standings/me is hit per map load/poll by every
+// member — a big corp's thousands of contacts would otherwise be re-queried and
+// re-materialised for each member on each poll. Cache them briefly, keyed by
+// kind:id, invalidated on write (below) so a fresh sync is seen at once; the TTL
+// bounds staleness for any write path that forgets to invalidate.
+export type OrgContactRow = { contact_kind: string; contact_id: number; standing: number };
+const CONTACT_TTL_MS = 60_000;
+const orgContactCache = new Map<string, { rows: OrgContactRow[]; at: number }>();
+
+export async function loadOrgContacts(kind: 'corp' | 'alliance', id: number): Promise<OrgContactRow[]> {
+  const key = `${kind}:${id}`;
+  const hit = orgContactCache.get(key);
+  if (hit && Date.now() - hit.at < CONTACT_TTL_MS) return hit.rows;
+  const sql = kind === 'corp'
+    ? `SELECT contact_kind, contact_id, standing FROM corp_standings WHERE corp_id = $1`
+    : `SELECT contact_kind, contact_id, standing FROM alliance_standings WHERE alliance_id = $1`;
+  const { rows } = await db.query<OrgContactRow>(sql, [id]);
+  orgContactCache.set(key, { rows, at: Date.now() });
+  return rows;
+}
+
+function invalidateOrgContacts(kind: 'corp' | 'alliance', id: number): void {
+  orgContactCache.delete(`${kind}:${id}`);
+}
 
 type ContactKind = 'character' | 'corporation' | 'alliance' | 'faction';
 
@@ -102,19 +130,28 @@ async function replaceStandings(
 // alliance contacts in parallel; gracefully no-ops the corp/alliance reads
 // when the character lacks the Contact Manager role. Never throws — every
 // failure is logged so a transient ESI hiccup doesn't break login.
+//
+// scope: 'all' (default) refreshes all three buckets — used on login and by the
+// system-info "refresh standings" button that powers the map tint. scope: 'org'
+// refreshes ONLY corp + alliance and never touches personal contacts — used by
+// the access-page sync, since access control only ever reads corp/alliance
+// standings (so it must not request the personal endpoint at all).
 export async function refreshStandingsForUser(params: {
   userId:      number;
   characterId: number;
   corpId:      number | null;
   allianceId:  number | null;
   accessToken: string;
+  scope?:      'all' | 'org';
 }): Promise<void> {
   const { userId, characterId, corpId, allianceId, accessToken } = params;
+  const scope = params.scope ?? 'all';
 
   const tasks: Promise<void>[] = [];
 
-  // Personal — always available with the read_contacts scope.
-  if (await shouldRefresh('character', characterId)) {
+  // Personal — for the map tint only (never access control). Skipped for
+  // org-scoped syncs.
+  if (scope !== 'org' && await shouldRefresh('character', characterId)) {
     tasks.push((async () => {
       const r = await fetchAllContacts(
         `https://esi.evetech.net/v2/characters/${characterId}/contacts/`,
@@ -130,8 +167,13 @@ export async function refreshStandingsForUser(params: {
     })().catch((err) => log.error('character standings fetch errored:', err)));
   }
 
-  // Corp — requires the Contact Manager role; 403 is the common case.
-  if (corpId !== null && await shouldRefresh('corp', corpId)) {
+  // Corp — access-control standings for the DEPLOYMENT'S configured corp(s), not
+  // the syncing user's own corp. Gated to config.corpIds so a member of an
+  // unrelated corp (e.g. whoever set the instance up) can never populate corp
+  // standings the access gate would ignore anyway. Reading ESI corp contacts
+  // also requires the syncing character to be IN this corp with the Contact
+  // Manager role, so in practice this only fires for a configured-corp member.
+  if (corpId !== null && config.corpIds.includes(corpId) && await shouldRefresh('corp', corpId)) {
     tasks.push((async () => {
       const r = await fetchAllContacts(
         `https://esi.evetech.net/v2/corporations/${corpId}/contacts/`,
@@ -140,6 +182,7 @@ export async function refreshStandingsForUser(params: {
       if (Array.isArray(r)) {
         log.info(`corp ${corpId}: fetched ${r.length} corp contacts (via character ${characterId})`);
         await replaceStandings('corp_standings', 'corp_id', corpId, r, userId);
+        invalidateOrgContacts('corp', corpId);
         await markRefreshed('corp', corpId);
       } else {
         log.info(`corp ${corpId}: contacts fetch returned ${r.status} (${r.error}) — character ${characterId} likely lacks Contact Manager role or the read_contacts scope`);
@@ -147,9 +190,11 @@ export async function refreshStandingsForUser(params: {
     })().catch((err) => log.error('corp standings fetch errored:', err)));
   }
 
-  // Alliance — requires the character to be in the executor corp with the
-  // appropriate role; very rare. 403 is the common case.
-  if (allianceId !== null && await shouldRefresh('alliance', allianceId)) {
+  // Alliance — access-control standings for the DEPLOYMENT'S configured
+  // alliance(s), not the syncing user's own. Gated to config.allianceIds for the
+  // same reason as corp above; reading ESI alliance contacts requires the
+  // character be in the alliance with the appropriate role.
+  if (allianceId !== null && config.allianceIds.includes(allianceId) && await shouldRefresh('alliance', allianceId)) {
     tasks.push((async () => {
       const r = await fetchAllContacts(
         `https://esi.evetech.net/v2/alliances/${allianceId}/contacts/`,
@@ -158,6 +203,7 @@ export async function refreshStandingsForUser(params: {
       if (Array.isArray(r)) {
         log.info(`alliance ${allianceId}: fetched ${r.length} alliance contacts (via character ${characterId})`);
         await replaceStandings('alliance_standings', 'alliance_id', allianceId, r, userId);
+        invalidateOrgContacts('alliance', allianceId);
         await markRefreshed('alliance', allianceId);
       } else {
         log.info(`alliance ${allianceId}: contacts fetch returned ${r.status} (${r.error}) — character ${characterId} likely lacks alliance-executor role or the read_contacts scope`);

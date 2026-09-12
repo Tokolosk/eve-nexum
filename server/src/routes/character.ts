@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { config } from '../config.js';
 import { esiFetch } from '../utils/esi.js';
 import { db } from '../db.js';
 import { requireAuth } from '../middleware/requireAuth.js';
@@ -41,67 +42,140 @@ function isReallyOnline(data: EsiOnlineResponse): boolean {
   return login >= logout;
 }
 
+// ── Cached ESI reads ─────────────────────────────────────────────────────────
+// A character's online+location (and ship) is read on every location poll AND
+// for every online alt in account-locations. ESI already caches these ~5 s, so a
+// short per-character cache is lossless — it just collapses the token + ESI
+// round-trips (and matching DB item lookup) when the same character is read
+// repeatedly inside the window: several tabs, the account-locations fan-out, an
+// alt watched from two places. Scales the per-poll ESI cost down as the user base
+// grows. The side effects (jump events, last_known) still run per request.
+type EsiLoc =
+  | { status: 'offline' }
+  | { status: 'online'; solarSystemId: number | null }
+  | { status: 'error' };
+// itemId is the ship's unique item id, not its type. It's what tells a flight
+// apart from a teleport: fly a hole and it's the same hull, die or clone-jump
+// and you wake in a DIFFERENT one — including pod to pod, where the type alone
+// is identical and says nothing.
+type ShipInfo = { itemId: number | null; typeId: number; typeName: string; shipName: string; mass: number | null };
+
+const esiLocCache = new TtlCache<number, EsiLoc>(5_000, 60_000);      // keyed by characterId
+const esiLocInflight = new Map<number, Promise<EsiLoc>>();            // dedupe concurrent reads
+const esiShipCache = new TtlCache<number, ShipInfo | null>(5_000, 60_000);
+const esiShipInflight = new Map<number, Promise<ShipInfo | null>>();
+
+// Online + current system for a character. Real 'online'/'offline' outcomes are
+// cached; a transient token/ESI failure returns 'error' and is NOT cached, so
+// recovery is immediate. Never throws.
+async function readEsiLocation(userId: number, characterId: number): Promise<EsiLoc> {
+  const hit = esiLocCache.get(characterId);
+  if (hit) return hit.value;
+  const existing = esiLocInflight.get(characterId);
+  if (existing) return existing;
+  const p = (async (): Promise<EsiLoc> => {
+    let token: string;
+    try { token = await getValidToken(userId); } catch { return { status: 'error' }; }
+    const onlineRes = await esiFetch(`https://esi.evetech.net/latest/characters/${characterId}/online/`,
+      { headers: { Authorization: `Bearer ${token}` } });
+    if (!onlineRes.ok) return { status: 'error' };
+    if (!isReallyOnline(await onlineRes.json() as EsiOnlineResponse)) return { status: 'offline' };
+    const locRes = await esiFetch(`https://esi.evetech.net/latest/characters/${characterId}/location/`,
+      { headers: { Authorization: `Bearer ${token}` } });
+    if (!locRes.ok) return { status: 'online', solarSystemId: null };
+    const { solar_system_id } = await locRes.json() as { solar_system_id: number };
+    return { status: 'online', solarSystemId: solar_system_id };
+  })();
+  esiLocInflight.set(characterId, p);
+  try {
+    const val = await p;
+    if (val.status === 'offline' || (val.status === 'online' && val.solarSystemId != null)) esiLocCache.set(characterId, val);
+    return val;
+  } finally {
+    esiLocInflight.delete(characterId);
+  }
+}
+
+// The character's current ship resolved to SDE type name + mass. Only successful
+// reads are cached.
+async function readEsiShip(userId: number, characterId: number): Promise<ShipInfo | null> {
+  const hit = esiShipCache.get(characterId);
+  if (hit) return hit.value;
+  const existing = esiShipInflight.get(characterId);
+  if (existing) return existing;
+  const p = (async (): Promise<ShipInfo | null> => {
+    let token: string;
+    try { token = await getValidToken(userId); } catch { return null; }
+    const shipRes = await esiFetch(`https://esi.evetech.net/latest/characters/${characterId}/ship/`,
+      { headers: { Authorization: `Bearer ${token}` } });
+    if (!shipRes.ok) return null;
+    const shipData = await shipRes.json() as { ship_type_id: number; ship_name: string; ship_item_id?: number };
+    const { rows } = await db.query<{ name: string; mass: string | null }>(
+      `SELECT name, mass FROM item_types WHERE id = $1`, [shipData.ship_type_id]);
+    const massNum = rows[0]?.mass == null ? null : Number(rows[0].mass);
+    return {
+      itemId:   typeof shipData.ship_item_id === 'number' ? shipData.ship_item_id : null,
+      typeId:   shipData.ship_type_id,
+      typeName: rows[0]?.name ?? `Type ${shipData.ship_type_id}`,
+      shipName: shipData.ship_name,
+      mass:     massNum != null && Number.isFinite(massNum) ? massNum : null,
+    };
+  })();
+  esiShipInflight.set(characterId, p);
+  try {
+    const val = await p;
+    if (val) esiShipCache.set(characterId, val);
+    return val;
+  } finally {
+    esiShipInflight.delete(characterId);
+  }
+}
+
 // Read a character's live location (online + current system + ship) by Nexum
-// user id, using that character's own stored token. Records a jump + persists
-// last_known_system keyed by userId, so reading any of an account's characters
-// keeps its profile fresh. Returns the wire payload; throws on token/ESI errors.
+// user id. Records a jump + persists last_known_system keyed by userId, so
+// reading any of an account's characters keeps its profile fresh.
 type LocationPayload =
   | { online: false }
-  | { online: true; system: Record<string, unknown> | null; ship: { typeId: number; typeName: string; shipName: string; mass: number | null } | null };
+  | { online: true; system: Record<string, unknown> | null; ship: ShipInfo | null };
 
 async function getLocationPayload(userId: number): Promise<LocationPayload> {
   const { rows: userRows } = await db.query<{ character_id: number }>(
     `SELECT character_id FROM users WHERE id = $1`, [userId]);
   if (!userRows.length) return { online: false };
-
-  const token       = await getValidToken(userId);
   const characterId = userRows[0].character_id;
 
-  const onlineRes = await esiFetch(
-    `https://esi.evetech.net/latest/characters/${characterId}/online/`,
-    { headers: { Authorization: `Bearer ${token}` } },
-  );
-  if (!onlineRes.ok || onlineRes.status === 401 || onlineRes.status === 403) return { online: false };
-  const onlineData = await onlineRes.json() as EsiOnlineResponse;
-  if (!isReallyOnline(onlineData)) { lastSeenSystem.delete(userId); return { online: false }; }
+  const loc = await readEsiLocation(userId, characterId);
+  if (loc.status === 'error') return { online: false };
+  if (loc.status === 'offline') { lastSeenSystem.delete(userId); return { online: false }; }
 
-  const [locRes, shipRes] = await Promise.all([
-    esiFetch(`https://esi.evetech.net/latest/characters/${characterId}/location/`,
-      { headers: { Authorization: `Bearer ${token}` } }),
-    esiFetch(`https://esi.evetech.net/latest/characters/${characterId}/ship/`,
-      { headers: { Authorization: `Bearer ${token}` } }),
-  ]);
-  if (!locRes.ok) return { online: true, system: null, ship: null };
-
-  const loc = await locRes.json() as { solar_system_id: number };
-
-  // Ship is best-effort — a transient ESI hiccup on /ship/ shouldn't hide the
-  // rest of the payload. Type name comes from SDE-seeded item_types.
-  let ship: { typeId: number; typeName: string; shipName: string; mass: number | null } | null = null;
-  if (shipRes.ok) {
-    const shipData = await shipRes.json() as { ship_type_id: number; ship_name: string };
-    const { rows: typeRows } = await db.query<{ name: string; mass: string | null }>(
-      `SELECT name, mass FROM item_types WHERE id = $1`, [shipData.ship_type_id]);
-    const massRaw = typeRows[0]?.mass;
-    const massNum = massRaw == null ? null : Number(massRaw);
-    ship = {
-      typeId:   shipData.ship_type_id,
-      typeName: typeRows[0]?.name ?? `Type ${shipData.ship_type_id}`,
-      shipName: shipData.ship_name,
-      mass:     massNum != null && Number.isFinite(massNum) ? massNum : null,
-    };
-  }
+  const ship = await readEsiShip(userId, characterId);
+  if (loc.solarSystemId == null) return { online: true, system: null, ship };
 
   // Jump event + last-known persistence, keyed per character.
   const prevSys = lastSeenSystem.get(userId);
-  if (prevSys !== undefined && prevSys !== loc.solar_system_id) {
+  if (prevSys !== undefined && prevSys !== loc.solarSystemId) {
     db.query(`INSERT INTO user_events (user_id, event_type) VALUES ($1, 'jump')`, [userId]).catch(console.error);
   }
-  if (prevSys !== loc.solar_system_id) {
+  if (prevSys !== loc.solarSystemId) {
     db.query(`UPDATE users SET last_known_system_id = $1, last_known_system_at = NOW() WHERE id = $2`,
-      [loc.solar_system_id, userId]).catch(console.error);
+      [loc.solarSystemId, userId]).catch(console.error);
   }
-  lastSeenSystem.set(userId, loc.solar_system_id);
+  lastSeenSystem.set(userId, loc.solarSystemId);
+
+  // Liveness + ship for the Pilots Online panel. Throttled to once a minute:
+  // this path runs every 10 s per active pilot, and the panel only needs to know
+  // they were around recently, not to the second. Fire-and-forget — a failed
+  // touch must never affect the location read that the map depends on.
+  db.query(
+    `UPDATE users
+        SET last_seen_at    = NOW(),
+            ship_type_id    = $2,
+            ship_name       = $3,
+            ship_type_name  = $4
+      WHERE id = $1
+        AND (last_seen_at IS NULL OR last_seen_at < NOW() - interval '1 minute')`,
+    [userId, ship?.typeId ?? null, ship?.shipName ?? null, ship?.typeName ?? null],
+  ).catch(() => { /* best-effort liveness */ });
 
   const { rows } = await db.query(
     `SELECT s.id AS "eveSystemId", s.name, s.class AS "systemClass",
@@ -110,7 +184,7 @@ async function getLocationPayload(userId: number): Promise<LocationPayload> {
      FROM solar_systems s
      LEFT JOIN map_regions r ON r.id = s.region_id
      WHERE s.id = $1`,
-    [loc.solar_system_id],
+    [loc.solarSystemId],
   );
   return { online: true, system: rows.length ? rows[0] : null, ship };
 }
@@ -132,6 +206,19 @@ characterRouter.get('/location', async (req, res) => {
 characterRouter.get('/:targetUserId/location', async (req, res) => {
   const targetUserId = Number(req.params.targetUserId);
   if (!Number.isInteger(targetUserId)) { res.status(400).json({ error: 'Invalid user id' }); return; }
+  // Your own session character is always authorised — identical to
+  // /api/character/location. The per-tab acting-character model resolves every
+  // tab's location by explicit id (including the default = your own char), so
+  // this path must work without depending on owner_id being populated.
+  if (targetUserId === req.session.userId) {
+    try {
+      res.json(await getLocationPayload(targetUserId));
+    } catch (err) {
+      log.error('Location check failed:', err);
+      res.status(500).json({ error: 'Failed to get location' });
+    }
+    return;
+  }
   const ownerId = await resolveOwnerId(req);
   if (ownerId == null) { res.status(401).json({ error: 'Not authenticated' }); return; }
   const { rows } = await db.query<{ owner_id: number | null }>(
@@ -145,30 +232,232 @@ characterRouter.get('/:targetUserId/location', async (req, res) => {
   }
 });
 
-// Lightweight current-system read for the map markers: online + system only
-// (no ship, no jump event — background detection mustn't inflate stats).
-// Refreshes last_known as a free side effect. Throws on a dead token.
+// Lightweight current-system read for the map markers: online + system only (no
+// ship, no jump event — background detection mustn't inflate stats). Refreshes
+// last_known as a free side effect. Uses the shared cached ESI read, so the
+// account-locations fan-out is cheap even with many alts / tabs.
 async function readCharacterSystem(userId: number, characterId: number): Promise<{ online: boolean; eveSystemId: number; name: string; systemClass: string | null } | null> {
-  const token = await getValidToken(userId);
-  const onlineRes = await esiFetch(`https://esi.evetech.net/latest/characters/${characterId}/online/`,
-    { headers: { Authorization: `Bearer ${token}` } });
-  if (!onlineRes.ok) return null;
-  if (!isReallyOnline(await onlineRes.json() as EsiOnlineResponse)) return null;
-  const locRes = await esiFetch(`https://esi.evetech.net/latest/characters/${characterId}/location/`,
-    { headers: { Authorization: `Bearer ${token}` } });
-  if (!locRes.ok) return null;
-  const { solar_system_id } = await locRes.json() as { solar_system_id: number };
+  const loc = await readEsiLocation(userId, characterId);
+  if (loc.status !== 'online' || loc.solarSystemId == null) return null;
   db.query(`UPDATE users SET last_known_system_id = $1, last_known_system_at = NOW()
               WHERE id = $2 AND last_known_system_id IS DISTINCT FROM $1`,
-    [solar_system_id, userId]).catch(() => {});
+    [loc.solarSystemId, userId]).catch(() => {});
   const { rows } = await db.query<{ eveSystemId: number; name: string; systemClass: string | null }>(
-    `SELECT id AS "eveSystemId", name, class AS "systemClass" FROM solar_systems WHERE id = $1`, [solar_system_id]);
+    `SELECT id AS "eveSystemId", name, class AS "systemClass" FROM solar_systems WHERE id = $1`, [loc.solarSystemId]);
   return rows.length ? { online: true, eveSystemId: rows[0].eveSystemId, name: rows[0].name, systemClass: rows[0].systemClass } : null;
 }
 
 // GET /api/character/account-locations — where each of the account's OTHER
 // characters currently is (live when online, else their last known system), so
 // the map can show your alts. The active character has its own you-are-here.
+// GET /api/character/pilots-online — everyone in the caller's corp (or alliance
+// on an alliance install) seen recently, with where they were and what they were
+// flying.
+//
+// "Online" here means "recently seen by Nexum", inferred from last_seen_at
+// rather than asked of ESI: a live check would be one ESI call per corp member
+// per viewer, which is exactly the fan-out the rate limiting exists to prevent.
+// The honest reading of a row is "was here N minutes ago", which is why the
+// client shows the age rather than a bare green dot.
+//
+// Anyone with "hide my presence" set is left out. Hiding from the map but
+// appearing on a list of everyone's whereabouts would make that setting a lie.
+const PILOTS_ONLINE_WINDOW_MIN = 5;
+
+// EVE allocates NPC corporation ids below 2,000,000; player corporations start
+// at 98,000,000. The rookie/starter corps in that range hold tens of thousands
+// of unrelated pilots, so an NPC corp is not an organisation and must never be
+// treated as one for presence.
+const MIN_PLAYER_CORP_ID = 2_000_000;
+
+// ── Clone locations ──────────────────────────────────────────────────────────
+// Where a character's medical clone and jump clones are. Two consumers: the
+// Clones panel, and location tracking — which needs to know a clone jump from a
+// flown jump so a death clone stops drawing a wormhole between the system you
+// left and the one you woke up in.
+//
+// ESI gives a location_id, not a system, so each has to be resolved. Stations
+// come from the SDE table; structures from the corp's synced list, falling back
+// to ESI with the character's own token (esi-universe.read_structures, which we
+// already request) — a pilot can virtually always see the structure their own
+// clone is sitting in, including a private one we'd otherwise know nothing about.
+interface EsiClones {
+  home_location?: { location_id?: number; location_type?: string };
+  jump_clones?: Array<{ jump_clone_id: number; location_id: number; location_type: string; name?: string; implants?: number[] }>;
+  last_clone_jump_date?: string;
+}
+
+const clonesCache = new TtlCache<number, unknown>(120_000, 600_000);  // ESI caches /clones/ ~2 min
+
+async function locationToSystemId(
+  userId: number, locationId: number | undefined, locationType: string | undefined,
+): Promise<number | null> {
+  if (!locationId) return null;
+  if (locationType === 'station') {
+    const { rows } = await db.query<{ s: number | null }>(
+      `SELECT solar_system_id AS s FROM npc_stations WHERE station_id = $1`, [locationId]);
+    if (rows[0]?.s != null) return rows[0].s;
+    try {
+      const r = await esiFetch(`https://esi.evetech.net/latest/universe/stations/${locationId}/`);
+      if (r.ok) return (await r.json() as { system_id?: number }).system_id ?? null;
+    } catch { /* fall through */ }
+    return null;
+  }
+  if (locationType === 'structure') {
+    const { rows } = await db.query<{ s: number | null }>(
+      `SELECT solar_system_id AS s FROM structures WHERE structure_id = $1`, [locationId]);
+    if (rows[0]?.s != null) return rows[0].s;
+    try {
+      const token = await getValidToken(userId);
+      const r = await esiFetch(`https://esi.evetech.net/latest/universe/structures/${locationId}/`,
+        { headers: { Authorization: `Bearer ${token}` } });
+      if (r.ok) return (await r.json() as { solar_system_id?: number }).solar_system_id ?? null;
+    } catch { /* no docking access / gone — leave unresolved */ }
+    return null;
+  }
+  return null;   // item_hangar and anything new: not a place we can map
+}
+
+characterRouter.get('/clones', async (req, res) => {
+  const userId = req.session.userId;
+  if (!userId) { res.status(401).json({ error: 'Not authenticated' }); return; }
+
+  // Deployment hasn't opted into the scope, so we never asked for it and no
+  // token has it. Answered as a normal payload with enabled:false rather than
+  // an error — the panel can then say "not enabled here" instead of telling
+  // people to sign in again, which wouldn't help.
+  if (!config.cloneScope) {
+    res.json({ enabled: false, lastCloneJumpDate: null, home: null, jumpClones: [] });
+    return;
+  }
+
+  const hit = clonesCache.get(userId);
+  if (hit) { res.json(hit.value); return; }
+
+  try {
+    const { rows: userRows } = await db.query<{ character_id: number }>(
+      `SELECT character_id FROM users WHERE id = $1`, [userId]);
+    if (!userRows.length) { res.status(404).json({ error: 'User not found' }); return; }
+
+    const token = await getValidToken(userId);
+    const r = await esiFetch(
+      `https://esi.evetech.net/latest/characters/${userRows[0].character_id}/clones/`,
+      { headers: { Authorization: `Bearer ${token}` } });
+    if (!r.ok) {
+      // 403 here means the session predates the clones scope — the caller shows
+      // a re-login prompt rather than an empty panel that looks like "no clones".
+      res.status(r.status === 403 ? 403 : 502)
+         .json({ error: r.status === 403 ? 'scope_missing' : 'esi_failed', status: r.status });
+      return;
+    }
+    const data = await r.json() as EsiClones;
+
+    const homeSystemId = await locationToSystemId(userId, data.home_location?.location_id, data.home_location?.location_type);
+    const jumps = await Promise.all((data.jump_clones ?? []).map(async (jc) => ({
+      id:          jc.jump_clone_id,
+      name:        jc.name ?? null,
+      implantIds:  jc.implants ?? [],
+      systemId:    await locationToSystemId(userId, jc.location_id, jc.location_type),
+    })));
+
+    // Implant NAMES come from the SDE, not another ESI call. The type ids are
+    // already in the /clones/ payload under esi-clones.read_clones — the separate
+    // read_implants scope is for the ACTIVE clone's implants, which this panel
+    // doesn't show, so it isn't needed.
+    const implantIds = [...new Set(jumps.flatMap((j) => j.implantIds))];
+    const implantName = new Map<number, string>();
+    if (implantIds.length) {
+      const { rows } = await db.query<{ id: number; name: string }>(
+        `SELECT id, name FROM item_types WHERE id = ANY($1::int[])`, [implantIds]);
+      for (const r of rows) implantName.set(r.id, r.name);
+    }
+
+    // Enrich every resolved system in one query.
+    const ids = [homeSystemId, ...jumps.map((j) => j.systemId)].filter((x): x is number => x != null);
+    const byId = new Map<number, { name: string; systemClass: string | null; regionName: string | null }>();
+    if (ids.length) {
+      const { rows } = await db.query<{ id: number; name: string; systemClass: string | null; regionName: string | null }>(
+        `SELECT s.id, s.name, s.class AS "systemClass", r.name AS "regionName"
+           FROM solar_systems s LEFT JOIN map_regions r ON r.id = s.region_id
+          WHERE s.id = ANY($1::int[])`, [ids]);
+      for (const row of rows) byId.set(row.id, row);
+    }
+    const enrich = (id: number | null) => (id == null ? null : { eveSystemId: id, ...(byId.get(id) ?? { name: null, systemClass: null, regionName: null }) });
+
+    const payload = {
+      enabled: true,
+      lastCloneJumpDate: data.last_clone_jump_date ?? null,
+      home: enrich(homeSystemId),
+      jumpClones: jumps.map((j) => ({
+        id:     j.id,
+        name:   j.name,
+        system: enrich(j.systemId),
+        // Sorted by name so the list reads consistently; an id the SDE doesn't
+        // know (a very new implant) still shows rather than vanishing.
+        implants: j.implantIds
+          .map((id) => ({ typeId: id, name: implantName.get(id) ?? `Type ${id}` }))
+          .sort((a, b) => a.name.localeCompare(b.name)),
+      })),
+    };
+    clonesCache.set(userId, payload);
+    res.json(payload);
+  } catch (err) {
+    log.error('clones read failed:', err);
+    res.status(500).json({ error: 'Failed to read clones' });
+  }
+});
+
+characterRouter.get('/pilots-online', async (req, res) => {
+  const me = req.session;
+  if (!me.userId) { res.status(401).json({ error: 'Not authenticated' }); return; }
+
+  // Presence is an ORG feature: it only means anything where Nexum is deployed
+  // for a corp or an alliance. This used to fall back to the caller's corp_id
+  // whichever way the install was configured, which on a PUBLIC install grouped
+  // unrelated strangers by their in-game corp and showed each of them the
+  // others' ship and current system. In EVE a pilot's current system is hunting
+  // intel, so that is a leak and not a cosmetic bug.
+  //
+  // Scope only to an org the install is actually deployed for; anything else
+  // lists nobody. NPC corps never count, even on a corp install: EVE's starter
+  // corps hold tens of thousands of pilots with no relationship to each other.
+  const useAlliance = config.allianceMode && me.userAllianceId != null;
+  const scopeCol    = useAlliance ? 'alliance_id' : 'corp_id';
+  const scopeVal    = useAlliance ? me.userAllianceId
+                    : (config.corpMode ? me.userCorpId : null);
+  if (scopeVal == null) { res.json([]); return; }
+  if (!useAlliance && scopeVal < MIN_PLAYER_CORP_ID) { res.json([]); return; }
+
+  try {
+    const { rows } = await db.query(
+      `SELECT u.character_id                       AS "characterId",
+              u.character_name                     AS "characterName",
+              u.ship_type_name                     AS "shipTypeName",
+              u.ship_name                          AS "shipName",
+              u.last_seen_at                       AS "lastSeenAt",
+              u.last_known_system_at               AS "lastMovedAt",
+              s.id                                 AS "eveSystemId",
+              s.name                               AS "systemName",
+              s.class                              AS "systemClass",
+              r.name                               AS "regionName"
+         FROM users u
+         LEFT JOIN solar_systems s ON s.id = u.last_known_system_id
+         LEFT JOIN map_regions   r ON r.id = s.region_id
+        WHERE u.${scopeCol} = $1
+          AND u.id <> $2
+          AND u.blocked = FALSE
+          AND u.last_seen_at > NOW() - ($3 || ' minutes')::interval
+          AND COALESCE(u.ui_settings->>'nexum.presence.hidden', 'false') <> 'true'
+        ORDER BY u.last_seen_at DESC`,
+      [scopeVal, me.userId, String(PILOTS_ONLINE_WINDOW_MIN)],
+    );
+    res.json(rows);
+  } catch (err) {
+    log.error('pilots-online failed:', err);
+    res.status(500).json({ error: 'Failed to load pilots' });
+  }
+});
+
 characterRouter.get('/account-locations', async (req, res) => {
   const ownerId = await resolveOwnerId(req);
   if (ownerId == null) { res.json({ characters: [] }); return; }
@@ -265,13 +554,6 @@ characterRouter.get('/online', async (req, res) => {
 
     const data = await esiRes.json() as EsiOnlineResponse;
     const resolved = isReallyOnline(data);
-    // Diagnostic log when ESI claims online — lets us catch the
-    // stale-true case in the wild. The raw timestamps are right there to
-    // verify whether the cross-check should have caught it. Drop once
-    // we're confident the helper is correct.
-    if (data?.online) {
-      log.info(`online check char=${characterId} esi.online=${data.online} last_login=${data.last_login ?? '-'} last_logout=${data.last_logout ?? '-'} resolved=${resolved}`);
-    }
     // Pass `lastLogin` through to the client so the toolbar can show a
     // session-start timestamp in its tooltip. Useful for spotting orphan
     // TQ sessions ("online since 4 hours ago even though I logged out").

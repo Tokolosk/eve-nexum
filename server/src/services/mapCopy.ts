@@ -31,28 +31,42 @@ async function insertBatch(
 }
 
 /**
- * Duplicate `sourceMapId` into a brand-new personal map owned by `ownerId` /
- * created by `userId`. Systems + connections (with per-system intel/labels/
- * status/home) are always copied; `include` gates system notes, signatures,
- * structures and anomalies. Everything runs in one transaction; the new map id
- * is returned. Copied signatures are flagged `from_merge` so they don't count
- * as fresh scanning activity.
+ * Duplicate `sourceMapId` into a brand-new map owned by `ownerId` / created by
+ * `userId`. The copy's scope is set by `corpId` / `allianceId` (both null → a
+ * personal map); the caller (the copy route) is responsible for the role,
+ * affiliation and quota checks that scope requires. Systems + connections (with
+ * per-system intel/labels/status/home) are always copied; `include` gates system
+ * notes, signatures, structures and anomalies. Everything runs in one
+ * transaction; the new map id is returned. Copied signatures are flagged
+ * `from_merge` so they don't count as fresh scanning activity.
  */
 export async function copyMap(params: {
   sourceMapId: string;
   name: string;
   ownerId: number | null;
   userId: number;
+  corpId?: number | null;
+  allianceId?: number | null;
   include: CopyInclude;
 }): Promise<string> {
   const { sourceMapId, name, ownerId, userId, include } = params;
+  const corpId     = params.corpId ?? null;
+  const allianceId = params.allianceId ?? null;
   const client = await db.connect();
   try {
     await client.query('BEGIN');
 
+    // Carry the source's "Don't track K-space" policy over, but it only applies
+    // to corp/alliance maps — force false when copying into a personal map.
+    const { rows: srcRows } = await client.query<{ skipKspace: boolean }>(
+      `SELECT skip_kspace AS "skipKspace" FROM maps WHERE id = $1`,
+      [sourceMapId],
+    );
+    const skipKspace = (corpId !== null || allianceId !== null) && srcRows[0]?.skipKspace === true;
+
     const { rows: mapRows } = await client.query<{ id: string }>(
-      `INSERT INTO maps (user_id, owner_id, name, corp_id) VALUES ($1, $2, $3, NULL) RETURNING id`,
-      [userId, ownerId, name],
+      `INSERT INTO maps (user_id, owner_id, name, corp_id, alliance_id, skip_kspace) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+      [userId, ownerId, name, corpId, allianceId, skipKspace],
     );
     const newMapId = mapRows[0].id;
 
@@ -61,11 +75,11 @@ export async function copyMap(params: {
       id: string; eveSystemId: number | null; name: string; systemClass: string; effect: string;
       statics: string[]; regionName: string | null; npcType: string | null; x: number; y: number;
       status: string; isHome: boolean; locked: boolean; notes: string; intel: string | null;
-      labels: string[]; customLabels: string[]; tag: string | null;
+      labels: string[]; customLabels: string[]; tag: string | null; alias: string | null;
     }>(
       `SELECT id, eve_system_id AS "eveSystemId", name, system_class AS "systemClass", effect, statics,
               region_name AS "regionName", npc_type AS "npcType", position_x AS x, position_y AS y,
-              status, is_home AS "isHome", locked, notes, intel, labels, custom_labels AS "customLabels", tag
+              status, is_home AS "isHome", locked, notes, intel, labels, custom_labels AS "customLabels", tag, alias
          FROM map_systems WHERE map_id = $1`,
       [sourceMapId],
     );
@@ -75,11 +89,11 @@ export async function copyMap(params: {
     await insertBatch(client, 'map_systems',
       ['id', 'map_id', 'eve_system_id', 'name', 'system_class', 'effect', 'statics', 'region_name',
        'npc_type', 'position_x', 'position_y', 'status', 'is_home', 'locked', 'notes', 'intel',
-       'labels', 'custom_labels', 'tag'],
+       'labels', 'custom_labels', 'tag', 'alias'],
       sysRes.rows.map((s) => [
         sysIdMap.get(s.id), newMapId, s.eveSystemId, s.name, s.systemClass, s.effect, s.statics,
         s.regionName, s.npcType, s.x, s.y, s.status, s.isHome, s.locked,
-        include.notes ? s.notes : '', s.intel, s.labels, s.customLabels, s.tag,
+        include.notes ? s.notes : '', s.intel, s.labels, s.customLabels, s.tag, s.alias,
       ]),
     );
 
@@ -89,21 +103,21 @@ export async function copyMap(params: {
     if (include.signatures) {
       const sigRes = await client.query<{
         id: string; systemId: string; sigId: string; sigType: string; name: string;
-        notes: string; whType: string; whLeadsTo: string;
+        notes: string; whType: string; whLeadsTo: string; ghostType: string;
       }>(
         `SELECT id, system_id AS "systemId", sig_id AS "sigId", sig_type AS "sigType", name, notes,
-                wh_type AS "whType", wh_leads_to AS "whLeadsTo"
+                wh_type AS "whType", wh_leads_to AS "whLeadsTo", ghost_type AS "ghostType"
            FROM map_signatures
           WHERE system_id = ANY($1::uuid[])`,
         [[...sysIdMap.keys()]],
       );
       for (const g of sigRes.rows) sigIdMap.set(g.id, crypto.randomUUID());
       await insertBatch(client, 'map_signatures',
-        ['id', 'system_id', 'sig_id', 'sig_type', 'name', 'notes', 'wh_type', 'wh_leads_to',
+        ['id', 'system_id', 'sig_id', 'sig_type', 'name', 'notes', 'wh_type', 'wh_leads_to', 'ghost_type',
          'created_by_user_id', 'from_merge'],
         sigRes.rows.map((g) => [
           sigIdMap.get(g.id), sysIdMap.get(g.systemId), g.sigId, g.sigType, g.name, g.notes,
-          g.whType, g.whLeadsTo, userId, true,
+          g.whType, g.whLeadsTo, g.ghostType, userId, true,
         ]),
       );
     }
@@ -112,13 +126,13 @@ export async function copyMap(params: {
     const connRes = await client.query<{
       sourceId: string; targetId: string; sourceHandle: string | null; targetHandle: string | null;
       connectionType: string; massStatus: string | null; timeStatus: string | null; size: string;
-      whType: string | null; massUsed: string; eolAt: Date | null; broken: boolean;
+      whType: string | null; massUsed: string; eolAt: Date | null; lifetimeExpiresAt: Date | null; broken: boolean;
       sourceSignatureId: string | null; targetSignatureId: string | null;
     }>(
       `SELECT source_id AS "sourceId", target_id AS "targetId", source_handle AS "sourceHandle",
               target_handle AS "targetHandle", connection_type AS "connectionType",
               mass_status AS "massStatus", time_status AS "timeStatus", size, wh_type AS "whType",
-              mass_used AS "massUsed", eol_at AS "eolAt", broken,
+              mass_used AS "massUsed", eol_at AS "eolAt", lifetime_expires_at AS "lifetimeExpiresAt", broken,
               source_signature_id AS "sourceSignatureId", target_signature_id AS "targetSignatureId"
          FROM map_connections WHERE map_id = $1`,
       [sourceMapId],
@@ -126,7 +140,7 @@ export async function copyMap(params: {
     const remapSig = (id: string | null) => (id ? sigIdMap.get(id) ?? null : null);
     await insertBatch(client, 'map_connections',
       ['id', 'map_id', 'source_id', 'target_id', 'source_handle', 'target_handle', 'connection_type',
-       'mass_status', 'time_status', 'size', 'wh_type', 'mass_used', 'eol_at', 'broken',
+       'mass_status', 'time_status', 'size', 'wh_type', 'mass_used', 'eol_at', 'lifetime_expires_at', 'broken',
        'source_signature_id', 'target_signature_id'],
       connRes.rows.flatMap((c): unknown[][] => {
         const src = sysIdMap.get(c.sourceId);
@@ -134,7 +148,7 @@ export async function copyMap(params: {
         if (!src || !tgt) return [];
         return [[
           crypto.randomUUID(), newMapId, src, tgt, c.sourceHandle, c.targetHandle, c.connectionType,
-          c.massStatus, c.timeStatus, c.size, c.whType, c.massUsed, c.eolAt, c.broken,
+          c.massStatus, c.timeStatus, c.size, c.whType, c.massUsed, c.eolAt, c.lifetimeExpiresAt, c.broken,
           remapSig(c.sourceSignatureId), remapSig(c.targetSignatureId),
         ]];
       }),

@@ -5,12 +5,14 @@ import { timeAgo, jumps } from '../../i18n/format';
 import { useMapStore } from '../../store/mapStore';
 import { useAuth, formatRole, isAdminRole } from '../../context/AuthContext';
 import { useOnlineStatus } from '../../hooks/useOnlineStatus';
-import { useCharacterLocation } from '../../hooks/useCharacterLocation';
+import { useCharacterLocation, useCharacterLocationCheckedAt } from '../../hooks/useCharacterLocation';
+import { useSystemAlias } from '../../hooks/useSystemAlias';
 import { useCanEdit } from '../../hooks/useCanEdit';
 import { useCanEditContent } from '../../hooks/useCanEditContent';
 import { useIsMapOwner } from '../../hooks/useIsMapOwner';
 import { useCanCreateMaps, useCanManageAllianceMaps } from '../../hooks/useCanCreateMaps';
 import { UserStatsModal } from './UserStatsModal';
+import { GetMoreMapsModal } from './GetMoreMapsModal';
 import { ConfirmModal } from './ConfirmModal';
 import { CreateMapModal } from './CreateMapModal';
 import { CopyMapModal } from './CopyMapModal';
@@ -19,6 +21,8 @@ import { LanguageSwitcher } from './LanguageSwitcher';
 import { CharacterSwitcher } from './CharacterSwitcher';
 import { HeatmapMenu } from './HeatmapMenu';
 import { WhTypeChartModal } from './WhTypeChartModal';
+import { KillLogPanel } from './KillLogPanel';
+import { JumpPlannerModal } from './JumpPlannerModal';
 import { useProximityAlerts } from '../../hooks/useProximityAlerts';
 import { useClickOutside } from '../../hooks/useClickOutside';
 import { useUserSetting } from '../../hooks/useUserSetting';
@@ -31,13 +35,31 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import {
-  WarningIcon, SkullIcon, XCircleIcon, QuestionIcon,
-  ShieldStarIcon, ChartBarIcon, SlidersHorizontalIcon, FootprintsIcon,
-  SignOutIcon, PlanetIcon, LinkSimpleIcon, ClockCountdownIcon, MapPinIcon,
-  KeyIcon, GraphIcon, ArrowCounterClockwiseIcon, DotsSixVerticalIcon,
-} from '@phosphor-icons/react';
-import type { Icon as PhosphorIcon } from '@phosphor-icons/react';
+  ArrowCounterClockwiseIcon,
+  ChartBarIcon,
+  ClockCountdownIcon,
+  ColumnsIcon,
+  DiscordLogoIcon,
+  DotsSixVerticalIcon,
+  FootprintsIcon,
+  GraphIcon,
+  KeyIcon,
+  LinkSimpleIcon,
+  MapPinIcon,
+  NavigationArrowIcon,
+  PlanetIcon,
+  QuestionIcon,
+  ShieldStarIcon,
+  SignOutIcon,
+  SkullIcon,
+  SlidersHorizontalIcon,
+  WarningIcon,
+  XCircleIcon,
+} from '../../icons';
+import type { Icon as PhosphorIcon } from '../../icons';
+import { UpdateIndicator } from './UpdateIndicator';
 import { charPortrait, typeIcon } from '../../utils/eveImages';
+import { DISCORD_INVITE_URL } from '../../data/links';
 
 interface EveStatus {
   players:    number;
@@ -146,6 +168,11 @@ function onlineTooltip(t: TFunction, online: boolean | null, lastLoginIso: strin
 // Compact "last checked" indicator: a clock icon whose tooltip carries the
 // "checked Xs ago" text. Owns its own 5 s tick so the rest of the Toolbar
 // doesn't re-render every five seconds along with it.
+//
+// It sits next to the system name, so it reports the LOCATION poll (10 s). It
+// used to read the online-status poll's timestamp instead — a separate 30 s
+// check — so a location refreshed seconds ago routinely read "checked 25s ago"
+// and looked stale when it wasn't.
 function CheckedAtIcon({ checkedAt }: { checkedAt: Date }) {
   const { t } = useTranslation();
   const [, setTick] = useState(0);
@@ -212,6 +239,9 @@ export function Toolbar() {
   const connectionCount = useMapStore((s) => s.map.connections.length);
   const maps            = useMapStore((s) => s.maps);
   const maxMaps         = useMapStore((s) => s.maxMaps);
+  const iskMapsEnabled  = useMapStore((s) => s.iskMapsEnabled);
+  const panelSideBySide = useMapStore((s) => s.panelSideBySide);
+  const setPanelSideBySide = useMapStore((s) => s.setPanelSideBySide);
   const maxCorpMaps     = useMapStore((s) => s.maxCorpMaps);
   const corpMapCount    = useMapStore((s) => s.corpMapCount);
   const maxAllianceMaps  = useMapStore((s) => s.maxAllianceMaps);
@@ -221,12 +251,17 @@ export function Toolbar() {
   const switchMap       = useMapStore((s) => s.switchMap);
   const requestFitView  = useMapStore((s) => s.requestFitView);
   const deleteMap       = useMapStore((s) => s.deleteMap);
+  const leaveShare      = useMapStore((s) => s.leaveShare);
   const mapOptionsOpen  = useMapStore((s) => s.mapOptionsOpen);
   const setMapOptionsOpen = useMapStore((s) => s.setMapOptionsOpen);
   const trackJumps      = useMapStore((s) => s.trackJumps);
   const setTrackJumps   = useMapStore((s) => s.setTrackJumps);
 
-  const atMapLimit      = maps.filter((m) => !m.isCorpMap && !m.isAllianceMap).length >= maxMaps;
+  // Personal-map cap counts only maps the caller OWNS. A map merely shared with
+  // them (sharedWithMe) has a different owner and doesn't count server-side, so
+  // exclude it here too — otherwise received shares wrongly eat into the cap and
+  // disable "+ New Map" / "Copy".
+  const atMapLimit      = maps.filter((m) => !m.isCorpMap && !m.isAllianceMap && !m.sharedWithMe).length >= maxMaps;
   const atCorpMapLimit  = corpMapCount >= maxCorpMaps;
   const { user, logout } = useAuth();
   const canEdit       = useCanEdit();
@@ -241,6 +276,12 @@ export function Toolbar() {
     const active = maps.find((m) => m.id === activeMapId);
     return !!active && (active.isCorpMap || active.isAllianceMap) && !canEditContent;
   })();
+  // A map merely shared with you (map_shares grant, not your own / your org's) can't
+  // be copied — only its owner may fork it. Hide the Copy action for those.
+  const activeIsShared = !!maps.find((m) => m.id === activeMapId)?.sharedWithMe;
+  // A map shared with this character specifically (not via corp/alliance) can be
+  // dropped from their own list — gates the "Leave shared map" action below.
+  const activeCanLeave = !!maps.find((m) => m.id === activeMapId)?.canLeaveShare;
   const canManageMaps = useCanCreateMaps();
   const canManageAllianceMaps = useCanManageAllianceMaps();
   // Corp maps exist under corp OR alliance mode (a corp inside the alliance).
@@ -253,26 +294,45 @@ export function Toolbar() {
   const noCreateOption = atMapLimit
     && (!canCorpCreate || atCorpMapLimit)
     && (!canAllianceCreate || atAllianceMapLimit);
-  const { online, checkedAt, lastLogin } = useOnlineStatus(!!user);
+  const { online, lastLogin } = useOnlineStatus(!!user);
+  const locCheckedAt = useCharacterLocationCheckedAt();
+  // The character THIS TAB acts as: the per-tab pinned character (a routeOrigin
+  // override) when set, else the session-active character. The avatar, name and
+  // you-are-here follow it; the role badge stays on the session identity below.
+  // The character THIS TAB acts as: the per-tab pinned character, else the tab's
+  // own (session-active) character — resolved to an explicit users.id so the
+  // name/avatar always match the location (which is now resolved by the same id).
+  const actingCharId = useMapStore((s) => s.routeOrigin?.charId ?? null) ?? user?.id ?? null;
+  const actingChar = actingCharId != null ? (user?.characters?.find((c) => c.id === actingCharId) ?? null) : null;
   // Ship + live system come from the same poll that drives passive location
   // tracking, so no extra ESI traffic — we just surface fields already on hand.
+  // After the acting-character rework this poll already reports the acting char.
   const { ship, system: liveSystem, online: locOnline } = useCharacterLocation();
+  const aliasName = useSystemAlias();
   // What to show next to the avatar: the live system when the pilot is online
-  // in EVE, otherwise the last known system from their profile.
-  const shownSystem = (locOnline && liveSystem?.name) ? liveSystem.name : (user?.lastKnownSystem?.name ?? null);
+  // in EVE, otherwise the last known system from the acting character's profile
+  // (falling back to the session user when no pin is set).
+  const shownSystem = (locOnline && liveSystem?.name) ? liveSystem.name : (actingChar ? actingChar.lastKnownSystemName : (user?.lastKnownSystem?.name ?? null));
   const shownSystemIsLast = !(locOnline && liveSystem?.name);
-  const shownSystemEveId = (locOnline && liveSystem?.eveSystemId) ? liveSystem.eveSystemId : (user?.lastKnownSystem?.id ?? null);
+  const shownSystemEveId = (locOnline && liveSystem?.eveSystemId) ? liveSystem.eveSystemId : (actingChar ? actingChar.lastKnownSystemId : (user?.lastKnownSystem?.id ?? null));
   // Clicking the system centres the map on it — but only when it's actually on
   // the current map.
   const shownSystemOnMap = shownSystemEveId != null && mapSystems.some((s) => s.eveSystemId === shownSystemEveId);
+  // Display-only: show the per-map alias when this system has one (real name
+  // still drives centring via shownSystemEveId).
+  const shownSystemDisplay = aliasName(shownSystem);
   const eveStatus = useEveServerStatus();
   const [showMaps, setShowMaps]   = useState(false);
   const [showStats, setShowStats] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
+  const [showGetMore, setShowGetMore] = useState(false);
   const [showCopy, setShowCopy] = useState(false);
   const [showKeys, setShowKeys] = useState(false);
   const [showWhChart, setShowWhChart] = useState(false);
+  const [showKillLog, setShowKillLog] = useState(false);
+  const [showJumpPlanner, setShowJumpPlanner] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState(false);
+  const [leaveConfirm, setLeaveConfirm] = useState(false);
   const mapSwitcherRef = useRef<HTMLDivElement>(null);
   useClickOutside(showMaps, mapSwitcherRef, () => setShowMaps(false));
 
@@ -303,6 +363,11 @@ export function Toolbar() {
   async function handleDeleteMap() {
     if (!activeMapId) return;
     await deleteMap(activeMapId);
+  }
+
+  async function handleLeaveShare() {
+    if (!activeMapId) return;
+    await leaveShare(activeMapId);
   }
 
   // Nearest-threat chip: null unless an in-zone threat exists (the user's
@@ -346,7 +411,14 @@ export function Toolbar() {
               const active = maps.find((m) => m.id === activeMapId);
               if (!active) return null;
               if (active.sharedWithMe) {
-                return <span className="toolbar__map-type toolbar__map-type--shared">{t('toolbar.mapType.shared')}</span>;
+                return (
+                  <span
+                    className="toolbar__map-type toolbar__map-type--shared"
+                    data-tooltip={active.ownerName ? t('toolbar.sharedBy', { name: active.ownerName }) : undefined}
+                  >
+                    {t('toolbar.mapType.shared')}
+                  </span>
+                );
               }
               if (active.isAllianceMap) {
                 return <span className="toolbar__map-type toolbar__map-type--alliance">{t('toolbar.mapType.alliance')}</span>;
@@ -395,6 +467,12 @@ export function Toolbar() {
                   {!m.sharedWithMe && m.isCorpMap && <span className="map-dropdown__badge map-dropdown__badge--corp">{t('toolbar.mapType.corp')}</span>}
                   {m.locked    && <span className="map-dropdown__badge map-dropdown__badge--lock">🔒</span>}
                   {m.name}
+                  {/* Whose map this is. Only for shares: on your own maps the
+                      owner is you, and on corp/alliance maps the badge already
+                      says who it belongs to. */}
+                  {m.sharedWithMe && m.ownerName && (
+                    <span className="map-dropdown__owner">{m.ownerName}</span>
+                  )}
                 </button>
               ))}
               <div className="map-dropdown__divider" />
@@ -410,7 +488,17 @@ export function Toolbar() {
                   {t('toolbar.newMap')}
                 </button>
               </span>
-              {!readonlyCorpActive && (
+              {/* Only once they've actually run out, and only where the
+                  deployment offers it (unrestricted installs). */}
+              {iskMapsEnabled && atMapLimit && (
+                <button
+                  className="map-dropdown__item map-dropdown__item--action"
+                  onClick={() => { setShowMaps(false); setShowGetMore(true); }}
+                >
+                  {t('toolbar.getMoreMaps')}
+                </button>
+              )}
+              {!readonlyCorpActive && !activeIsShared && (
                 <span
                   className={`map-dropdown__new-wrap${atMapLimit ? ' map-dropdown__new-wrap--disabled' : ''}`}
                   data-disabled-reason={atMapLimit ? t('toolbar.mapLimitReached') : undefined}
@@ -427,6 +515,11 @@ export function Toolbar() {
               {canManageMaps && maps.length > 1 && !maps.find((m) => m.id === activeMapId)?.sharedWithMe && (
                 <button className="map-dropdown__item map-dropdown__item--danger" onClick={() => { setShowMaps(false); setDeleteConfirm(true); }}>
                   {t('toolbar.deleteThisMap')}
+                </button>
+              )}
+              {activeCanLeave && (
+                <button className="map-dropdown__item map-dropdown__item--danger" onClick={() => { setShowMaps(false); setLeaveConfirm(true); }}>
+                  {t('toolbar.leaveThisMap')}
                 </button>
               )}
             </div>
@@ -498,6 +591,18 @@ export function Toolbar() {
           <QuestionIcon size={18} weight="regular" />
         </a>
 
+        <a
+          className="toolbar__toggle toolbar__toggle--prominent toolbar__discord"
+          href={DISCORD_INVITE_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+          data-tooltip={t('actions.joinDiscord')}
+          aria-label={t('actions.joinDiscord')}
+        >
+          <DiscordLogoIcon size={18} weight="fill" color="#5865F2" />
+          <span>{t('toolbar.discord')}</span>
+        </a>
+
         <button
           className="toolbar__toggle toolbar__toggle--icon toolbar__toggle--prominent"
           onClick={() => setShowWhChart(true)}
@@ -505,6 +610,37 @@ export function Toolbar() {
           aria-label={t('whChart.title')}
         >
           <GraphIcon size={18} weight="regular" />
+        </button>
+
+        <button
+          className="toolbar__toggle toolbar__toggle--icon toolbar__toggle--prominent"
+          onClick={() => setShowKillLog(true)}
+          data-tooltip={t('killLog.tooltip')}
+          aria-label={t('killLog.title')}
+        >
+          <SkullIcon size={18} weight="regular" />
+        </button>
+
+        <button
+          className="toolbar__toggle toolbar__toggle--icon toolbar__toggle--prominent"
+          onClick={() => setShowJumpPlanner(true)}
+          data-tooltip={t('jumpPlanner.title')}
+          aria-label={t('jumpPlanner.title')}
+        >
+          <NavigationArrowIcon size={18} weight="regular" />
+        </button>
+
+        {/* Layout switch. Lives here rather than in the sidebar's display
+            options: those are set once, whereas people flip this back and
+            forth while deciding which layout suits them. */}
+        <button
+          className={`toolbar__toggle toolbar__toggle--icon toolbar__toggle--prominent${panelSideBySide ? ' toolbar__toggle--on' : ''}`}
+          onClick={() => setPanelSideBySide(!panelSideBySide)}
+          aria-pressed={panelSideBySide}
+          data-tooltip={panelSideBySide ? t('toolbar.layoutBesideTooltip') : t('toolbar.layoutBelowTooltip')}
+          aria-label={t('mapSidebar.panelLayout')}
+        >
+          <ColumnsIcon size={18} weight="regular" />
         </button>
 
         <HeatmapMenu />
@@ -578,8 +714,8 @@ export function Toolbar() {
         />
         <img
           className="toolbar__avatar"
-          src={charPortrait(user.characterId, 64)}
-          alt={user.characterName}
+          src={charPortrait(actingChar?.characterId ?? user!.characterId, 64)}
+          alt={actingChar?.characterName ?? user!.characterName}
         />
         {ship && (
           <span
@@ -597,7 +733,7 @@ export function Toolbar() {
         )}
         <div className="toolbar__char-info">
           <span className="toolbar__char-name">
-            {user.characterName}
+            {actingChar?.characterName ?? user!.characterName}
             {/* Role only matters in a restricted (corp/alliance) deployment —
                 in solo deployments every user is implicitly admin of their own
                 maps, so the badge just adds noise. */}
@@ -615,11 +751,11 @@ export function Toolbar() {
               <button
                 type="button"
                 className="toolbar__char-system toolbar__char-system--clickable"
-                data-tooltip={t('toolbar.centerOnSystem', { system: shownSystem })}
+                data-tooltip={t('toolbar.centerOnSystem', { system: shownSystemDisplay })}
                 onClick={() => { if (shownSystemEveId != null) requestCenterOnEveSystem(shownSystemEveId); }}
               >
                 <MapPinIcon size={11} weight="fill" />
-                {shownSystem}
+                {shownSystemDisplay}
               </button>
             ) : (
               <span
@@ -627,10 +763,10 @@ export function Toolbar() {
                 data-tooltip={shownSystemIsLast ? t('toolbar.lastKnownSystem') : t('toolbar.currentSystem')}
               >
                 <MapPinIcon size={11} weight="fill" />
-                {shownSystem}
+                {shownSystemDisplay}
               </span>
             ))}
-            {checkedAt && <CheckedAtIcon checkedAt={checkedAt} />}
+            {locCheckedAt != null && <CheckedAtIcon checkedAt={new Date(locCheckedAt)} />}
           </div>
         </div>
         <CharacterSwitcher />
@@ -643,9 +779,11 @@ export function Toolbar() {
         <LanguageSwitcher compact />
         <button
           className="toolbar__toggle toolbar__toggle--icon"
-          onClick={() => setShowKeys(true)}
-          data-tooltip={t('apiKeys.title')}
-          aria-label={t('apiKeys.title')}
+          onClick={() => { if (!user.externalApiDisabled) setShowKeys(true); }}
+          aria-disabled={user.externalApiDisabled || undefined}
+          style={user.externalApiDisabled ? { opacity: 0.45, cursor: 'not-allowed' } : undefined}
+          data-tooltip={user.externalApiDisabled ? t('apiKeys.disabled') : t('apiKeys.title')}
+          aria-label={user.externalApiDisabled ? t('apiKeys.disabled') : t('apiKeys.title')}
         >
           <KeyIcon size={18} weight="regular" />
         </button>
@@ -676,7 +814,7 @@ export function Toolbar() {
     <header className="toolbar toolbar--free">
       {/* Fixed brand anchor — always top-left, never draggable. */}
       <div className="toolbar__brand">
-        <span className="toolbar__logo">◈</span>
+        <img className="toolbar__logo" src="/screen.png" alt="Nexum" />
       </div>
 
       <DndContext sensors={dragSensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
@@ -686,6 +824,8 @@ export function Toolbar() {
           ))}
         </SortableContext>
       </DndContext>
+
+      <UpdateIndicator />
 
       {user && !atDefaultLayout && (
         <button
@@ -701,9 +841,12 @@ export function Toolbar() {
 
     {showStats && <UserStatsModal onClose={() => setShowStats(false)} />}
     {showCreate && <CreateMapModal onClose={() => setShowCreate(false)} />}
+    {showGetMore && <GetMoreMapsModal onClose={() => setShowGetMore(false)} />}
     {showCopy && <CopyMapModal onClose={() => setShowCopy(false)} />}
     {showKeys && <ApiKeysModal onClose={() => setShowKeys(false)} />}
     {showWhChart && <WhTypeChartModal onClose={() => setShowWhChart(false)} />}
+    {showKillLog && <KillLogPanel onClose={() => setShowKillLog(false)} />}
+    {showJumpPlanner && <JumpPlannerModal onClose={() => setShowJumpPlanner(false)} />}
     {deleteConfirm && (
       <ConfirmModal
         message={t('toolbar.deleteMapConfirm', { name: mapName })}
@@ -711,6 +854,16 @@ export function Toolbar() {
         onConfirm={async () => {
           setDeleteConfirm(false);
           await handleDeleteMap();
+        }}
+      />
+    )}
+    {leaveConfirm && (
+      <ConfirmModal
+        message={t('toolbar.leaveMapConfirm', { name: mapName })}
+        onCancel={() => setLeaveConfirm(false)}
+        onConfirm={async () => {
+          setLeaveConfirm(false);
+          await handleLeaveShare();
         }}
       />
     )}

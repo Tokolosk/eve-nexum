@@ -2,9 +2,10 @@ import { useEffect } from 'react';
 import { api } from '../api/client';
 import { useMapStore } from '../store/mapStore';
 import type { SystemContent } from '../store/mapStore';
+import type { WhSig } from '../utils/undivedWormholes';
 import { useShareMode } from '../context/ShareModeContext';
 
-interface SigRow { systemId: string; sigType: string; name: string; whType: string }
+interface SigRow { id: string; sigId: string; systemId: string; sigType: string; name: string; whType: string; whLeadsTo: string }
 interface AnomRow { systemId: string; anomType: string; name: string }
 
 function uniqPush(arr: string[], v: string) {
@@ -24,7 +25,9 @@ function uniqPush(arr: string[], v: string) {
 export function useMapSignatureIndex() {
   const activeMapId = useMapStore((s) => s.activeMapId);
   const setSigTypesBulk = useMapStore((s) => s.setSigTypesBulk);
+  const setScanBulk = useMapStore((s) => s.setScanBulk);
   const setContentBulk = useMapStore((s) => s.setContentBulk);
+  const setWhSigsBulk = useMapStore((s) => s.setWhSigsBulk);
   const { isShareMode } = useShareMode();
   // Sum of all per-system sig + anom revisions — bumps when any remote change
   // arrives, so we re-pull. Cheap; the map's system set is small.
@@ -36,7 +39,7 @@ export function useMapSignatureIndex() {
   });
 
   useEffect(() => {
-    if (!activeMapId || isShareMode) { setSigTypesBulk({}); setContentBulk({}); return; }
+    if (!activeMapId || isShareMode) { setSigTypesBulk({}); setScanBulk({}); setContentBulk({}); setWhSigsBulk({}); return; }
     let cancelled = false;
     Promise.all([
       api<SigRow[]>(`/api/maps/${activeMapId}/signatures`).catch(() => [] as SigRow[]),
@@ -45,14 +48,28 @@ export function useMapSignatureIndex() {
       .then(([sigs, anoms]) => {
         if (cancelled) return;
         const whBySystem: Record<string, string[]> = {};
+        const whSigs: Record<string, WhSig[]> = {};
         const content: Record<string, SystemContent> = {};
+        // Scan progress. Derived from the same fetch, so the badge costs no
+        // extra request: a signature counts as scanned once it has any type
+        // other than 'unknown', which is what the probe-scanner paste leaves
+        // behind for a hole nobody has identified yet.
+        const scan: Record<string, { total: number; scanned: number }> = {};
         const ensure = (id: string): SystemContent => (content[id] ??= { sigTypes: [], anomTypes: [], names: [] });
 
         for (const r of sigs) {
           if (r.whType) (whBySystem[r.systemId] ??= []).push(r.whType.toUpperCase());
+          if (r.sigType === 'wormhole') {
+            (whSigs[r.systemId] ??= []).push({
+              id: r.id, sigId: r.sigId ?? '', whType: r.whType ?? '', leadsTo: r.whLeadsTo ?? '',
+            });
+          }
           const c = ensure(r.systemId);
           uniqPush(c.sigTypes, r.sigType);
           if (r.name) uniqPush(c.names, r.name.toLowerCase());
+          const sc = (scan[r.systemId] ??= { total: 0, scanned: 0 });
+          sc.total++;
+          if (r.sigType && r.sigType !== 'unknown') sc.scanned++;
         }
         for (const r of anoms) {
           const c = ensure(r.systemId);
@@ -60,9 +77,11 @@ export function useMapSignatureIndex() {
           if (r.name) uniqPush(c.names, r.name.toLowerCase());
         }
         setSigTypesBulk(whBySystem);
+        setScanBulk(scan);
         setContentBulk(content);
+        setWhSigsBulk(whSigs);
       })
       .catch(() => { /* non-fatal — filter/watchlist just won't see unopened content */ });
     return () => { cancelled = true; };
-  }, [activeMapId, isShareMode, rev, setSigTypesBulk, setContentBulk]);
+  }, [activeMapId, isShareMode, rev, setSigTypesBulk, setScanBulk, setContentBulk, setWhSigsBulk]);
 }

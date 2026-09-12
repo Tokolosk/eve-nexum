@@ -1,40 +1,76 @@
 import { createHash, randomBytes } from 'node:crypto';
 
+// Comma-separated list of positive integer IDs from an env value (CORP_ID,
+// ALLIANCE_ID). Blanks and non-positive/non-integer entries are dropped.
+function parseIdList(raw: string | undefined): number[] {
+  return (raw ?? '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .map((s) => parseInt(s, 10))
+    .filter((n) => Number.isInteger(n) && n > 0);
+}
+
+// Boolean env flag — 1 / true / yes (case-insensitive), else false.
+function parseBool(raw: string | undefined): boolean {
+  return /^(1|true|yes)$/i.test(raw ?? '');
+}
+
+// Bounded integer env with a default and minimum; falls back to `def` when
+// unset/NaN/out of range.
+function intEnv(raw: string | undefined, def: number, min = 0): number {
+  const n = parseInt(raw ?? '', 10);
+  return Number.isFinite(n) && n >= min ? n : def;
+}
+
 // CORP_ID accepts a comma-separated list of corporation IDs. Any member of
 // any listed corp is allowed to log in.
-const CORP_IDS: number[] = (process.env.CORP_ID ?? '')
-  .split(',')
-  .map((s) => s.trim())
-  .filter(Boolean)
-  .map((s) => parseInt(s, 10))
-  .filter((n) => Number.isInteger(n) && n > 0);
+const CORP_IDS: number[] = parseIdList(process.env.CORP_ID);
 
 // ALLIANCE_ID accepts a comma-separated list of alliance IDs, mirroring
 // CORP_ID. Any member of any listed alliance is allowed to log in, and the
 // list doubles as the coalition set for alliance-map sharing. Lets a whole
 // alliance be permitted without enumerating every member corp.
-const ALLIANCE_IDS: number[] = (process.env.ALLIANCE_ID ?? '')
-  .split(',')
-  .map((s) => s.trim())
-  .filter(Boolean)
-  .map((s) => parseInt(s, 10))
-  .filter((n) => Number.isInteger(n) && n > 0);
+const ALLIANCE_IDS: number[] = parseIdList(process.env.ALLIANCE_ID);
 
 const ADMIN_CHAR_ID = process.env.ADMIN_CHAR_ID ? parseInt(process.env.ADMIN_CHAR_ID, 10) : null;
 const REPORTS_CHAR_ID = process.env.RV_REPORT_ID ? parseInt(process.env.RV_REPORT_ID, 10) : null;
 const CORP_MAP_TIME = parseInt(process.env.CORP_MAP_TIME ?? '30', 10);
 
+// Role a NEW user is created with on a restricted (corp/alliance) instance.
+// Existing users keep whatever role they already have. Deliberately limited to
+// the non-admin editing tiers ('readonly' | 'edit' | 'full') so a deployment can
+// start members at 'edit' — but can NEVER auto-mint admins here; 'admin' /
+// 'alliance_admin' must always be granted per-user by an admin. Anything unknown
+// or disallowed falls back to the safe 'readonly' default (no behaviour change).
+const DEFAULT_ROLE_CHOICES = ['readonly', 'edit', 'full'] as const;
+type DefaultRole = (typeof DEFAULT_ROLE_CHOICES)[number];
+function parseDefaultRole(raw: string | undefined): DefaultRole {
+  const v = (raw ?? '').trim().toLowerCase();
+  if ((DEFAULT_ROLE_CHOICES as readonly string[]).includes(v)) return v as DefaultRole;
+  if (v) console.warn(`DEFAULT_USER_ROLE="${raw}" is not one of ${DEFAULT_ROLE_CHOICES.join(', ')} — new users will default to 'readonly'`);
+  return 'readonly';
+}
+const DEFAULT_USER_ROLE = parseDefaultRole(process.env.DEFAULT_USER_ROLE);
+
 // When true, every member of any listed corp can see every corp map regardless
 // of which corp created it. When false (default), corp maps are visible only
 // to members of the corp that created them — Corp A's chain is invisible to
 // Corp B even if they share the deployment.
-const CORP_MAP_SHARED = /^(1|true|yes)$/i.test(process.env.CORP_MAP_SHARED ?? '');
+const CORP_MAP_SHARED = parseBool(process.env.CORP_MAP_SHARED);
 
 // Alliance-map counterpart of CORP_MAP_SHARED. When true, every member of any
 // listed alliance sees every alliance map (coalition mode). When false
 // (default), an alliance map is visible only to members of the alliance that
 // owns it.
-const ALLIANCE_MAP_SHARED = /^(1|true|yes)$/i.test(process.env.ALLIANCE_MAP_SHARED ?? '');
+const ALLIANCE_MAP_SHARED = parseBool(process.env.ALLIANCE_MAP_SHARED);
+
+// Kill switch for the inbound external read API (/api/v1 — the Bearer-key REST
+// + SSE surface external clients use to read maps/systems/signatures). Default
+// false (API enabled). Set DISABLE_EXTERNAL_API=true to turn it off entirely,
+// without having to revoke every issued key. Does not affect the app's own
+// same-origin API or outbound integrations (Discord / webhooks).
+const EXTERNAL_API_DISABLED = parseBool(process.env.DISABLE_EXTERNAL_API);
 
 // A restricted (non-solo) deployment — corp OR alliance gated — needs a
 // bootstrap admin so someone can always administer it.
@@ -48,6 +84,11 @@ if ((CORP_IDS.length > 0 || ALLIANCE_IDS.length > 0) && ADMIN_CHAR_ID === null) 
 // SDE_CHECK_UTC (HH:MM, default 11:30) is when to check: EVE downtime is 11:00
 // UTC and CCP publishes the export shortly after, so we look a little later.
 const SDE_AUTO_UPDATE = !/^(0|false|no|off)$/i.test(process.env.SDE_AUTO_UPDATE ?? '');
+
+// Seed a starter "Demo Map" on a user's first login. On by default (preserves
+// existing behaviour); set INCLUDE_DEMO_MAP=0/false/no/off to give new users a
+// blank canvas instead.
+const INCLUDE_DEMO_MAP = !/^(0|false|no|off)$/i.test(process.env.INCLUDE_DEMO_MAP ?? '');
 const SDE_CHECK_UTC   = /^\d{1,2}:\d{2}$/.test(process.env.SDE_CHECK_UTC ?? '')
   ? process.env.SDE_CHECK_UTC!
   : '11:30';
@@ -107,10 +148,17 @@ const tokenEncryptionKey = isHex64Key
   : createHash('sha256').update(TOKEN_ENC_RAW).digest('hex');
 
 // Opt-in anonymous deployment ping. OFF by default — a self-hosted instance
-// phones home to nobody unless the operator sets NEXUM_TELEMETRY=1. When on,
-// the server sends only { version, instanceId } once a day so the project can
-// count active installs. NEXUM_TELEMETRY_URL overrides the collector endpoint.
-const TELEMETRY_ENABLED = /^(1|true|yes|on)$/i.test(process.env.NEXUM_TELEMETRY ?? '');
+// phones home to nobody unless the operator opts in. When on, the server sends
+// only { version, instanceId } once a day so the project can count active
+// installs. Two ways to opt in:
+//   - NEXUM_TELEMETRY=1 (uses the default eve-nexum.com collector), or
+//   - simply setting NEXUM_TELEMETRY_URL to a non-empty value — populating a
+//     collector endpoint is itself treated as consent (comment it out / leave it
+//     unset to stay opted out).
+// Key off the RAW env var here, not the resolved URL below: the resolved URL
+// always falls back to the default, so testing it would opt everyone in.
+const TELEMETRY_URL_SET = (process.env.NEXUM_TELEMETRY_URL ?? '').trim().length > 0;
+const TELEMETRY_ENABLED = /^(1|true|yes|on)$/i.test(process.env.NEXUM_TELEMETRY ?? '') || true;
 const TELEMETRY_URL = process.env.NEXUM_TELEMETRY_URL?.trim() || 'https://eve-nexum.com/api/telemetry';
 
 export const config = {
@@ -120,11 +168,15 @@ export const config = {
   allianceMode:        ALLIANCE_IDS.length > 0,
   allianceIds:         ALLIANCE_IDS,
   allianceMapShared:   ALLIANCE_MAP_SHARED,
+  // Kill switch for the inbound external read API (/api/v1). Default off.
+  externalApiDisabled: EXTERNAL_API_DISABLED,
   // True for any non-solo deployment (corp- or alliance-gated). Drives role
   // enforcement, map scoping and the idle-map sweep — everything that must be
   // OFF in a wide-open solo install but ON the moment logins are restricted.
   restrictedMode:      CORP_IDS.length > 0 || ALLIANCE_IDS.length > 0,
   adminCharId:         ADMIN_CHAR_ID,
+  // Role new users start at on a restricted instance (default 'readonly').
+  defaultUserRole:     DEFAULT_USER_ROLE,
   reportsCharId:       REPORTS_CHAR_ID && Number.isInteger(REPORTS_CHAR_ID) && REPORTS_CHAR_ID > 0 ? REPORTS_CHAR_ID : null,
   corpMapExpireDays:   CORP_MAP_TIME,
   maxUserMaps:         parseInt(process.env.MAX_USER_MAPS ?? '5', 10),
@@ -135,16 +187,87 @@ export const config = {
   // last_known_system is refreshed from ESI on this cadence so positions stay
   // current without anyone being logged into Nexum.
   locationPollMinutes: Math.max(0, parseInt(process.env.LOCATION_POLL_MINUTES ?? '0', 10) || 0),
+  // Opt-in, and it MUST default off. Requesting a scope the deployment's EVE
+  // application doesn't have makes SSO reject the whole authorize request with
+  // invalid_scope — every login fails, not just the feature. So an upgrade can
+  // never start asking for this on its own; an operator enables it on their EVE
+  // app first, then sets this. Everything that uses clone data degrades to the
+  // pre-existing behaviour while it's off.
+  cloneScope: /^(1|true|yes|on)$/i.test(process.env.ESI_CLONES_SCOPE ?? ''),
+
+  // ── ISK for extra maps (unrestricted installs only) ─────────────────────────
+  // Lets a public deployment hand out extra PERSONAL maps in exchange for an
+  // in-game ISK donation: the nominated corporation's wallet journal is polled,
+  // `player_donation` entries are matched to the donor's account, and their map
+  // cap rises. See services/iskDonations.ts.
+  //
+  // OFF by default, and hard-gated to unrestricted installs on top of the flag —
+  // a corp or alliance deployment manages its own limits and must never be shown
+  // any of this, however the env is set.
+  //
+  // Reading a corp wallet needs esi-wallet.read_corporation_wallets.v1 AND the
+  // in-game Accountant / Junior_Accountant role, so it runs on ONE operator
+  // token obtained through its own admin-only OAuth flow. That scope is
+  // deliberately kept out of the normal login scopes: asking every user for
+  // wallet access would be indefensible, and if the EVE application didn't have
+  // the scope yet it would fail EVERY login with invalid_scope, not just this.
+  iskMaps: {
+    enabled:      /^(1|true|yes|on)$/i.test(process.env.ISK_MAPS_ENABLED ?? '')
+                  && CORP_IDS.length === 0 && ALLIANCE_IDS.length === 0,
+    // Corporation that receives donations, and the character whose token reads
+    // its journal. The reader is pinned by id so the admin OAuth flow can refuse
+    // to store a token for anyone else.
+    corpId:       intEnv(process.env.ISK_MAPS_CORP_ID, 0),
+    readerCharId: intEnv(process.env.ISK_MAPS_READER_CHAR_ID, 0),
+    // Wallet division to read. Player donations land in division 1 (master).
+    division:     intEnv(process.env.ISK_MAPS_DIVISION, 1, 1),
+    // ISK per grant, and maps per grant. Entitlement accumulates rather than
+    // counting donations, so 300m + 200m earns a grant and 1b earns two.
+    priceIsk:     Math.max(1, Number(process.env.ISK_MAPS_PRICE ?? 500_000_000)),
+    mapsPerGrant: intEnv(process.env.ISK_MAPS_PER_GRANT, 5, 1),
+    // Poll cadence. ESI caches the journal for an hour, so anything under that
+    // re-reads the same page; 15 minutes just keeps the lag after the cache
+    // expires short. The corp-wallet rate limit is 300 per 15 min.
+    pollMinutes:  intEnv(process.env.ISK_MAPS_POLL_MINUTES, 15, 1),
+  },
+  // Cadence (minutes) of the login-access re-validation sweep, which evicts live
+  // sessions the current gate no longer permits (standings toggled off/tightened,
+  // a standing drifting below threshold, or leaving an admitted corp). Restricted
+  // deployments only. Default 60; set to 0 to disable the periodic sweep (an
+  // admin settings change still sweeps immediately).
+  accessRevalidateMinutes: intEnv(process.env.ACCESS_REVALIDATE_MINUTES, 60),
   // Cadence (minutes) of the lazy wormhole-removal sweep, which deletes aged-out
   // WH sigs (and quarantines the connections they backed) on maps that have
   // opted in. Default 15; set to 0 to disable the sweep globally.
-  lazyWhSweepMinutes:  (() => {
-    const n = parseInt(process.env.LAZY_WH_SWEEP_MINUTES ?? '15', 10);
-    return Number.isFinite(n) && n >= 0 ? n : 15;
-  })(),
+  lazyWhSweepMinutes:  intEnv(process.env.LAZY_WH_SWEEP_MINUTES, 15),
+  // Cadence (minutes) of the connection-lifetime sweep, which re-buckets each
+  // wormhole connection's time status (fresh / <1d / <4h / <1h / expired) from
+  // its age so holes visibly decay on their own. Default 60; 0 disables it.
+  connLifetimeSweepMinutes: intEnv(process.env.CONN_LIFETIME_SWEEP_MINUTES, 60),
   sdeAutoUpdate:       SDE_AUTO_UPDATE,
   sdeCheckUtc:         SDE_CHECK_UTC,
+  includeDemoMap:      INCLUDE_DEMO_MAP,
   telemetry:           { enabled: TELEMETRY_ENABLED, url: TELEMETRY_URL },
+  // Live kill flagging. OFF by default (KILL_FEED=1 to opt in) — when enabled a
+  // single server-side consumer reads zKillboard's R2Z2 ephemeral feed and flags
+  // recent high-value kills on systems currently shown on live maps, pushed over
+  // the SSE stream. `contact` builds the zKill User-Agent (fair-use requires a
+  // reachable contact; a blank UA is Cloudflare-blocked). `minValueIsk` filters
+  // out low-value noise; `recentSeconds` is how long a flag lives.
+  killFeed: {
+    enabled:       parseBool(process.env.KILL_FEED),
+    contact:       process.env.KILL_FEED_CONTACT?.trim() || 'gq@area404.org',
+    minValueIsk:   intEnv(process.env.KILL_FEED_MIN_ISK, 50_000_000),
+    recentSeconds: intEnv(process.env.KILL_FEED_RECENT_SECONDS, 900),
+    // How far back the kill-log backfill looks (seconds) — i.e. how long the
+    // in-memory kill buffer retains kills. Longer = more history in the log.
+    backfillSeconds: intEnv(process.env.KILL_FEED_BACKFILL_SECONDS, 10_800), // 3h
+    // Rolling window (seconds) the activity heatmap counts live kills over. The
+    // feed's per-system count overrides ESI's hourly snapshot (never sums), so
+    // the heatmap is near-real-time and covers J-space (which ESI omits).
+    // ~matches ESI's hourly cadence. Only used when the feed is enabled.
+    heatWindowSeconds: intEnv(process.env.KILL_FEED_HEAT_WINDOW_SECONDS, 3_600), // 60m
+  },
   // Required in non-dev (guarded above). The dev fallback is randomised per
   // boot rather than a known literal, so a dev instance accidentally exposed
   // can't have its sessions forged with a guessable secret (sessions just

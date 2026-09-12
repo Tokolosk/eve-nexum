@@ -11,6 +11,9 @@ export interface SigBreakdown {
   ore:      number;
   combat:   number;
   wormhole: number;
+  /** Ghost sites. Only counted since they became their own type — before
+   *  that they were scanned as data sites and stay counted as such. */
+  ghost:    number;
   unknown:  number;
 }
 
@@ -19,9 +22,19 @@ export interface PeriodStats {
   signatures: SigBreakdown;
 }
 
+/** Chart bucket granularity for a period's activity series. */
+export type BucketUnit = 'hour' | 'day' | 'month';
+
+export interface ActivitySeries {
+  /** Bucket size: hourly (24h), daily (week/month), monthly (year/all-time). */
+  unit:   BucketUnit;
+  /** Sig counts per bucket, oldest first, current bucket last. */
+  values: number[];
+}
+
 export type StatsResponse = Record<StatPeriod, PeriodStats> & {
-  /** Sig counts per day for the last 30 days, oldest first, today last. */
-  daily: number[];
+  /** One activity series per period, at that period's own granularity. */
+  series: Record<StatPeriod, ActivitySeries>;
 };
 
 export function useStats(open: boolean) {
@@ -31,6 +44,8 @@ export function useStats(open: boolean) {
 
   useEffect(() => {
     if (!open) return;
+    // Deliberate: clears this pane's own state when the record it shows changes.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setLoading(true);
     setError(null);
     api<StatsResponse>('/api/stats')

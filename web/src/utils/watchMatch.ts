@@ -1,4 +1,4 @@
-import type { WatchEntry, WatchMatch, MapSystem, MapConnection } from '../types';
+import type { WatchEntry, WatchMatch, MapSystem, MapConnection, SystemClass } from '../types';
 
 // Frigate-only wormhole type codes (the "frigate" group in wormholes.ts). A
 // system whose static is one of these — or a connection of one of these types,
@@ -16,16 +16,31 @@ export function matchKey(m: WatchMatch): string {
     case 'system':   return `system:${norm(m.query)}`;
     case 'whType':   return `whType:${m.code.trim().toUpperCase()}`;
     case 'class':    return `class:${m.cls}`;
+    case 'leadsTo':  return `leadsTo:${m.cls}`;
     case 'effect':   return `effect:${m.effect}`;
     case 'frigHole': return 'frigHole';
   }
 }
 
-/** Does a system satisfy an entry? whType / frigHole match the system's statics
- *  AND its scanned wormhole-sig types (passed in from the map-wide index), so a
- *  freshly-scanned sig counts even before it's resolved into a connection. */
-export function systemMatchesEntry(e: WatchEntry, sys: MapSystem, sigTypes?: string[]): boolean {
-  const m = e.match;
+// Evaluate an entry: the PRIMARY match is always required (the base filter);
+// any extra criteria then refine it, combined per entry.criteriaMode ('or' =
+// at least one criterion, else 'and' = all criteria). So "C3, leads-to C2 OR
+// contains K162" means a C3 that also leads to C2 or contains a K162 — the C3
+// is never optional.
+function combine(e: WatchEntry, test: (m: WatchMatch) => boolean): boolean {
+  if (!test(e.match)) return false;
+  const c = e.criteria;
+  if (!c || !c.length) return true;
+  return e.criteriaMode === 'or' ? c.some(test) : c.every(test);
+}
+
+/** Does ONE condition hold for a system? whType / frigHole match the system's
+ *  statics AND its scanned wormhole-sig types (passed in from the map-wide
+ *  index), so a freshly-scanned sig counts even before it's resolved into a
+ *  connection. leadsTo reads `destClasses` — the pre-resolved set of classes
+ *  this system's wormholes (statics, scanned sigs and live connections) lead to,
+ *  built once per map change by useLeadsToIndex. */
+function systemMatchesOne(m: WatchMatch, sys: MapSystem, sigTypes?: string[], destClasses?: SystemClass[]): boolean {
   switch (m.by) {
     case 'system':   return m.query.trim() !== '' && norm(sys.name) === norm(m.query);
     case 'whType': {
@@ -35,16 +50,25 @@ export function systemMatchesEntry(e: WatchEntry, sys: MapSystem, sigTypes?: str
         || (sigTypes?.some((s) => s.toUpperCase() === code) ?? false);
     }
     case 'class':    return sys.systemClass === m.cls;
+    case 'leadsTo':  return (destClasses ?? []).includes(m.cls);
     case 'effect':   return sys.effect === m.effect;
     case 'frigHole': return sys.statics.some((s) => FRIG_WH_TYPES.has(s.toUpperCase()))
         || (sigTypes?.some((s) => FRIG_WH_TYPES.has(s.toUpperCase())) ?? false);
   }
 }
 
-/** Does a connection satisfy an entry? Only the wormhole-flavoured matches
- *  apply to an edge; system/class/effect are node concepts. */
-export function connectionMatchesEntry(e: WatchEntry, conn: MapConnection): boolean {
-  const m = e.match;
+/** Does a system satisfy an entry — its primary match combined with any criteria
+ *  by the entry's AND/OR mode? */
+export function systemMatchesEntry(e: WatchEntry, sys: MapSystem, sigTypes?: string[], destClasses?: SystemClass[]): boolean {
+  return combine(e, (m) => systemMatchesOne(m, sys, sigTypes, destClasses));
+}
+
+/** Does ONE condition hold for a connection? Only the wormhole-flavoured matches
+ *  apply to an edge; system/class/effect/leadsTo are node concepts, so they're
+ *  false here — which makes a compound entry with a node-only criterion light up
+ *  connections only in OR mode (never in AND, since a node condition can't hold
+ *  on a bare edge). */
+function connMatchesOne(m: WatchMatch, conn: MapConnection): boolean {
   switch (m.by) {
     case 'whType':   return m.code.trim() !== '' && !!conn.type && conn.type.toUpperCase() === m.code.trim().toUpperCase();
     case 'frigHole': return conn.size === 'small' || (!!conn.type && FRIG_WH_TYPES.has(conn.type.toUpperCase()));
@@ -52,9 +76,14 @@ export function connectionMatchesEntry(e: WatchEntry, conn: MapConnection): bool
   }
 }
 
+/** Does a connection satisfy an entry (primary + criteria, combined by mode)? */
+export function connectionMatchesEntry(e: WatchEntry, conn: MapConnection): boolean {
+  return combine(e, (m) => connMatchesOne(m, conn));
+}
+
 /** First entry (list order) that matches this system, or null. */
-export function matchSystem(entries: WatchEntry[], sys: MapSystem, sigTypes?: string[]): WatchEntry | null {
-  for (const e of entries) if (systemMatchesEntry(e, sys, sigTypes)) return e;
+export function matchSystem(entries: WatchEntry[], sys: MapSystem, sigTypes?: string[], destClasses?: SystemClass[]): WatchEntry | null {
+  for (const e of entries) if (systemMatchesEntry(e, sys, sigTypes, destClasses)) return e;
   return null;
 }
 

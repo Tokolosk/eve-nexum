@@ -1,28 +1,40 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { api } from '../../api/client';
-import { useMapStore } from '../../store/mapStore';
+import i18n from '../../i18n';
+import { useMapStore, awaitSystemCreate } from '../../store/mapStore';
 import { useCanEditContent } from '../../hooks/useCanEditContent';
 import { useShareMode } from '../../context/ShareModeContext';
+import { systemDisplayName } from '../../utils/systemName';
 import { useUserSetting } from '../../hooks/useUserSetting';
-import { useClickOutside } from '../../hooks/useClickOutside';
+import { usePopover } from '../../hooks/usePopover';
 import type { Signature, SigType } from '../../types';
-import { ConfirmModal, shouldSkipConfirm } from './ConfirmModal';
+import { ConfirmModal } from './ConfirmModal';
+import { shouldSkipConfirm } from '../../utils/confirmPref';
 import { NotesEditor } from './NotesEditor';
 import { WormholeTypePicker } from './WormholeTypePicker';
-import { XIcon, CopyIcon, ColumnsIcon } from '@phosphor-icons/react';
+import { Select } from './Select';
+import { XIcon, CopyIcon, ColumnsIcon, CheckIcon, XCircleIcon } from '../../icons';
 import { LeadsToDropdown } from './LeadsToDropdown';
-import { toast } from './Toaster';
+import { loadStargateNeighbors, isKnownStargateAdjacent } from '../../utils/stargateAdjacency';
+import { toast } from '../../utils/toastStore';
+import { GHOST_SUFFIX, GHOST_TIERS, defaultGhostTier, ghostTier } from '../../utils/ghostSites';
+import { leadsToFromSigName } from '../../utils/whDest';
 import { reevaluateConnectionsForSystem } from '../../utils/whAutoDetect';
 import { alertInboundK162 } from '../../utils/k162Alert';
-import { WORMHOLE_TYPES } from '../../data/wormholes';
-import { formatBookmarkName, DEFAULT_BOOKMARK_FORMAT } from '../../utils/signatureBookmark';
+import { formatBookmarkName, DEFAULT_BOOKMARK_FORMAT, formatSiteBookmarkName, DEFAULT_SITE_BOOKMARK_FORMAT } from '../../utils/signatureBookmark';
 import { useWormholeTypes } from '../../hooks/useWormholeTypes';
 import { duration, DASH } from '../../i18n/format';
+import {
+  scheduleSigRemoval, cancelSigRemoval, pendingRemovalIds, subscribeSigRemovals,
+} from '../../store/sigRemovalQueue';
 
 // Aging bands for wormhole signatures, anchored to the WH type's known
-// lifetime. K162 and unknown codes return '' (no tint) since we don't
-// know the real lifetime from this side. Other sig types are skipped.
+// lifetime from the SDE catalog (useWormholeTypes) — the single source, so
+// every code with a lifetime tints, not just a hardcoded handful. K162 and
+// unknown codes return '' (no lifetime known from this side); other sig types
+// are skipped.
 //
 //   < 50% of lifetime → fresh, no tint
 //   50–90%            → mid (yellow row)
@@ -33,12 +45,13 @@ function whAgeRowClass(
   whType: string,
   createdAt: string | undefined,
   now: number,
+  whTypes: ReturnType<typeof useWormholeTypes>,
 ): string {
   if (sigType !== 'wormhole' || !whType || !createdAt) return '';
-  const wh = WORMHOLE_TYPES[whType.toUpperCase()];
-  if (!wh || wh.lifetimeH <= 0) return '';
+  const wh = whTypes[whType.toUpperCase()];
+  if (!wh || wh.lifetimeHours <= 0) return '';
   const ageH = (now - new Date(createdAt).getTime()) / 3_600_000;
-  const pct  = ageH / wh.lifetimeH;
+  const pct  = ageH / wh.lifetimeHours;
   if (pct < 0.5)  return '';
   if (pct < 0.9)  return 'sig-row--wh-mid';
   if (pct < 1.0)  return 'sig-row--wh-eol';
@@ -69,6 +82,7 @@ const SIG_TYPE_LABELS: Record<SigType, string> = {
   combat:   'Combat',
   gas:      'Gas',
   ore:      'Ore',
+  ghost:    'Ghost',
 };
 
 const EVE_GROUP_TO_TYPE: Record<string, SigType> = {
@@ -80,7 +94,7 @@ const EVE_GROUP_TO_TYPE: Record<string, SigType> = {
   'wormhole':    'wormhole',
 };
 
-interface ParsedSig { sigId: string; sigType: SigType; name: string; }
+interface ParsedSig { sigId: string; sigType: SigType; name: string; whLeadsTo: string; }
 
 function parseSigClipboard(text: string): ParsedSig[] {
   return text
@@ -97,15 +111,66 @@ function parseSigClipboard(text: string): ParsedSig[] {
       // Rows without a group column (partial/manual pastes) still pass through.
       if ((parts[1]?.trim().toLowerCase() ?? '') === 'cosmic anomaly') return [];
       const group = parts[2]?.trim() ?? '';
-      const sigType = EVE_GROUP_TO_TYPE[group.toLowerCase()] ?? 'unknown';
       const col3 = parts[3]?.trim() ?? '';
       const name = /^\d+\.?\d*%$/.test(col3) ? '' : col3;
-      return [{ sigId, sigType, name }];
+      // Ghost sites report as an ordinary site in the scanner's type column —
+      // the name is what gives them away ("Superior Blood Raider Covert
+      // Research Facility"). Same string the server already uses to log them.
+      const sigType: SigType = GHOST_SUFFIX.test(name)
+        ? 'ghost'
+        : (EVE_GROUP_TO_TYPE[group.toLowerCase()] ?? 'unknown');
+      // "Unidentified Wormhole" is a Drifter hole and says so before anyone
+      // identifies it. Only for a row we already know is a wormhole — the
+      // leads-to cell isn't rendered for other types, so it would be storing a
+      // value nobody could see or correct.
+      const whLeadsTo = sigType === 'wormhole' ? leadsToFromSigName(name) : '';
+      return [{ sigId, sigType, name, whLeadsTo }];
     });
 }
 
+// A signature carrying no information at all: no scan ID, no name, no notes, no
+// wormhole data, and the default 'unknown' type — i.e. an "Add signature" row
+// that was never filled in. The overwrite sweep normally skips blank-ID rows to
+// protect in-progress manual entries, but these carry nothing to protect, so a
+// clear-down should remove them instead of leaving them to accumulate forever.
+function isContentlessSig(s: Signature): boolean {
+  return !s.sigId && !s.name?.trim() && !s.notes?.trim()
+      && !s.whType && !s.whLeadsTo && s.sigType === 'unknown';
+}
+
+/**
+ * The type cell for a ghost site: its tier. Blank `ghostType` means "read the
+ * tier off the name", which is what a paste gives you; picking one pins it, so
+ * a mis-scanned or hand-typed name can still be corrected. The em-dash option
+ * clears back to the name-derived value.
+ */
+function GhostTypeCell({ sig, isShareMode, onChange }: {
+  sig:         Signature;
+  isShareMode: boolean;
+  onChange:    (ghostType: string) => void;
+}) {
+  const { t } = useTranslation();
+  const g = ghostTier(sig.sigType, sig.name, sig.ghostType);
+
+  if (isShareMode) return <span className="sig-text">{g?.tier ?? ''}</span>;
+
+  return (
+    <Select
+      className="sig-type-select"
+      value={g?.tier ?? ''}
+      ariaLabel={t('signatures.colWh')}
+      title={g ? t(g.space) : undefined}
+      onChange={onChange}
+      options={[
+        { value: '', label: '\u2014', text: '' },
+        ...GHOST_TIERS.map((gt) => ({ value: gt.value, label: gt.value })),
+      ]}
+    />
+  );
+}
+
 type SortCol = 'sigId' | 'sigType' | 'whType' | 'whLeadsTo' | 'name' | 'createdAt' | 'updatedAt';
-type ColKey  = 'id' | 'type' | 'whtype' | 'leadsto' | 'name' | 'notes' | 'created' | 'updated';
+type ColKey  = 'id' | 'type' | 'whtype' | 'leadsto' | 'name' | 'safe' | 'notes' | 'created' | 'updated';
 
 const DEFAULT_WIDTHS: Record<ColKey, number> = {
   id:      72,
@@ -113,6 +178,7 @@ const DEFAULT_WIDTHS: Record<ColKey, number> = {
   whtype:  170,
   leadsto: 132,
   name:    140,
+  safe:    52,
   notes:   220,
   created: 80,
   updated: 80,
@@ -126,12 +192,13 @@ const DEFAULT_WIDTHS: Record<ColKey, number> = {
 const LEADSTO_MIN_WIDTH = 132;
 
 // Columns the user can hide to slim the pane down (handy for an undocked, narrow
-// window). ID / Type / WH Type / Leads To always stay — they're the core scan
+// window). ID / Group / Type / Leads To always stay — they're the core scan
 // data. Label keys reuse the existing header translations. Hidden columns are
 // stored as a list under one ui_settings key; empty (the default) = all shown,
 // so a later-added hideable column defaults visible without migration.
 const HIDEABLE_COLS = [
   { key: 'name',    labelKey: 'signatures.colName' },
+  { key: 'safe',    labelKey: 'signatures.colSafe' },
   { key: 'notes',   labelKey: 'signatures.colNotes' },
   { key: 'created', labelKey: 'signatures.colAge' },
   { key: 'updated', labelKey: 'signatures.colUpdated' },
@@ -147,11 +214,42 @@ function formatDelay(sec: number): string {
 }
 
 // Order the type-filter chips most-useful-first. Covers every SigType.
-const SIG_TYPE_FILTER_ORDER: SigType[] = ['wormhole', 'data', 'relic', 'gas', 'ore', 'combat', 'unknown'];
+const SIG_TYPE_FILTER_ORDER: SigType[] = ['wormhole', 'data', 'relic', 'gas', 'ore', 'combat', 'ghost', 'unknown'];
 
-// Signature-type <select> options, alphabetical by label. Used for both the
+// Signature-type Select options, alphabetical by label. Used for both the
 // per-row type picker and the bulk "set type" dropdown.
-const SIG_TYPE_OPTIONS: SigType[] = ['combat', 'data', 'gas', 'ore', 'relic', 'unknown', 'wormhole'];
+const SIG_TYPE_OPTIONS: SigType[] = ['combat', 'data', 'gas', 'ghost', 'ore', 'relic', 'unknown', 'wormhole'];
+
+// Relic/data site safety, keyed on the first word of the scanned site name (per
+// the site-safety table). "Safe" sites have no NPCs; "not safe" ones can spawn
+// combat. Only relic + data sigs qualify; anything else has no safety verdict.
+const SAFE_SITE_PREFIXES   = new Set(['crumbling', 'decayed', 'ruined', 'local', 'regional', 'central']);
+const UNSAFE_SITE_PREFIXES = new Set(['forgotten', 'unsecured', 'aegis', 'scc']);
+function siteSafety(sig: Signature): 'safe' | 'unsafe' | null {
+  if (sig.sigType !== 'relic' && sig.sigType !== 'data') return null;
+  const words = (sig.name ?? '').trim().toLowerCase().split(/\s+/).filter(Boolean);
+  // Names can be prefixed with "Detected " (e.g. "Detected Central Sansha…"),
+  // so the safety keyword is the first non-"detected" word.
+  const key = words[0] === 'detected' ? words[1] : words[0];
+  if (!key) return null;
+  if (SAFE_SITE_PREFIXES.has(key))   return 'safe';
+  if (UNSAFE_SITE_PREFIXES.has(key)) return 'unsafe';
+  return null;
+}
+
+// The "Safe" cell: green tick / red cross for relic-and-data site safety, blank
+// otherwise.
+function SafeCell({ sig }: { sig: Signature }) {
+  const { t } = useTranslation();
+  const s = siteSafety(sig);
+  return (
+    <td className="sig-td--safe" style={{ textAlign: 'center' }}
+      title={s === 'safe' ? t('signatures.safeYes') : s === 'unsafe' ? t('signatures.safeNo') : undefined}>
+      {s === 'safe'   && <CheckIcon size={14} weight="bold" color="#3ddc84" />}
+      {s === 'unsafe' && <XCircleIcon size={14} weight="bold" color="#e5484d" />}
+    </td>
+  );
+}
 
 // Single module-level 1 s tick shared across every ElapsedCell instance.
 // Previously each SignaturePane drove a state update every second, which
@@ -194,26 +292,64 @@ export function SignaturePane({ systemId }: { systemId: string }) {
   const sigTypeLabel = (type: SigType) =>
     type === 'unknown' ? t('sigType.unknown') : SIG_TYPE_LABELS[type];
   const activeMapId     = useMapStore((s) => s.activeMapId);
-  const map             = useMapStore((s) => s.map);
+  // Narrow slices instead of the whole `map`: the pane only reads systems +
+  // connections, so it no longer re-renders on unrelated map mutations (rename,
+  // saved routes, updatedAt bumps, share-flag changes, ...).
+  const mapSystems      = useMapStore((s) => s.map.systems);
+  const mapConnections  = useMapStore((s) => s.map.connections);
   const currentSystemId = useMapStore((s) => s.currentSystemId);
   const setSystemSigTypes = useMapStore((s) => s.setSystemSigTypes);
+  const setSystemScan     = useMapStore((s) => s.setSystemScan);
+  const setSystemWhSigs = useMapStore((s) => s.setSystemWhSigs);
   const canEdit         = useCanEditContent();
 
   const systemStatics = useMemo(
-    () => map.systems.find((sys) => sys.id === systemId)?.statics ?? [],
-    [map.systems, systemId],
+    () => mapSystems.find((sys) => sys.id === systemId)?.statics ?? [],
+    [mapSystems, systemId],
   );
 
+  // This system's class, for seeding a hand-added ghost site's tier.
+  const systemClass = useMemo(
+    () => mapSystems.find((sys) => sys.id === systemId)?.systemClass ?? 'unknown',
+    [mapSystems, systemId],
+  );
+
+  // This system's EVE id, for the stargate-adjacency filter below.
+  const currentEveId = useMemo(
+    () => mapSystems.find((m) => m.id === systemId)?.eveSystemId ?? null,
+    [mapSystems, systemId],
+  );
+  // Bumps once this system's stargate neighbours load, so connectedSystems
+  // re-filters against them (the adjacency check reads a cache warmed async).
+  const [adjReady, setAdjReady] = useState(0);
+  useEffect(() => {
+    if (currentEveId == null) return;
+    let cancelled = false;
+    loadStargateNeighbors(currentEveId).then(() => { if (!cancelled) setAdjReady((v) => v + 1); });
+    return () => { cancelled = true; };
+  }, [currentEveId]);
+
   const connectedSystems = useMemo(() => {
-    const conns = map.connections.filter(
+    const conns = mapConnections.filter(
       (c) => c.sourceId === systemId || c.targetId === systemId,
     );
     return conns.flatMap((c) => {
       const otherId = c.sourceId === systemId ? c.targetId : c.sourceId;
-      const sys = map.systems.find((m) => m.id === otherId);
-      return sys ? [{ id: sys.id, name: sys.name, systemClass: sys.systemClass }] : [];
+      const sys = mapSystems.find((m) => m.id === otherId);
+      if (!sys) return [];
+      // A wormhole never leads to a stargate-adjacent system, so drop gate
+      // connections and any system we know is a stargate neighbour. Non-adjacent
+      // (manually drawn / wormhole) connections still show; unknown adjacency is
+      // kept rather than hidden.
+      const adjacent = c.connectionType === 'gate'
+        || (currentEveId != null && sys.eveSystemId != null
+            && isKnownStargateAdjacent(currentEveId, sys.eveSystemId));
+      if (adjacent) return [];
+      return [{ id: sys.id, name: sys.name, systemClass: sys.systemClass }];
     });
-  }, [map.connections, map.systems, systemId]);
+  // adjReady bumps when neighbours load so the filter applies post-fetch.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mapConnections, mapSystems, systemId, currentEveId, adjReady]);
 
   const [sigs, setSigs]               = useState<Signature[]>([]);
   const [selected, setSelected]       = useState<Set<string>>(new Set());
@@ -259,14 +395,20 @@ export function SignaturePane({ systemId }: { systemId: string }) {
   const isColVisible = useCallback((c: ColKey) => !hiddenCols.has(c), [hiddenCols]);
   const toggleCol = (c: ColKey) =>
     setHiddenColsArr((prev) => (prev.includes(c) ? prev.filter((x) => x !== c) : [...prev, c]));
-  const [colMenuOpen, setColMenuOpen] = useState(false);
-  const colMenuRef = useRef<HTMLDivElement>(null);
-  useClickOutside(colMenuOpen, colMenuRef, () => setColMenuOpen(false));
+  // Portalled popover so the columns menu escapes the pane's overflow and stays
+  // on-screen + scrollable even when the pane is short (viewport-aware maxHeight).
+  const { open: colMenuOpen, setOpen: setColMenuOpen, pos: colPos, btnRef: colBtnRef, dropdownRef: colDropRef, openAt: openColMenu } = usePopover();
 
   const pendingUpdates = useRef<Map<string, Partial<Signature>>>(new Map());
   const debounceTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   const sigsRef        = useRef<Signature[]>([]);
   useEffect(() => { sigsRef.current = sigs; }, [sigs]);
+  // Which system the currently-loaded `sigs` belong to. `sigs` is state and lags
+  // the `systemId` prop by a render on a system switch, so effects that pair the
+  // two (e.g. the wormhole quarantine below) must not act until they agree —
+  // otherwise the PREVIOUS system's sigs get evaluated against the NEW system,
+  // wrongly quarantining its connections. Set only when real sigs land.
+  const sigsSystemRef  = useRef<string | null>(null);
 
   // Feed this system's scanned wormhole-sig types into the map-wide index so the
   // watchlist can match them live — the user's own edits don't bump sigRev, so
@@ -274,6 +416,29 @@ export function SignaturePane({ systemId }: { systemId: string }) {
   useEffect(() => {
     setSystemSigTypes(systemId, sigs.filter((s) => s.whType).map((s) => s.whType.toUpperCase()));
   }, [sigs, systemId, setSystemSigTypes]);
+
+  // Scan progress for the node badge, from the same live list. Runs on every
+  // change to `sigs`, so pasting, adding a row by hand, setting a row's type and
+  // deleting all move the percentage immediately — the bulk index would not see
+  // any of them, for the reason above.
+  useEffect(() => {
+    setSystemScan(systemId, {
+      total:   sigs.length,
+      scanned: sigs.filter((s) => s.sigType && s.sigType !== 'unknown').length,
+    });
+  }, [sigs, systemId, setSystemScan]);
+
+  // Same, for the richer wormhole-sig index that drives undived-hole pills and
+  // the "undived wormhole" content filter — so scanning/pinning a hole here
+  // updates its pill immediately, not on the next reload.
+  useEffect(() => {
+    // Don't publish the previous system's sigs under this systemId mid-switch
+    // (see sigsSystemRef) — it would corrupt the map-wide wormhole index.
+    if (sigsSystemRef.current !== systemId) return;
+    setSystemWhSigs(systemId, sigs
+      .filter((s) => s.sigType === 'wormhole')
+      .map((s) => ({ id: s.id, sigId: s.sigId ?? '', whType: s.whType ?? '', leadsTo: s.whLeadsTo ?? '' })));
+  }, [sigs, systemId, setSystemWhSigs]);
 
   // Overwrite-on-paste mode. When on (or when Shift is held during a paste),
   // a paste also deletes signatures whose ID is absent from the pasted scan —
@@ -302,6 +467,12 @@ export function SignaturePane({ systemId }: { systemId: string }) {
   const bookmarkFormat = mapBookmarkFormat && mapBookmarkFormat.trim()
     ? mapBookmarkFormat
     : userBookmarkFormat;
+  // Same map-overrides-personal resolution for the relic/data/gas SITE format.
+  const [userSiteBookmarkFormat] = useUserSetting<string>('nexum.sig.siteBookmarkFormat', DEFAULT_SITE_BOOKMARK_FORMAT);
+  const mapSiteBookmarkFormat = useMapStore((s) => s.map.siteBookmarkFormat);
+  const siteBookmarkFormat = mapSiteBookmarkFormat && mapSiteBookmarkFormat.trim()
+    ? mapSiteBookmarkFormat
+    : userSiteBookmarkFormat;
   // Full wormhole catalog — needed so size/mass tokens resolve for every WH
   // type (the static map only covers k-space statics).
   const whTypes = useWormholeTypes();
@@ -314,16 +485,39 @@ export function SignaturePane({ systemId }: { systemId: string }) {
       .catch(() => toast.error(t('signatures.bookmarkCopyFailed')));
   }, [bookmarkFormat, whTypes, t]);
 
-  // Sigs currently shown with the pending-removal indicator, plus the timers
-  // that delete them once the grace period elapses.
-  const [removing, setRemoving] = useState<Set<string>>(new Set());
-  const removalTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  const copySiteBookmark = useCallback((sig: Signature) => {
+    const name = formatSiteBookmarkName(siteBookmarkFormat, sig);
+    if (!name) return;
+    navigator.clipboard.writeText(name)
+      .then(() => toast.success(t('signatures.bookmarkCopied', { name })))
+      .catch(() => toast.error(t('signatures.bookmarkCopyFailed')));
+  }, [siteBookmarkFormat, t]);
 
-  // Clear any outstanding removal timers when the pane unmounts.
-  useEffect(() => () => {
-    for (const tm of removalTimers.current.values()) clearTimeout(tm);
-    removalTimers.current.clear();
-  }, []);
+  // Sigs currently drawn with the pending-removal indicator. The timers that
+  // actually delete them live in the removal queue — unmounting this pane (or
+  // switching system) must not cancel a deletion the user has already asked
+  // for, which is what used to leave despawned sigs behind.
+  const [removing, setRemoving] = useState<Set<string>>(new Set());
+
+  // Follow the queue: drop the row when its removal lands, and keep the
+  // indicator in step when another pane instance schedules or cancels one.
+  useEffect(() => subscribeSigRemovals((e) => {
+    if (e.systemId !== systemId) return;
+    if (e.kind === 'removed') {
+      setSigs((prev) => prev.filter((s) => s.id !== e.sigRowId));
+      setSelected((prev) => { const next = new Set(prev); next.delete(e.sigRowId); return next; });
+      // A sig backing a wormhole vanishing means the hole collapsed: sever the
+      // connection but keep it on the map.
+      if (e.sig?.whType && e.sig.whLeadsTo) {
+        reevaluateConnectionsForSystem(systemId, sigsRef.current.filter((s) => s.id !== e.sigRowId), e.sig, true);
+      }
+    }
+    setRemoving((prev) => {
+      const next = new Set(prev);
+      if (e.kind === 'scheduled') next.add(e.sigRowId); else next.delete(e.sigRowId);
+      return next;
+    });
+  }), [systemId]);
 
   // Track whether Shift is physically held — the `paste` ClipboardEvent itself
   // carries no modifier state, so Shift+Ctrl+V is detected via this ref.
@@ -359,11 +553,14 @@ export function SignaturePane({ systemId }: { systemId: string }) {
 
   useEffect(() => {
     if (!activeMapId) return;
-    // Cancel any pending overwrite-removals carried over from the previous
-    // system — their timers reference rows that are about to be cleared.
-    for (const tm of removalTimers.current.values()) clearTimeout(tm);
-    removalTimers.current.clear();
-    setRemoving(new Set());
+    // Pending overwrite-removals are NOT cancelled here. They live in the
+    // module-level queue with the map + system they belong to, so switching
+    // system just changes which of them this pane draws — it no longer abandons
+    // deletions the user has already asked for (which is what left despawned
+    // sigs behind: clearing bookmarks means hopping the chain).
+    // Deliberate: clears this pane's own state when the record it shows changes.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setRemoving(pendingRemovalIds(systemId));
     setSigs([]);
     setSelected(new Set());
 
@@ -375,12 +572,23 @@ export function SignaturePane({ systemId }: { systemId: string }) {
       const sys = useMapStore.getState().map.systems.find((s) => s.id === systemId);
       const embedded = (sys as { signatures?: Signature[] } | undefined)?.signatures ?? [];
       setSigs(embedded);
+      sigsSystemRef.current = systemId;
       return;
     }
 
-    api<Signature[]>(`/api/maps/${activeMapId}/systems/${systemId}/signatures`)
-      .then(setSigs)
-      .catch(() => toast.error(t('signatures.loadFailed')));
+    // A system just created by a jump may not have committed server-side yet;
+    // wait for its create POST before fetching, or the GET 404s ("Failed to
+    // load signatures"). Existing systems resolve to null and fetch at once.
+    let cancelled = false;
+    const fetchSigs = () => {
+      if (cancelled) return;
+      api<Signature[]>(`/api/maps/${activeMapId}/systems/${systemId}/signatures`)
+        .then((data) => { if (!cancelled) { setSigs(data); sigsSystemRef.current = systemId; } })
+        .catch(() => { if (!cancelled) toast.error(i18n.t('signatures.loadFailed')); });
+    };
+    const pending = awaitSystemCreate(systemId);
+    if (pending) void pending.then(fetchSigs); else fetchSigs();
+    return () => { cancelled = true; };
   }, [activeMapId, systemId, isShareMode]);
 
   // Live sync: when a remote client changes this system's sigs, re-fetch in
@@ -389,7 +597,7 @@ export function SignaturePane({ systemId }: { systemId: string }) {
   useEffect(() => {
     if (!activeMapId || isShareMode || sigRev === 0) return;
     api<Signature[]>(`/api/maps/${activeMapId}/systems/${systemId}/signatures`)
-      .then(setSigs)
+      .then((data) => { setSigs(data); sigsSystemRef.current = systemId; })
       .catch(() => {});
   }, [sigRev, activeMapId, systemId, isShareMode]);
 
@@ -406,8 +614,8 @@ export function SignaturePane({ systemId }: { systemId: string }) {
       updates.whType?.toUpperCase() === 'K162' &&
       existing?.whType?.toUpperCase() !== 'K162'
     ) {
-      const sysName = map.systems.find((s) => s.id === systemId)?.name ?? 'unknown system';
-      alertInboundK162(sysName);
+      const sysForAlert = mapSystems.find((s) => s.id === systemId);
+      alertInboundK162(sysForAlert ? systemDisplayName(sysForAlert) : 'unknown system');
     }
 
     // Re-evaluate connections whenever whType or whLeadsTo changes — either
@@ -448,13 +656,13 @@ export function SignaturePane({ systemId }: { systemId: string }) {
       const leads = sig.whLeadsTo?.toUpperCase();
       if (!leads) continue;
       let source: string | null = null;
-      for (const conn of map.connections) {
+      for (const conn of mapConnections) {
         if (conn.connectionType !== 'standard') continue;
         const otherId =
           conn.sourceId === systemId ? conn.targetId :
           conn.targetId === systemId ? conn.sourceId : null;
         if (!otherId) continue;
-        const other = map.systems.find((s) => s.id === otherId);
+        const other = mapSystems.find((s) => s.id === otherId);
         if (!other) continue;
         const oc = other.systemClass.toUpperCase();
         const on = (other.name ?? '').toUpperCase();
@@ -462,10 +670,12 @@ export function SignaturePane({ systemId }: { systemId: string }) {
         const t = conn.type?.toUpperCase();
         if (t && t !== 'K162') { source = conn.type; break; }
       }
+      // Deliberate: clears this pane's own state when the record it shows changes.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       if (source) updateSig(sig.id, { notes: source });
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sigs, map.connections, map.systems, systemId, canEdit, isShareMode]);
+  }, [sigs, mapConnections, mapSystems, systemId, canEdit, isShareMode]);
 
   // Quarantine orphaned wormhole links. A live wormhole always shows as a sig
   // on BOTH ends, so if this system has been scanned (has sigs) yet carries no
@@ -477,6 +687,11 @@ export function SignaturePane({ systemId }: { systemId: string }) {
   // connections (no conn.type) are left alone.
   useEffect(() => {
     if (!canEdit || isShareMode || sigs.length === 0) return;
+    // Only act once `sigs` are the loaded set for THIS system — otherwise the
+    // previous system's sigs (mid system-switch) would quarantine this system's
+    // connections. This guard is the fix for connections going "broken" for no
+    // reason just by navigating the chain.
+    if (sigsSystemRef.current !== systemId) return;
     const hasWh = sigs.some((s) => s.sigType === 'wormhole' || s.sigType === 'unknown' || !!s.whType);
     if (hasWh) return;
     const { map: m, updateConnection } = useMapStore.getState();
@@ -485,14 +700,12 @@ export function SignaturePane({ systemId }: { systemId: string }) {
       if (conn.sourceId !== systemId && conn.targetId !== systemId) continue;
       updateConnection(conn.id, { broken: true });
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sigs, systemId, canEdit, isShareMode]);
 
   // Drop any pending overwrite-removal timer/indicator for this id (the row is
   // being deleted now, whether by the timer firing or a manual delete).
   const clearRemoval = (id: string) => {
-    const tm = removalTimers.current.get(id);
-    if (tm) { clearTimeout(tm); removalTimers.current.delete(id); }
+    cancelSigRemoval(id);
     setRemoving((prev) => {
       if (!prev.has(id)) return prev;
       const next = new Set(prev); next.delete(id); return next;
@@ -519,18 +732,15 @@ export function SignaturePane({ systemId }: { systemId: string }) {
 
   // Mark a despawned sig for removal after `delaySec`, keeping it visible with
   // the indicator meanwhile. delaySec <= 0 deletes immediately. Reschedules
-  // cleanly if the sig was already pending.
+  // cleanly if the sig was already pending. The timer lives in the removal
+  // queue, not this component, so navigating away doesn't drop the deletion —
+  // the pane's own subscription (below) drops the row when it lands.
   const scheduleRemoval = (id: string, delaySec: number) => {
-    const existing = removalTimers.current.get(id);
-    if (existing) clearTimeout(existing);
-    if (delaySec <= 0) {
-      removalTimers.current.delete(id);
-      deleteSig(id);
-      return;
-    }
-    setRemoving((prev) => { const next = new Set(prev); next.add(id); return next; });
-    const tm = setTimeout(() => deleteSig(id), delaySec * 1000);
-    removalTimers.current.set(id, tm);
+    if (!activeMapId) return;
+    const sig = sigsRef.current.find((s) => s.id === id);
+    if (!sig) return;
+    if (delaySec > 0) setRemoving((prev) => { const next = new Set(prev); next.add(id); return next; });
+    scheduleSigRemoval(activeMapId, systemId, sig, delaySec);
   };
 
   const processPaste = useCallback(async (parsed: ParsedSig[], overwrite: boolean, delaySec: number) => {
@@ -545,6 +755,8 @@ export function SignaturePane({ systemId }: { systemId: string }) {
         const updates: Partial<Signature> = {};
         if (p.sigType !== 'unknown') updates.sigType = p.sigType;
         if (p.name) updates.name = p.name;
+        // Fill a blank only — never overwrite a destination someone scouted.
+        if (p.whLeadsTo && !match.whLeadsTo) updates.whLeadsTo = p.whLeadsTo;
         toUpdate.push({ id: match.id, updates });
       } else {
         toCreate.push(p);
@@ -561,7 +773,13 @@ export function SignaturePane({ systemId }: { systemId: string }) {
     if (overwrite) {
       const pastedIds = new Set(parsed.map((p) => p.sigId));
       for (const s of existing) {
-        if (!s.sigId) continue;
+        if (!s.sigId) {
+          // Blank-ID rows are usually in-progress manual entries — leave them
+          // be. A truly empty one (an unfilled "Add signature" click) is just
+          // litter, so sweep it as part of the clear-down.
+          if (isContentlessSig(s)) scheduleRemoval(s.id, delaySec);
+          continue;
+        }
         if (pastedIds.has(s.sigId)) clearRemoval(s.id);
         else scheduleRemoval(s.id, delaySec);
       }
@@ -577,7 +795,7 @@ export function SignaturePane({ systemId }: { systemId: string }) {
       toCreate.map((p) =>
         api<Signature>(
           `/api/maps/${activeMapId}/systems/${systemId}/signatures`,
-          { method: 'POST', body: JSON.stringify({ sigId: p.sigId, sigType: p.sigType, name: p.name }) },
+          { method: 'POST', body: JSON.stringify({ sigId: p.sigId, sigType: p.sigType, name: p.name, whLeadsTo: p.whLeadsTo }) },
         ).catch(() => null),
       ),
     )).filter((s): s is Signature => s !== null);
@@ -609,8 +827,10 @@ export function SignaturePane({ systemId }: { systemId: string }) {
 
       // Warn if the character is in a different system than the one being edited
       if (currentSystemId && currentSystemId !== systemId) {
-        const currentName  = map.systems.find((s) => s.id === currentSystemId)?.name  ?? 'unknown';
-        const selectedName = map.systems.find((s) => s.id === systemId)?.name ?? 'unknown';
+        const cur = mapSystems.find((s) => s.id === currentSystemId);
+        const sel = mapSystems.find((s) => s.id === systemId);
+        const currentName  = cur ? systemDisplayName(cur) : 'unknown';
+        const selectedName = sel ? systemDisplayName(sel) : 'unknown';
         setPendingAction({
           message: t('signatures.pasteDifferentSystem', { current: currentName, selected: selectedName }),
           fn: () => processPaste(parsed, overwrite, delaySec),
@@ -625,7 +845,7 @@ export function SignaturePane({ systemId }: { systemId: string }) {
 
     window.addEventListener('paste', handlePaste);
     return () => window.removeEventListener('paste', handlePaste);
-  }, [activeMapId, systemId, currentSystemId, map.systems, processPaste, overwriteOnPaste, overwriteDelay, t]);
+  }, [activeMapId, systemId, currentSystemId, mapSystems, processPaste, overwriteOnPaste, overwriteDelay, t]);
 
   const addSig = async () => {
     if (!activeMapId) return;
@@ -680,9 +900,17 @@ export function SignaturePane({ systemId }: { systemId: string }) {
   const sortedSigs = useMemo(() => {
     const base = typeFilter.size ? sigs.filter((s) => typeFilter.has(s.sigType)) : sigs;
     if (!sortCol) return base;
+    // The type column shows a different field per group, so sort it on what's
+    // actually on screen rather than on whType alone — otherwise ghost rows all
+    // sort as blank.
+    const key = (s: Signature) => (
+      sortCol === 'whType' && s.sigType === 'ghost'
+        ? (ghostTier(s.sigType, s.name, s.ghostType)?.tier ?? '')
+        : (s[sortCol] ?? '')
+    );
     return [...base].sort((a, b) => {
-      const av = (a[sortCol] ?? '').toLowerCase();
-      const bv = (b[sortCol] ?? '').toLowerCase();
+      const av = key(a).toLowerCase();
+      const bv = key(b).toLowerCase();
       const cmp = av.localeCompare(bv);
       return sortDir === 'asc' ? cmp : -cmp;
     });
@@ -730,6 +958,11 @@ export function SignaturePane({ systemId }: { systemId: string }) {
       {!isShareMode && sigs.length === 0 && (
         <p className="sig-pane__hint">{t('signatures.pasteHint')}</p>
       )}
+      {/* Filters and actions share ONE row. This pane is tall and vertical space
+          is the scarce resource here, so the two no longer take a line each.
+          The filter is placed on the left with CSS `order` rather than by
+          moving the markup, which keeps the tab order (actions first) intact. */}
+      <div className="sig-pane__controls">
       {canEdit && !isShareMode && (
         <div className="sig-pane__toolbar">
           <button className="icon-btn" onClick={addSig} title={t('signatures.addSignature')}>{t('signatures.addSignature')}</button>
@@ -745,36 +978,30 @@ export function SignaturePane({ systemId }: { systemId: string }) {
             />
             <span>{t('signatures.overwriteToggle')}</span>
           </label>
-          <select
-            className="sig-toolbar-btn"
-            value={overwriteDelay}
-            onChange={(e) => setOverwriteDelay(Number(e.target.value))}
-            aria-label={t('signatures.removeDelayLabel')}
-            data-tooltip={t('signatures.removeDelayTooltip')}
-          >
-            {OVERWRITE_DELAY_OPTIONS.map((s) => (
-              <option key={s} value={s}>
-                {s === 0 ? t('signatures.removeDelayInstant') : formatDelay(s)}
-              </option>
-            ))}
-          </select>
+          <Select
+            value={String(overwriteDelay)}
+            onChange={(v) => setOverwriteDelay(Number(v))}
+            ariaLabel={t('signatures.removeDelayLabel')}
+            title={t('signatures.removeDelayTooltip')}
+            options={OVERWRITE_DELAY_OPTIONS.map((s) => ({
+              value: String(s),
+              label: s === 0 ? t('signatures.removeDelayInstant') : formatDelay(s),
+            }))}
+          />
           {selected.size > 0 && (
             <>
-              <select
-                className="sig-toolbar-btn"
+              <Select
                 value=""
-                onChange={(e) => {
-                  if (!e.target.value) return;
-                  setSelectedType(e.target.value as SigType);
-                  e.target.value = '';
-                }}
-                aria-label={t('signatures.setTypeAria')}
-              >
-                <option value="">{t('signatures.setType', { count: selected.size })}</option>
-                {SIG_TYPE_OPTIONS.map((type) => (
-                  <option key={type} value={type}>{t(`sigType.${type}`)}</option>
-                ))}
-              </select>
+                onChange={(v) => { if (v) setSelectedType(v as SigType); }}
+                ariaLabel={t('signatures.setTypeAria')}
+                placeholder={t('signatures.setType', { count: selected.size })}
+                showCheck={false}
+                options={SIG_TYPE_OPTIONS.map((type) => ({
+                  value: type,
+                  text:  t(`sigType.${type}`),
+                  label: <span className={`sig-select--type-${type}`}>{t(`sigType.${type}`)}</span>,
+                }))}
+              />
               <button className="sig-toolbar-btn sig-toolbar-btn--danger" onClick={deleteSelected}>
                 {t('signatures.deleteSelected', { count: selected.size })}
               </button>
@@ -806,19 +1033,32 @@ export function SignaturePane({ systemId }: { systemId: string }) {
               {t('signatures.filterClear')}
             </button>
           )}
-          <div className="sig-col-menu" ref={colMenuRef}>
+          <div className="sig-col-menu">
             <button
+              ref={colBtnRef}
               type="button"
               className={`icon-btn sig-col-menu__btn${hiddenCols.size > 0 ? ' sig-col-menu__btn--active' : ''}`}
-              onClick={() => setColMenuOpen((o) => !o)}
+              onClick={() => (colMenuOpen ? setColMenuOpen(false) : openColMenu())}
               aria-expanded={colMenuOpen}
               aria-label={t('signatures.columns')}
               data-tooltip={t('signatures.columns')}
             >
               <ColumnsIcon size={14} weight="regular" />
             </button>
-            {colMenuOpen && (
-              <div className="sig-col-menu__pop" role="menu">
+            {colMenuOpen && createPortal(
+              <div
+                ref={colDropRef}
+                className="sig-col-menu__pop"
+                role="menu"
+                style={{
+                  position: 'fixed',
+                  top: colPos.top,
+                  left: Math.max(8, Math.min(colPos.left, window.innerWidth - 180)),
+                  right: 'auto',
+                  maxHeight: colPos.maxHeight,
+                  overflowY: 'auto',
+                }}
+              >
                 <div className="sig-col-menu__title">{t('signatures.columns')}</div>
                 {HIDEABLE_COLS.map(({ key, labelKey }) => (
                   <label key={key} className="sig-col-menu__item">
@@ -830,11 +1070,13 @@ export function SignaturePane({ systemId }: { systemId: string }) {
                     <span>{t(labelKey)}</span>
                   </label>
                 ))}
-              </div>
+              </div>,
+              document.body,
             )}
           </div>
         </div>
       )}
+      </div>
 
       {sigs.length === 0 ? (
         <div className={`sig-pane__empty${isShareMode ? ' sig-pane__empty--shared' : ''}`}>
@@ -855,7 +1097,9 @@ export function SignaturePane({ systemId }: { systemId: string }) {
             <col style={{ width: colWidths.type }} />
             <col style={{ width: colWidths.whtype }} className="sig-col--whtype" />
             <col style={{ width: colWidths.leadsto }} />
+            {!isShareMode && <col className="sig-col--bookmark" />}
             {isColVisible('name')    && <col style={{ width: colWidths.name }} />}
+            {isColVisible('safe')    && <col style={{ width: colWidths.safe }} />}
             {isColVisible('notes')   && <col style={{ width: colWidths.notes }} />}
             {isColVisible('created') && <col style={{ width: colWidths.created }} />}
             {isColVisible('updated') && <col style={{ width: colWidths.updated }} />}
@@ -890,10 +1134,18 @@ export function SignaturePane({ systemId }: { systemId: string }) {
                 {t('signatures.colLeadsTo')}{sortInd('whLeadsTo')}
                 <div className="sig-th__resize" onMouseDown={(e) => startResize('leadsto', e)} />
               </th>
+              {/* Bookmark column — no title; the copy button aligns for every row. */}
+              {!isShareMode && <th className="sig-th" />}
               {isColVisible('name') && (
                 <th className="sig-th sig-th--sortable" onClick={() => handleSort('name')}>
                   {t('signatures.colName')}{sortInd('name')}
                   <div className="sig-th__resize" onMouseDown={(e) => startResize('name', e)} />
+                </th>
+              )}
+              {isColVisible('safe') && (
+                <th className="sig-th" title={t('signatures.safeHint')}>
+                  {t('signatures.colSafe')}
+                  <div className="sig-th__resize" onMouseDown={(e) => startResize('safe', e)} />
                 </th>
               )}
               {isColVisible('notes') && (
@@ -921,7 +1173,7 @@ export function SignaturePane({ systemId }: { systemId: string }) {
             {sortedSigs.map((sig) => (
               <tr
                 key={sig.id}
-                className={`${selected.has(sig.id) ? 'sig-row--selected' : ''} ${sig.sigType === 'unknown' ? 'sig-row--unknown' : ''} ${whAgeRowClass(sig.sigType, sig.whType, sig.createdAt, tickNow)} ${removing.has(sig.id) ? 'sig-row--removing' : ''}`}
+                className={`${selected.has(sig.id) ? 'sig-row--selected' : ''} ${sig.sigType === 'unknown' ? 'sig-row--unknown' : ''} ${whAgeRowClass(sig.sigType, sig.whType, sig.createdAt, tickNow, whTypes)} ${removing.has(sig.id) ? 'sig-row--removing' : ''}`}
                 style={removing.has(sig.id) && overwriteDelay > 0 ? { animationDuration: `${overwriteDelay}s` } : undefined}
               >
                 {!isShareMode && (
@@ -954,17 +1206,33 @@ export function SignaturePane({ systemId }: { systemId: string }) {
                       {sigTypeLabel(sig.sigType)}
                     </span>
                   ) : (
-                    <select
-                      className={`sig-select sig-select--type sig-select--type-${sig.sigType}`}
+                    <Select
+                      className="sig-type-select"
                       value={sig.sigType}
-                      onChange={(e) => updateSig(sig.id, { sigType: e.target.value as SigType })}
-                    >
-                      {SIG_TYPE_OPTIONS.map((st) => (
-                        <option key={st} value={st}>{sigTypeLabel(st)}</option>
-                      ))}
-                    </select>
+                      onChange={(v) => {
+                        const sigType = v as SigType;
+                        // Flagging a row as a ghost site by hand: seed the tier
+                        // from the space we're in, which is what decides it. A
+                        // name that already carries a tier (a pasted scan) is
+                        // left to derive from the name instead.
+                        const seed = sigType === 'ghost' && !sig.ghostType && !ghostTier('ghost', sig.name)
+                          ? defaultGhostTier(systemClass)
+                          : '';
+                        updateSig(sig.id, { sigType, ...(seed ? { ghostType: seed } : {}) });
+                      }}
+                      options={SIG_TYPE_OPTIONS.map((st) => ({
+                        value: st,
+                        text:  sigTypeLabel(st),
+                        // Reuse the existing per-type colour classes so the value
+                        // stays tinted by type in the trigger and the list.
+                        label: <span className={`sig-select--type-${st}`}>{sigTypeLabel(st)}</span>,
+                      }))}
+                    />
                   )}
                 </td>
+                {/* The specific type within the row's group: a wormhole's
+                    code, a ghost site's tier. Groups with no meaningful
+                    sub-type leave it blank. */}
                 <td className="sig-td--wh">
                   {sig.sigType === 'wormhole' && (
                     isShareMode
@@ -978,27 +1246,37 @@ export function SignaturePane({ systemId }: { systemId: string }) {
                           })}
                         />
                   )}
+                  {sig.sigType === 'ghost' && (
+                    <GhostTypeCell
+                      sig={sig}
+                      isShareMode={isShareMode}
+                      onChange={(ghostType) => updateSig(sig.id, { ghostType })}
+                    />
+                  )}
                 </td>
                 <td className="sig-td--wh">
                   {sig.sigType === 'wormhole' && (
                     isShareMode
                       ? <span className="sig-text">{sig.whLeadsTo || ''}</span>
-                      : (
-                        <div className="sig-leads-cell">
-                          <LeadsToDropdown
-                            value={sig.whLeadsTo}
-                            connectedSystems={connectedSystems}
-                            onChange={(leadsTo) => updateSig(sig.id, { whLeadsTo: leadsTo })}
-                          />
-                          <button
-                            className="icon-btn"
-                            onClick={() => copyBookmark(sig)}
-                            title={t('signatures.copyBookmark')}
-                          ><CopyIcon size={12} weight="bold" /></button>
-                        </div>
-                      )
+                      : <LeadsToDropdown
+                          value={sig.whLeadsTo}
+                          connectedSystems={connectedSystems}
+                          onChange={(leadsTo) => updateSig(sig.id, { whLeadsTo: leadsTo })}
+                        />
                   )}
                 </td>
+                {/* Dedicated bookmark column so the button aligns for every sig
+                    type: wormholes use the WH format, all other sigs the site
+                    format. */}
+                {!isShareMode && (
+                  <td className="sig-td--bookmark">
+                    <button
+                      className="icon-btn"
+                      onClick={() => (sig.sigType === 'wormhole' ? copyBookmark(sig) : copySiteBookmark(sig))}
+                      title={t('signatures.copyBookmark')}
+                    ><CopyIcon size={12} weight="bold" /></button>
+                  </td>
+                )}
                 {isColVisible('name') && (
                   <td>
                     {isShareMode ? (
@@ -1013,6 +1291,7 @@ export function SignaturePane({ systemId }: { systemId: string }) {
                     )}
                   </td>
                 )}
+                {isColVisible('safe') && <SafeCell sig={sig} />}
                 {isColVisible('notes') && (
                   <td className="sig-notes-cell">
                     <NotesEditor

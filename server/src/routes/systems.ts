@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { db } from '../db.js';
 import { createLogger } from '../utils/logger.js';
 import { esiFetch } from '../utils/esi.js';
+import { planJumpRouteVia, jumpGraphSize } from '../services/jumpGraph.js';
 
 export const systemsRouter = Router();
 const log = createLogger('systems');
@@ -233,6 +234,189 @@ systemsRouter.get('/search', async (req, res) => {
   } catch (err) {
     log.error('Query failed:', err);
     return res.status(500).json({ error: 'Database query failed' });
+  }
+});
+
+// GET /api/systems/:id/adjacent — k-space stargate neighbours of a system,
+// powering the "Add adjacent" map context-menu. Pure static-SDE read against
+// map_stargates (parameterized). Only k-space systems have stargates, so a
+// wormhole system simply returns an empty array.
+systemsRouter.get('/:id(\\d+)/adjacent', async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  try {
+    const { rows } = await db.query<{
+      eveSystemId: number; name: string; security: string | null;
+      systemClass: string | null; regionName: string | null;
+    }>(
+      `SELECT s.id       AS "eveSystemId",
+              s.name     AS "name",
+              s.security AS "security",
+              s.class    AS "systemClass",
+              r.name     AS "regionName"
+         FROM map_stargates g
+         JOIN solar_systems s      ON s.id = g.destination_system_id
+         LEFT JOIN map_regions r   ON r.id = s.region_id
+        WHERE g.system_id = $1
+        GROUP BY s.id, s.name, s.security, s.class, r.name
+        ORDER BY s.name`,
+      [id],
+    );
+    return res.json(rows.map((row) => ({
+      eveSystemId: row.eveSystemId,
+      name:        row.name,
+      security:    row.security != null ? Number(row.security) : null,
+      systemClass: row.systemClass ?? null,
+      regionName:  row.regionName ?? null,
+    })));
+  } catch (err) {
+    log.error('Adjacent-systems query failed:', err);
+    return res.status(500).json({ error: 'Database query failed' });
+  }
+});
+
+// GET /api/systems/:id/nearby-lawless?jumps=N — lowsec/nullsec systems within N
+// gate-jumps of :id, for the voice announcer's "lawless in range" event. BFS over
+// map_stargates (a recursive CTE), joined to solar_systems; security < 0.45 is
+// below highsec (matches deriveClass). N clamped 0..5 (proximity ceiling). Only
+// k-space has stargates, so a wormhole origin returns [].
+systemsRouter.get('/:id(\\d+)/nearby-lawless', async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const jumps = Math.max(0, Math.min(5, parseInt(String(req.query.jumps ?? '2'), 10) || 0));
+  try {
+    const { rows } = await db.query<{ id: number; name: string; security: string; jumps: number }>(
+      `WITH RECURSIVE bfs(system_id, depth) AS (
+         SELECT $1::int, 0
+         UNION
+         SELECT g.destination_system_id, b.depth + 1
+           FROM bfs b JOIN map_stargates g ON g.system_id = b.system_id
+          WHERE b.depth < $2
+       )
+       SELECT s.id, s.name, s.security::text AS security, MIN(b.depth)::int AS jumps
+         FROM bfs b JOIN solar_systems s ON s.id = b.system_id
+        WHERE b.system_id <> $1 AND s.security < 0.45
+        GROUP BY s.id, s.name, s.security
+        ORDER BY jumps, s.name`,
+      [id, jumps],
+    );
+    return res.json(rows.map((r) => ({
+      eveSystemId: r.id, name: r.name, security: Number(r.security), jumps: r.jumps,
+    })));
+  } catch (err) {
+    log.error('nearby-lawless query failed:', err);
+    return res.status(500).json({ error: 'Database query failed' });
+  }
+});
+
+// GET /api/systems/:id/jump-range?maxLy=N — every LS/NS k-space system within N
+// light-years of :id (star-to-star, the metric jump drives use), for the jump-
+// range overlay. Distance = 3D Euclidean over the SDE universe coords (metres)
+// / metres-per-ly. Only lowsec + nullsec (jump drives don't work to highsec, and
+// J-space/wormhole systems can't be jumped to). N clamped 0.1..20 (largest cap
+// range at max skills is ~10 ly, so 20 is generous headroom). Ordered nearest-first.
+const METRES_PER_LY = 9.4607e15;
+systemsRouter.get('/:id(\\d+)/jump-range', async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const maxLy = Math.max(0.1, Math.min(20, parseFloat(String(req.query.maxLy ?? '10')) || 10));
+  try {
+    // 3D coords come from the SDE (setup-db) or scripts/backfill-coords.ts. On a
+    // deployment seeded before that, they're NULL — report it distinctly instead
+    // of returning a misleading empty result, so the UI can prompt a backfill.
+    const origin = await db.query<{ pos_x: number | null }>(
+      'SELECT pos_x FROM solar_systems WHERE id = $1', [id],
+    );
+    if (!origin.rows[0] || origin.rows[0].pos_x == null) {
+      return res.json({ hasCoords: false, systems: [] });
+    }
+    const { rows } = await db.query<{
+      id: number; name: string; system_class: string; security: string; region_name: string | null; ly: string;
+    }>(
+      `WITH o AS (SELECT pos_x, pos_y, pos_z FROM solar_systems WHERE id = $1)
+       SELECT s.id, s.name, s.class AS system_class, s.security::text AS security,
+              r.name AS region_name,
+              (sqrt(power(s.pos_x - o.pos_x, 2) + power(s.pos_y - o.pos_y, 2) + power(s.pos_z - o.pos_z, 2)) / $3)::text AS ly
+         FROM solar_systems s
+         CROSS JOIN o
+         LEFT JOIN map_regions r ON r.id = s.region_id
+        WHERE s.id <> $1
+          AND s.class IN ('LS','NS')
+          AND s.pos_x IS NOT NULL AND o.pos_x IS NOT NULL
+          AND sqrt(power(s.pos_x - o.pos_x, 2) + power(s.pos_y - o.pos_y, 2) + power(s.pos_z - o.pos_z, 2)) / $3 <= $2
+        ORDER BY ly`,
+      [id, maxLy, METRES_PER_LY],
+    );
+    return res.json({
+      hasCoords: true,
+      systems: rows.map((r) => ({
+        eveSystemId: r.id,
+        name: r.name,
+        systemClass: r.system_class,
+        security: Number(r.security),
+        regionName: r.region_name ?? null,
+        ly: Number(r.ly),
+      })),
+    });
+  } catch (err) {
+    log.error('jump-range query failed:', err);
+    return res.status(500).json({ error: 'Database query failed' });
+  }
+});
+
+// GET /api/systems/:id/distance?to=N — light-years between two systems (star-to-
+// star), for annotating a tagged cyno-jump connection. Null if either lacks coords.
+systemsRouter.get('/:id(\\d+)/distance', async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const to = parseInt(String(req.query.to ?? ''), 10);
+  if (!to || to === id) return res.json({ ly: null });
+  try {
+    const { rows } = await db.query<{ ly: string | null }>(
+      `SELECT (sqrt(power(a.pos_x - b.pos_x, 2) + power(a.pos_y - b.pos_y, 2) + power(a.pos_z - b.pos_z, 2)) / $3)::text AS ly
+         FROM solar_systems a, solar_systems b
+        WHERE a.id = $1 AND b.id = $2 AND a.pos_x IS NOT NULL AND b.pos_x IS NOT NULL`,
+      [id, to, METRES_PER_LY],
+    );
+    return res.json({ ly: rows[0]?.ly != null ? Number(rows[0].ly) : null });
+  } catch (err) {
+    log.error('distance query failed:', err);
+    return res.status(500).json({ error: 'Database query failed' });
+  }
+});
+
+// GET /api/systems/jump-route?from=&to=&rangeLy=&objective=hops|fuel — plot a
+// multi-hop capital/black-ops jump route between two LS/NS systems, where every
+// hop is within rangeLy (the ship's max range). objective 'hops' = fewest jumps,
+// 'fuel' = least total light-years. { hasCoords:false } when coords aren't loaded;
+// route null = no path within range. Ship-agnostic — the client turns ship class
+// + JDC into rangeLy and estimates fuel from the returned hop distances.
+systemsRouter.get('/jump-route', async (req, res) => {
+  const from = parseInt(String(req.query.from ?? ''), 10);
+  const to   = parseInt(String(req.query.to ?? ''), 10);
+  const rangeLy = Math.max(0.1, Math.min(20, parseFloat(String(req.query.rangeLy ?? '')) || 0));
+  const objective = req.query.objective === 'fuel' ? 'fuel' : 'hops';
+  // Optional routing controls: `avoid` = systems to route around; `preferStations`
+  // = bias through station/structure systems; `safe` = extra safe systems (the
+  // caller's structures). Comma-separated id lists, capped to keep the URL sane.
+  const idList = (v: unknown, cap: number) =>
+    new Set(String(v ?? '').split(',').map((s) => parseInt(s, 10)).filter(Boolean).slice(0, cap));
+  const avoid = idList(req.query.avoid, 200);
+  const extraSafe = idList(req.query.safe, 400);
+  // Ordered intermediate waypoints (order matters, so an array not a Set).
+  const via = String(req.query.via ?? '').split(',').map((s) => parseInt(s, 10)).filter(Boolean).slice(0, 20);
+  const pref = String(req.query.preferStations ?? '');
+  const preferSafe = pref === 'strong' ? 'strong' as const
+    : (pref === 'prefer' || pref === '1' || pref === 'true') ? 'prefer' as const : undefined;
+  // Opt-in: allow regional (cross-region) stargate jumps as free 1-hop edges.
+  const rg = String(req.query.regionalGates ?? '');
+  const regionalGates = rg === '1' || rg === 'true';
+  if (!from || !to || !rangeLy) {
+    return res.status(400).json({ error: 'from, to and rangeLy are required' });
+  }
+  try {
+    if ((await jumpGraphSize()) === 0) return res.json({ hasCoords: false, route: null });
+    const route = await planJumpRouteVia([from, ...via, to], rangeLy, objective, { avoid, preferSafe, extraSafe, regionalGates });
+    return res.json({ hasCoords: true, route });
+  } catch (err) {
+    log.error('jump-route failed:', err);
+    return res.status(500).json({ error: 'Routing failed' });
   }
 });
 

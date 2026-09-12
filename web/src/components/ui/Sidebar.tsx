@@ -6,13 +6,16 @@ import type { DragEndEvent, Modifier } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy, arrayMove } from '@dnd-kit/sortable';
 import { DraggableCard } from './DraggableCard';
 import { ScoutConnectionsPane } from './ScoutConnectionsPane';
+import { PilotsOnlinePane } from './PilotsOnlinePane';
+import { ClonesPane } from './ClonesPane';
 import { A0Pane } from './A0Pane';
 import { ClosestSystemsPane } from './ClosestSystemsPane';
 import { FleetPane } from './FleetPane';
 import { WatchlistBlock } from './WatchlistBlock';
 import { ChainsPane } from './ChainsPane';
-import { CaretLeftIcon, CaretRightIcon, ArrowLineLeftIcon, ArrowLineRightIcon } from '@phosphor-icons/react';
+import { CaretLeftIcon, CaretRightIcon, ArrowLineLeftIcon, ArrowLineRightIcon } from '../../icons';
 import { useUserSetting } from '../../hooks/useUserSetting';
+import { useAuth } from '../../context/AuthContext';
 
 const SIDE_KEY      = 'nexum.sidebar.side';
 const COLLAPSED_KEY = 'nexum.sidebar.collapsed';
@@ -32,9 +35,9 @@ function loadWidth(): number {
 }
 
 type Side    = 'left' | 'right';
-type PanelId = 'watchlist' | 'chains' | 'thera' | 'turnur' | 'a0' | 'closest' | 'fleet';
+type PanelId = 'watchlist' | 'chains' | 'thera' | 'turnur' | 'a0' | 'closest' | 'fleet' | 'pilotsOnline' | 'clones';
 
-const DEFAULT_ORDER: PanelId[] = ['watchlist', 'chains', 'closest', 'thera', 'turnur', 'fleet', 'a0'];
+const DEFAULT_ORDER: PanelId[] = ['watchlist', 'chains', 'closest', 'thera', 'turnur', 'fleet', 'pilotsOnline', 'clones', 'a0'];
 const VALID_PANEL_IDS: ReadonlySet<PanelId> = new Set(DEFAULT_ORDER);
 
 // The panels form a single vertical column, so a drag should only ever move a
@@ -55,6 +58,7 @@ function sanitiseOrder(raw: unknown): PanelId[] {
 
 export function Sidebar() {
   const { t } = useTranslation();
+  const { user } = useAuth();
   const panelTitle: Record<PanelId, string> = {
     watchlist: t('sidebar.watchlist'),
     chains:  t('sidebar.chains'),
@@ -63,6 +67,8 @@ export function Sidebar() {
     a0:      t('sidebar.a0'),
     closest: t('sidebar.closest'),
     fleet:   t('sidebar.fleet'),
+    pilotsOnline: t('pilotsOnline.title'),
+    clones: t('clones.title'),
   };
   // Cross-device prefs via useUserSetting (server-backed JSONB).
   const [sideRaw,      setSide]      = useUserSetting<Side>(SIDE_KEY, 'left');
@@ -136,6 +142,17 @@ export function Sidebar() {
     );
   }
 
+  // Presence is an org feature: the server lists nobody unless Nexum is deployed
+  // for a corp or an alliance (see the pilots-online route). Rendering the panel
+  // regardless would leave a permanently empty card holding sidebar space on a
+  // personal or public install. Hide it there instead.
+  //
+  // Filtered at render rather than removed from the saved order, so it reappears
+  // in the position the user put it if the deployment later gains a corp or
+  // alliance.
+  const orgInstall   = !!user?.corpMode || !!user?.allianceMode;
+  const visibleOrder = order.filter((id) => id !== 'pilotsOnline' || orgInstall);
+
   const cards: Record<PanelId, ReactNode> = {
     watchlist: <WatchlistBlock />,
     chains:  <ChainsPane />,
@@ -144,6 +161,8 @@ export function Sidebar() {
     a0:      <A0Pane />,
     closest: <ClosestSystemsPane />,
     fleet:   <FleetPane />,
+    pilotsOnline: <PilotsOnlinePane />,
+    clones: <ClonesPane />,
   };
 
   return (
@@ -181,9 +200,9 @@ export function Sidebar() {
       </div>
 
       <DndContext sensors={sensors} collisionDetection={closestCenter} modifiers={[restrictToVerticalAxis]} onDragEnd={handleDragEnd}>
-        <SortableContext items={order} strategy={verticalListSortingStrategy}>
+        <SortableContext items={visibleOrder} strategy={verticalListSortingStrategy}>
           <div className="sidebar__content">
-            {order.map(id => (
+            {visibleOrder.map(id => (
               <DraggableCard key={id} id={id} title={panelTitle[id]}>
                 {cards[id]}
               </DraggableCard>

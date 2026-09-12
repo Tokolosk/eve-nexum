@@ -1,7 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useSyncExternalStore } from 'react';
 import { api } from '../api/client';
+import { readXTab, writeXTab, xTabStorageKey } from './crossTabPoll';
 import { flushQueue } from '../store/pendingQueue';
 import { useShareMode } from '../context/ShareModeContext';
+import { useMapStore } from '../store/mapStore';
+import { useAuth } from '../context/AuthContext';
 
 export interface CharacterLocationSystem {
   eveSystemId: number;
@@ -14,6 +17,10 @@ export interface CharacterLocationSystem {
 }
 
 export interface CharacterShip {
+  /** The ship's unique item id — a different hull, not just a different type.
+   *  Null when ESI didn't supply it. See the clone-jump check in
+   *  useLocationTracking. */
+  itemId:   number | null;
   typeId:   number;
   typeName: string;
   shipName: string;
@@ -33,28 +40,133 @@ interface RawLocationResponse {
   ship:   CharacterShip | null;
 }
 
+// ESI caches character location for ~5 s. We poll every 10 s: a system change
+// is still caught within ~10 s, while keeping the per-session request rate low
+// — a faster 5 s cadence pushed enough traffic to risk rate-limit stalls (which
+// surfaced as the location going out of sync). A visibility/focus catch-up
+// (below) covers the gap the moment the tab is looked at.
 const POLL_MS = 10_000;
+// Shorter than the interval on purpose: a request that hasn't answered within
+// one poll period is not going to be useful, and letting it outlive its own tick
+// is what used to wedge tracking. See the load() de-dupe below.
+const POLL_TIMEOUT_MS = 8_000;
 const EMPTY: CharacterLocation = { online: false, system: null, ship: null };
 
-let moduleCache: { data: CharacterLocation; fetchedAt: number } | null = null;
+// The users.id of the character THIS TAB currently acts as: the per-tab pinned
+// character (routeOrigin) when set, else the tab's own session-active character.
+// Kept in a module var (written by the hook, which has the auth context) so the
+// shared poll can read it. Location is ALWAYS resolved by explicit id via
+// /api/character/:id/location — never the session-global /api/character/location
+// — so a tab's location always matches the character it displays, even when
+// another tab has switched the session identity out from under it.
+let currentActingId: number | null = null;
+
+let moduleCache: { charId: number | null; data: CharacterLocation; fetchedAt: number } | null = null;
 let inflight: Promise<CharacterLocation> | null = null;
-const subscribers = new Set<(d: CharacterLocation) => void>();
+// The acting char id the in-flight request is for — so we only reuse it when
+// it's still the character we want, not a stale one.
+let inflightCharId: number | null = null;
+const subscribers = new Set<() => void>();
 let pollTimer: ReturnType<typeof setInterval> | null = null;
 
-function notify(d: CharacterLocation) {
-  subscribers.forEach(fn => fn(d));
+function notify() { subscribers.forEach((fn) => fn()); }
+
+// Browsers throttle (or pause) timers in hidden/background tabs — and an EVE
+// mapper usually sits behind the game client — so the interval can stall and the
+// location go stale. Refetch immediately whenever the tab becomes visible or the
+// window regains focus, so it's fresh the moment it's looked at. load() dedupes
+// an in-flight request, so a double focus/visibility fire is harmless.
+function catchUp(): void { if (document.visibilityState === 'visible') load(); }
+
+// Live-adopt a location another tab (acting as the same character) publishes, so
+// a tab that skipped the network updates the instant a peer fetches.
+function onLocStorage(e: StorageEvent): void {
+  const cid = currentActingId;
+  if (cid == null || !e.newValue || e.key !== xTabStorageKey(xTabKey(cid))) return;
+  try {
+    const p = JSON.parse(e.newValue) as { v: CharacterLocation; at: number };
+    adopt(cid, p.v, p.at);
+  } catch { /* ignore malformed */ }
 }
 
-function load() {
-  if (inflight) return inflight;
-  inflight = api<RawLocationResponse>('/api/character/location')
+function subscribe(cb: () => void): () => void {
+  subscribers.add(cb);
+  if (!pollTimer) {
+    pollTimer = setInterval(load, POLL_MS);
+    document.addEventListener('visibilitychange', catchUp);
+    window.addEventListener('focus', catchUp);
+    window.addEventListener('storage', onLocStorage);
+  }
+  return () => {
+    subscribers.delete(cb);
+    if (subscribers.size === 0 && pollTimer) {
+      clearInterval(pollTimer); pollTimer = null;
+      document.removeEventListener('visibilitychange', catchUp);
+      window.removeEventListener('focus', catchUp);
+      window.removeEventListener('storage', onLocStorage);
+    }
+  };
+}
+// Stable references for useSyncExternalStore.
+const noopSubscribe = (): (() => void) => () => {};
+const getSnapshot = () => moduleCache?.data ?? EMPTY;
+const getEmpty = () => EMPTY;
+const getFetchedAt = () => moduleCache?.fetchedAt ?? null;
+const getNoFetchedAt = () => null;
+
+const xTabKey = (charId: number): string => `location:${charId}`;
+
+// Adopt a location as current for `charId` (from our own fetch or another tab).
+// `at` is when the location was actually READ — a peer's publish time when we
+// adopt its value, not now. Stamping Date.now() there would report a value that
+// is nearly a full interval old as brand new, both to the freshness indicator
+// and to the mount-time staleness check.
+function adopt(charId: number, data: CharacterLocation, at: number = Date.now()): void {
+  if (currentActingId !== charId) return; // acting char changed meanwhile — ignore
+  moduleCache = { charId, data, fetchedAt: at };
+  notify();
+}
+
+function load(): Promise<CharacterLocation> {
+  const charId = currentActingId;
+  if (charId == null) return Promise.resolve(moduleCache?.data ?? EMPTY);
+  if (inflight && inflightCharId === charId) return inflight;
+  // If another tab acting as this same character fetched within the interval,
+  // reuse it — no network call. Keyed by charId so a tab pinned to a different
+  // pilot still fetches its own.
+  // Only adopt a value a PEER published more recently than our own last read.
+  // Without the comparison a lone tab reads back its own entry: it publishes at
+  // fetch-completion (a fraction of a second INTO the interval), so at the next
+  // tick that entry is a shade under POLL_MS old and still counts as fresh. The
+  // tab then adopts its own value and skips the fetch, taking the real cadence
+  // to 20s and doubling how long a jump goes unnoticed.
+  const ownAt = moduleCache?.charId === charId ? moduleCache.fetchedAt : 0;
+  const shared = readXTab(xTabKey(charId), POLL_MS);
+  if (shared !== undefined && shared.at > ownAt) {
+    const data = shared.v as CharacterLocation;
+    adopt(charId, data, shared.at);
+    return Promise.resolve(data);
+  }
+  inflightCharId = charId;
+  // The timeout is what makes the de-dupe above safe. `fetch` never times out on
+  // its own, so a socket that dies quietly -- a suspended laptop, dropped wifi, a
+  // proxy holding the connection -- left this promise pending forever. Every
+  // later tick, and every visibility/focus catch-up, then returned that same dead
+  // promise instead of making a request, so the pilot's location silently stopped
+  // updating until the page was reloaded. Worse, the eventual catch-up treated
+  // the whole gap as ONE jump and drew a connection from wherever they were when
+  // it stalled.
+  inflight = api<RawLocationResponse>(`/api/character/${charId}/location`, { timeoutMs: POLL_TIMEOUT_MS })
     .then(r => {
       const data: CharacterLocation = { online: r.online, system: r.system, ship: r.ship ?? null };
-      moduleCache = { data, fetchedAt: Date.now() };
       inflight = null;
+      // The acting character may have changed while this was in flight — if so,
+      // discard rather than caching/broadcasting a stale character's location.
+      if (currentActingId !== charId) return data;
+      writeXTab(xTabKey(charId), data); // let peer tabs skip their own fetch
+      adopt(charId, data);
       // Successful round-trip — give the offline-write queue a chance to drain.
       flushQueue();
-      notify(data);
       return data;
     })
     .catch(() => {
@@ -64,27 +176,54 @@ function load() {
   return inflight;
 }
 
+/**
+ * The live location of the character THIS TAB acts as (pinned character, else
+ * the session-active one). A single shared poll; re-points and re-fetches
+ * whenever the acting character changes.
+ */
 export function useCharacterLocation(): CharacterLocation {
   const { isShareMode } = useShareMode();
-  const [data, setData] = useState<CharacterLocation>(moduleCache?.data ?? EMPTY);
+  const { user } = useAuth();
+  const routeCharId = useMapStore((s) => s.routeOrigin?.charId ?? null);
+  // Explicit acting id: a pin, else this tab's own character. Null only before
+  // auth has loaded.
+  const effective = routeCharId ?? user?.id ?? null;
+  const enabled = !isShareMode;
 
+  // Point the shared poll at this tab's acting character and (re)fetch whenever
+  // it changes (pin toggled, or the session identity changed). Side-effect only
+  // — the value comes from the store below. When the cache already holds a fresh
+  // result for this character we skip the fetch; when it's a different character
+  // the previous location lingers until the new one arrives (the store keeps
+  // returning it), exactly as before.
   useEffect(() => {
-    // No session in share mode — nothing to poll and nobody to be located.
-    if (isShareMode) return;
+    if (!enabled) return;
+    currentActingId = effective;
+    const fresh = !!moduleCache && moduleCache.charId === effective
+      && Date.now() - moduleCache.fetchedAt < POLL_MS;
+    if (!fresh) load();
+  }, [effective, enabled]);
 
-    subscribers.add(setData);
-    const now = Date.now();
-    if (!moduleCache || now - moduleCache.fetchedAt >= POLL_MS) load();
-    else setData(moduleCache.data);
-    if (!pollTimer) pollTimer = setInterval(load, POLL_MS);
-    return () => {
-      subscribers.delete(setData);
-      if (subscribers.size === 0 && pollTimer) {
-        clearInterval(pollTimer);
-        pollTimer = null;
-      }
-    };
-  }, [isShareMode]);
+  return useSyncExternalStore(
+    enabled ? subscribe : noopSubscribe,
+    enabled ? getSnapshot : getEmpty,
+    getEmpty,
+  );
+}
 
-  return isShareMode ? EMPTY : data;
+/**
+ * When the location shown by {@link useCharacterLocation} was last read from
+ * ESI, as an epoch ms timestamp (null before the first read). Drives the
+ * toolbar's "checked X ago" indicator, which sits next to the system name and
+ * must therefore age THIS poll — not the separate 30 s online-status check it
+ * used to read, which made a location refreshed seconds ago look 20-30 s stale.
+ */
+export function useCharacterLocationCheckedAt(): number | null {
+  const { isShareMode } = useShareMode();
+  const enabled = !isShareMode;
+  return useSyncExternalStore(
+    enabled ? subscribe : noopSubscribe,
+    enabled ? getFetchedAt : getNoFetchedAt,
+    getNoFetchedAt,
+  );
 }

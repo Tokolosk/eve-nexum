@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { ReactFlowProvider } from '@xyflow/react';
-import { AuthProvider, useAuth, isAdminRole } from './context/AuthContext';
+import { AuthProvider } from './context/AuthProvider';
+import { useAuth, isAdminRole } from './context/AuthContext';
 import { seedUserSettings, readUserSetting, useUserSetting } from './hooks/useUserSetting';
 import { MapCanvas } from './components/map/MapCanvas';
 import { SystemPanel } from './components/ui/SystemPanel';
@@ -11,7 +12,8 @@ import { Sidebar } from './components/ui/Sidebar';
 import { ProximityOptInModal } from './components/ui/ProximityOptInModal';
 import { CommandPaletteModal } from './components/ui/CommandPaletteModal';
 import { LandingPage } from './components/ui/LandingPage';
-import { Toaster, toast } from './components/ui/Toaster';
+import { Toaster } from './components/ui/Toaster';
+import { toast } from './utils/toastStore';
 import i18n from './i18n';
 import { TooltipLayer } from './components/ui/TooltipLayer';
 import { AdminPage } from './components/ui/AdminPage';
@@ -19,12 +21,12 @@ import { SharedMapView } from './components/ui/SharedMapView';
 import { useMapStore } from './store/mapStore';
 import { useLocationTracking } from './hooks/useLocationTracking';
 import { useMapEventStream } from './hooks/useMapEventStream';
+import { useAnnouncerEvents } from './hooks/useAnnouncerEvents';
 import { useMapPresence } from './hooks/useMapPresence';
 import { useHashRoute } from './hooks/useHashRoute';
 import { usePageviewTracking } from './hooks/usePageviewTracking';
 import { useIdleLock } from './hooks/useIdleLock';
 import { LockScreen } from './components/ui/LockScreen';
-import './App.css';
 
 // Which signed-in user we've already hydrated prefs/settings for. MapApp
 // unmounts when you navigate away (e.g. to /admin) and re-mounts on return;
@@ -43,7 +45,7 @@ function MapApp() {
   const uiZoom              = useMapStore((s) => s.uiZoom);
   const resetUniformSizes   = useMapStore((s) => s.resetUniformSizes);
 
-  // Apply the user's UI scale as a CSS custom property. App.css `font-size`
+  // Apply the user's UI scale as a CSS custom property. The global stylesheets' `font-size`
   // declarations multiply through `calc(Npx * var(--font-scale, 1))`, so
   // only text scales — layout boxes stay the same size and React Flow /
   // modal positioning math keeps working. Previously this used CSS
@@ -61,7 +63,7 @@ function MapApp() {
   }, [uiZoom, resetUniformSizes]);
 
   // Colour-vision mode → data attribute on <html>; the --cv-* palette
-  // overrides in App.css key off it. 'off' (or unset) leaves the defaults.
+  // overrides in those sheets key off it. 'off' (or unset) leaves the defaults.
   const [colorVision] = useUserSetting<string>('nexum.a11y.colorVision', 'off');
   useEffect(() => {
     if (colorVision && colorVision !== 'off') {
@@ -109,8 +111,11 @@ function MapApp() {
     return () => window.removeEventListener('focus', onFocus);
   }, [userId, loadMaps]);
 
+  const panelSideBySide = useMapStore((s) => s.panelSideBySide);
+
   useLocationTracking(!!mapId);
   useMapEventStream();
+  useAnnouncerEvents();
   useMapPresence();
 
   return (
@@ -119,9 +124,15 @@ function MapApp() {
         <Toolbar />
         <div className="layout__body">
           <Sidebar />
-          <div className="layout__main">
-            <MapCanvas />
-            <MapSidebar />
+          <div className={`layout__main${panelSideBySide ? ' layout__main--side' : ''}`}>
+            {/* The map and its overlay share a positioning context, so the
+                map-sidebar anchors to the MAP's right edge rather than the
+                whole main area — otherwise it floats over the docked panel in
+                the side-by-side layout. */}
+            <div className="layout__map">
+              <MapCanvas />
+              <MapSidebar />
+            </div>
             {selectedSystemId && <SystemPanel />}
             {selectedConnectionId && <ConnectionPanel />}
           </div>
@@ -204,7 +215,7 @@ function AppShell() {
   if (loading) {
     return (
       <div className="loading-screen">
-        <span className="loading-screen__logo">◈</span>
+        <img className="loading-screen__logo" src="/screen.png" alt="Nexum" />
       </div>
     );
   }

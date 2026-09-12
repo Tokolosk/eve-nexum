@@ -7,7 +7,7 @@
 export interface LabelDef {
   id:    string;  // stored value in MapSystem.labels
   char:  string;  // pill glyph
-  color: string;  // CSS var (defined in App.css)
+  color: string;  // CSS var (defined in styles/tokens.css)
 }
 
 // Fixed order — pills render in this order, filtered by what the system has.
@@ -19,8 +19,6 @@ export const PREDEFINED_LABELS: LabelDef[] = [
   { id: '2', char: '2', color: 'var(--label-2)' },
   { id: '3', char: '3', color: 'var(--label-3)' },
 ];
-
-export const PREDEFINED_LABEL_IDS = PREDEFINED_LABELS.map((l) => l.id);
 
 export const MAX_CUSTOM_LABELS = 3;
 

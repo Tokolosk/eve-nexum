@@ -6,21 +6,27 @@
     "email": "gq@area404.org",
     "url": "https://area404.org"
   },
-  "version": "2.5.0",
+  "version": "4.2.1",
   "private": true,
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "start": "node dist/index.js",
     "setup-db": "tsx scripts/setup-db.ts",
     "backfill-coords": "tsx scripts/backfill-coords.ts",
+    "backfill-system-facts": "tsx scripts/backfill-system-facts.ts",
     "seed-demo": "tsx scripts/seed-demo.ts",
     "extract-wormholes": "tsx scripts/extract-wormholes.ts"
   },
   "resolutions": {
-    "qs": "^6.15.2",
+    "qs": "^6.16.0",
     "esbuild": "^0.28.1",
-    "undici": "^7.28.0"
+    "undici": "^7.29.0",
+    "body-parser": "^1.20.6",
+    "ip-address": "^10.3.1",
+    "postcss": "^8.5.23"
   },
   "dependencies": {
     "cheerio": "^1.2.0",
@@ -42,8 +48,11 @@
     "@types/express-session": "^1.19.0",
     "@types/node": "^20.14.0",
     "@types/pg": "^8.11.6",
+    "@types/supertest": "^7.2.1",
     "@types/unzipper": "^0.10.11",
+    "supertest": "^7.2.2",
     "tsx": "^4.15.6",
-    "typescript": "^5.4.5"
+    "typescript": "^5.4.5",
+    "vitest": "^4.1.11"
   }
 }

@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { charPortrait } from '../../utils/eveImages';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
-import { api } from '../../api/client';
+import { api, ApiError } from '../../api/client';
+import { toast } from '../../utils/toastStore';
 import { useAuth, isAdminRole, isAllianceAdminRole, formatRole, ROLE_ORDER } from '../../context/AuthContext';
 import type { Role as AuthRole } from '../../context/AuthContext';
 import { useHashRoute } from '../../hooks/useHashRoute';
@@ -11,20 +12,23 @@ import { useWormholeTypes } from '../../hooks/useWormholeTypes';
 import { cssVarToHex } from '../../utils/cssVar';
 import { timeAgo, europeanDate, DASH } from '../../i18n/format';
 import { ConfirmModal } from './ConfirmModal';
+import { StandingsViewerModal } from './StandingsViewerModal';
+import { Select } from './Select';
 import {
   Chart as ChartJS,
   ArcElement, CategoryScale, LinearScale,
   PointElement, LineElement, Tooltip, Legend, Filler,
 } from 'chart.js';
 import { Doughnut, Line } from 'react-chartjs-2';
-import { CaretUpIcon, CaretDownIcon, XIcon } from '@phosphor-icons/react';
+import { CaretUpIcon, CaretDownIcon, XIcon, ArrowSquareOutIcon } from '../../icons';
 import { createPortal } from 'react-dom';
+import styles from './AdminPage.module.css';
 
 // Register only the chart pieces we actually use — keeps the bundle lean.
 ChartJS.register(ArcElement, CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Legend, Filler);
 
-type Role = 'alliance_admin' | 'admin' | 'full' | 'edit' | 'readonly';
-const ROLES: Role[] = ['alliance_admin', 'admin', 'full', 'edit', 'readonly'];
+type Role = 'alliance_admin' | 'admin' | 'full' | 'edit' | 'contributor' | 'readonly';
+const ROLES: Role[] = ['alliance_admin', 'admin', 'full', 'edit', 'contributor', 'readonly'];
 
 // Explainer modal for the role tiers, opened from the "Roles?" button on the
 // users tab. The alliance tier is only listed when the deployment uses it.
@@ -34,7 +38,7 @@ function RolesInfoModal({ onClose }: { onClose: () => void }) {
   const roles = ROLE_ORDER.filter((r) => r !== 'alliance_admin' || user?.allianceMode);
   return createPortal(
     <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="modal roles-modal" role="dialog" aria-modal="true">
+      <div className={`modal ${styles.rolesModal}`} role="dialog" aria-modal="true">
         <div className="modal__header">
           <h2 className="modal__title">{t('admin.roles.title')}</h2>
           <button className="icon-btn" onClick={onClose} aria-label={t('actions.close')}>
@@ -42,9 +46,9 @@ function RolesInfoModal({ onClose }: { onClose: () => void }) {
           </button>
         </div>
         <div className="modal__body">
-          <dl className="roles-info">
+          <dl className={styles.rolesInfo}>
             {roles.map((r) => (
-              <div key={r} className="roles-info__row">
+              <div key={r} className={styles.rolesInfoRow}>
                 <dt><span className={`role-badge role-badge--${r}`}>{formatRole(r)}</span></dt>
                 <dd>{t(`admin.roles.desc.${r}`)}</dd>
               </div>
@@ -57,10 +61,11 @@ function RolesInfoModal({ onClose }: { onClose: () => void }) {
   );
 }
 
-type Tab = 'users' | 'maps' | 'reports' | 'audit' | 'discord';
+type Tab = 'users' | 'access' | 'maps' | 'reports' | 'audit' | 'discord';
 
 const ALL_TABS: { key: Tab; path: string }[] = [
   { key: 'users',   path: '/admin/users'   },
+  { key: 'access',  path: '/admin/access'  },
   { key: 'maps',    path: '/admin/maps'    },
   { key: 'reports', path: '/admin/reports' },
   { key: 'discord', path: '/admin/discord' },
@@ -84,15 +89,15 @@ export function AdminPage() {
   const tab = pathToTab(path, isAdmin, canSeeReports);
 
   return (
-    <div className="admin-page">
-      <aside className="admin-page__nav">
-        <button className="admin-page__back" onClick={() => navigate('/')}>← {t('admin.back')}</button>
-        <h1 className="admin-page__title">{t('admin.title')}</h1>
-        <nav className="admin-page__tabs">
+    <div className={styles.adminPage}>
+      <aside className={styles.pgNav}>
+        <button className={styles.pgBack} onClick={() => navigate('/')}>← {t('admin.back')}</button>
+        <h1 className={styles.pgTitle}>{t('admin.title')}</h1>
+        <nav className={styles.pgTabs}>
           {tabs.map((tb) => (
             <button
               key={tb.key}
-              className={`admin-page__tab${tab === tb.key ? ' admin-page__tab--active' : ''}`}
+              className={[styles.pgTab, tab === tb.key && styles.pgTabActive].filter(Boolean).join(' ')}
               onClick={() => navigate(tb.path)}
             >
               {t(`admin.tabs.${tb.key}`)}
@@ -101,8 +106,9 @@ export function AdminPage() {
         </nav>
       </aside>
 
-      <main className="admin-page__content">
+      <main className={styles.pgContent}>
         {tab === 'users'   && (isAdmin || canSeeReports) && <UsersTab />}
+        {tab === 'access'  && isAdmin       && <AccessTab />}
         {tab === 'maps'    && isAdmin       && <MapsTab />}
         {tab === 'reports' && (isAdmin || canSeeReports) && <ReportsTab />}
         {tab === 'discord' && isAdmin       && <DiscordTab />}
@@ -114,11 +120,386 @@ export function AdminPage() {
 
 function pathToTab(path: string, isAdmin: boolean, canSeeReports: boolean): Tab {
   const fallback: Tab = isAdmin || canSeeReports ? 'users' : 'reports';
+  if (path.startsWith('/admin/access'))  return isAdmin       ? 'access'  : fallback;
   if (path.startsWith('/admin/maps'))    return isAdmin       ? 'maps'    : fallback;
   if (path.startsWith('/admin/reports')) return (isAdmin || canSeeReports) ? 'reports' : fallback;
   if (path.startsWith('/admin/discord')) return isAdmin       ? 'discord' : fallback;
   if (path.startsWith('/admin/audit'))   return isAdmin       ? 'audit'   : fallback;
   return fallback;
+}
+
+// ── Access allow-list tab ─────────────────────────────────────────────────────
+
+interface AccessGrant {
+  id:          string;
+  kind:        'corp' | 'alliance' | 'character';
+  eveId:       number;
+  source:      string;
+  note:        string | null;
+  addedByName: string | null;
+  createdAt:   string;
+  label:       string;
+  immutable:   boolean;
+  role:        string | null;   // role to give a character on first login (invite)
+}
+
+// Turn an access-grant API failure into the clearest message we can show: a
+// translated string for known server codes, otherwise the server's own
+// `message` (so the operator sees WHY, not just "failed"), and only then a
+// generic fallback.
+function grantErrorMessage(e: unknown, t: TFunction, fallback: string): string {
+  const code = e instanceof ApiError ? e.code : undefined;
+  if (code === 'standing_not_positive')  return t('admin.access.errStanding');
+  if (code === 'already_granted')        return t('admin.access.errDuplicate');
+  if (code === 'alliance_not_supported') return t('admin.access.errAllianceUnsupported');
+  const serverMsg = e instanceof ApiError ? e.serverMessage : undefined;
+  return serverMsg && serverMsg.trim() ? serverMsg : fallback;
+}
+
+type GrantPickKind = 'corp' | 'alliance' | 'character';
+
+// eveWho profile URL for a corp / alliance / character grant target.
+function eveWhoUrl(kind: 'corp' | 'alliance' | 'character', id: number): string {
+  const seg = kind === 'corp' ? 'corporation' : kind === 'alliance' ? 'alliance' : 'character';
+  return `https://evewho.com/${seg}/${id}`;
+}
+
+// Small external-link icon to an entity's eveWho profile.
+function EveWhoLink({ kind, id, t }: { kind: 'corp' | 'alliance' | 'character'; id: number; t: TFunction }) {
+  return (
+    <a
+      className={styles.acEvewho}
+      href={eveWhoUrl(kind, id)}
+      target="_blank"
+      rel="noreferrer"
+      title={t('admin.access.eveWho')}
+      aria-label={t('admin.access.eveWho')}
+    >
+      <ArrowSquareOutIcon size={13} weight="bold" />
+    </a>
+  );
+}
+
+const SEARCH_ENDPOINT: Record<GrantPickKind, string> = {
+  character: '/api/search/characters',
+  corp:      '/api/search/corporations',
+  alliance:  '/api/search/alliances',
+};
+
+function AccessTab() {
+  const { t } = useTranslation();
+  const { user } = useAuth();
+  // Alliance targets are offered in any restricted deployment now (a corp install
+  // can admit an alliance, gated on the corp's own standing toward it).
+  const allowAlliance = !!user?.corpMode || !!user?.allianceMode;
+  const KINDS: GrantPickKind[] = allowAlliance ? ['corp', 'alliance', 'character'] : ['corp', 'character'];
+
+  const [grants, setGrants]   = useState<AccessGrant[]>([]);
+  // Role to hand an invited character the first time they sign in. '' = the
+  // deployment default. Only offered for character grants: a corp/alliance
+  // grant admits everyone in it, and the server refuses a role on those.
+  const [inviteRole, setInviteRole] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [error, setError]     = useState<string | null>(null);
+
+  const [kind, setKind]           = useState<GrantPickKind>('corp');
+  const [query, setQuery]         = useState('');
+  const [match, setMatch]         = useState<{ id: number; name: string } | null>(null);
+  const [searching, setSearching] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [addError, setAddError]   = useState<string | null>(null);
+  const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const [syncing, setSyncing]       = useState(false);
+  const [syncResult, setSyncResult] = useState<{ ok: boolean; text: string } | null>(null);
+  const [showStandings, setShowStandings] = useState(false);
+
+  // Standings auto-admit ("friends") settings — off by default.
+  const [stdEnabled, setStdEnabled]     = useState(false);
+  const [stdThreshold, setStdThreshold] = useState<5 | 10>(10);
+
+  const saveStandingsSettings = async (patch: { enabled?: boolean; threshold?: 5 | 10 }) => {
+    if (patch.enabled !== undefined) setStdEnabled(patch.enabled);
+    if (patch.threshold !== undefined) setStdThreshold(patch.threshold);
+    try {
+      const r = await api<{ sessionsKilled?: number }>('/api/admin/access-settings', { method: 'PATCH', body: JSON.stringify(patch) });
+      if (r.sessionsKilled && r.sessionsKilled > 0) {
+        toast.info(t('admin.access.standingsSessionsEnded', { count: r.sessionsKilled }));
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : t('admin.access.settingsSaveFailed'));
+      void load(); // reconcile with the server's real state
+    }
+  };
+
+  // Force-refresh the deployment's standings from ESI using the admin's own
+  // token (one call does character + corp + alliance). The positive-standing
+  // gate reads whichever bucket matches the install type, so we report on that.
+  const syncStandings = async () => {
+    setSyncing(true); setSyncResult(null);
+    try {
+      // scope:'org' — access control only ever uses corp/alliance standings, so
+      // the access-page sync pulls ONLY the corp + alliance contact lists. It
+      // deliberately does not touch personal contacts (that's the map's tint,
+      // refreshed from the system-info panel instead).
+      const r = await api<{ inOrg: boolean; counts: Record<string, number>; succeeded: Record<string, boolean>; sessionsKilled?: number }>(
+        '/api/standings/refresh', { method: 'POST', body: JSON.stringify({ scope: 'org' }) },
+      );
+      // Report on the bucket the gate actually reads: alliance_standings on an
+      // alliance install, else the corp's OWN contacts (which include any
+      // alliance standings). NOT allowAlliance — a corp install offers alliance
+      // targets but still gates via the corp's contacts.
+      const bucket = user?.allianceMode ? 'alliance' : 'corp';
+      setSyncResult(
+        r.succeeded[bucket] ? { ok: true,  text: t('admin.access.syncOk', { count: r.counts[bucket] ?? 0 }) }
+        : !r.inOrg          ? { ok: false, text: t('admin.access.syncNotInOrg') }
+        :                     { ok: false, text: t('admin.access.syncNoRole') });
+      // The sync re-checks live sessions against the freshly-pulled standings and
+      // evicts anyone no longer permitted — surface that, same as the settings flow.
+      if (r.sessionsKilled && r.sessionsKilled > 0) {
+        toast.info(t('admin.access.standingsSessionsEnded', { count: r.sessionsKilled }));
+      }
+    } catch (e) {
+      setSyncResult({ ok: false, text: grantErrorMessage(e, t, t('admin.access.syncFailed')) });
+    } finally { setSyncing(false); }
+  };
+
+  const load = useCallback(async () => {
+    setLoading(true); setError(null);
+    try {
+      const [g, s] = await Promise.all([
+        api<AccessGrant[]>('/api/admin/access-grants'),
+        api<{ standingsLoginEnabled: boolean; standingsLoginThreshold: number }>('/api/admin/access-settings'),
+      ]);
+      setGrants(g);
+      setStdEnabled(s.standingsLoginEnabled);
+      setStdThreshold(s.standingsLoginThreshold === 5 ? 5 : 10);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : t('admin.access.loadFailed'));
+    } finally { setLoading(false); }
+  }, [t]);
+  useEffect(() => { load(); }, [load]);
+
+  // Debounced exact-name lookup for the currently-selected kind.
+  useEffect(() => {
+    // Deliberate: clears this pane's own state when the record it shows changes.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setMatch(null); setAddError(null);
+    const q = query.trim();
+    if (q.length < 3) { setSearching(false); return; }
+    if (searchTimer.current) clearTimeout(searchTimer.current);
+    setSearching(true);
+    searchTimer.current = setTimeout(() => {
+      api<{ match: { id: number; name: string } | null }>(`${SEARCH_ENDPOINT[kind]}?q=${encodeURIComponent(q)}`)
+        .then((r) => setMatch(r.match))
+        .catch(() => setMatch(null))
+        .finally(() => setSearching(false));
+    }, 350);
+    return () => { if (searchTimer.current) clearTimeout(searchTimer.current); };
+  }, [query, kind]);
+
+  const addGrant = async () => {
+    if (!match) return;
+    setSubmitting(true); setAddError(null);
+    try {
+      // role is only meaningful for a character invite; '' means "leave the
+      // deployment default", which is what every grant did before invites.
+      const body: Record<string, unknown> = { kind, eveId: match.id };
+      if (kind === 'character' && inviteRole) body.role = inviteRole;
+      await api('/api/admin/access-grants', { method: 'POST', body: JSON.stringify(body) });
+      setQuery(''); setMatch(null); setInviteRole('');
+      await load();
+    } catch (e) {
+      setAddError(grantErrorMessage(e, t, t('admin.access.addFailed')));
+    } finally { setSubmitting(false); }
+  };
+
+  // Open a pre-filled EVE mail in the admin's own client. The server swaps
+  // %URL% for FRONTEND_URL, so the invite always points at this deployment.
+  const [mailing, setMailing] = useState<string | null>(null);
+  const mailInvite = async (g: AccessGrant) => {
+    setMailing(g.id); setError(null);
+    try {
+      await api(`/api/admin/access-grants/${g.id}/invite-mail`, {
+        method: 'POST',
+        body: JSON.stringify({
+          subject: t('admin.access.inviteMailSubject'),
+          body:    t('admin.access.inviteMailBody', { name: g.label }),
+        }),
+      });
+      toast.success(t('admin.access.inviteMailOpened'));
+    } catch (e) {
+      // Say which failure it was rather than guessing at the commonest one —
+      // "are you logged in?" is useless when the real answer is a stale token.
+      const code = e instanceof ApiError ? e.code : undefined;
+      setError(
+        code === 'client_unreachable' ? t('admin.access.inviteMailNoClient')
+        : code === 'scope_missing'    ? t('admin.access.inviteMailScope')
+        : t('admin.access.inviteMailFailed', {
+            detail: (e instanceof ApiError && e.serverMessage) || (e instanceof Error ? e.message : ''),
+          }),
+      );
+    } finally { setMailing(null); }
+  };
+
+  const removeGrant = async (g: AccessGrant) => {
+    if (g.immutable) return;
+    try {
+      await api(`/api/admin/access-grants/${g.id}`, { method: 'DELETE' });
+      await load();
+    } catch (e) {
+      setError(grantErrorMessage(e, t, t('admin.access.removeFailed')));
+    }
+  };
+
+  return (
+    <div className="admin-access">
+      <h2 className={styles.pgSectionTitle}>{t('admin.access.title')}</h2>
+      <p className={styles.acIntro}>{t('admin.access.intro')}</p>
+      <div className={styles.acNote}>{t('admin.access.readonlyNote')}</div>
+
+      <div className={styles.acStandings}>
+        <label className={styles.acToggle}>
+          <input type="checkbox" checked={stdEnabled} onChange={(e) => saveStandingsSettings({ enabled: e.target.checked })} />
+          <span>{t('admin.access.standingsEnable')}</span>
+        </label>
+        <p className={styles.acHint}>{t('admin.access.standingsHint')}</p>
+        {stdEnabled && (
+          <div className={styles.acThreshold}>
+            <span className={styles.acThresholdLabel}>{t('admin.access.standingsMinLevel')}</span>
+            <label>
+              <input type="radio" name="std-threshold" checked={stdThreshold === 10} onChange={() => saveStandingsSettings({ threshold: 10 })} />
+              {t('admin.access.threshold10')}
+            </label>
+            <label>
+              <input type="radio" name="std-threshold" checked={stdThreshold === 5} onChange={() => saveStandingsSettings({ threshold: 5 })} />
+              {t('admin.access.threshold5')}
+            </label>
+          </div>
+        )}
+      </div>
+
+      <div className={styles.acSync}>
+        <div className={styles.acToolbar}>
+          <button type="button" className="btn btn--ghost btn--sm" disabled={syncing} onClick={syncStandings}>
+            {syncing ? t('admin.access.syncing') : t('admin.access.syncStandings')}
+          </button>
+          <button type="button" className="btn btn--ghost btn--sm" onClick={() => setShowStandings(true)}>
+            {t('admin.access.viewStandings')}
+          </button>
+          {syncResult && (
+            <span className={[styles.acSyncStatus, !syncResult.ok && styles.acSyncStatusErr].filter(Boolean).join(' ')}>
+              {syncResult.text}
+            </span>
+          )}
+        </div>
+        <p className={styles.acHint}>{t('admin.access.syncHint')}</p>
+        <p className={styles.acHint}>{t('admin.access.syncDelay')}</p>
+      </div>
+
+      {showStandings && <StandingsViewerModal onClose={() => setShowStandings(false)} />}
+
+      <div className={styles.acAdd}>
+        <Select
+          value={kind}
+          onChange={(v) => { setKind(v as GrantPickKind); setMatch(null); setQuery(''); }}
+          options={KINDS.map((k) => ({ value: k, label: t(`admin.access.kind_${k}`) }))}
+        />
+        <input
+          className={styles.acInput}
+          placeholder={t(`admin.access.placeholder_${kind}`)}
+          value={query}
+          maxLength={50}
+          spellCheck={false}
+          onChange={(e) => setQuery(e.target.value)}
+        />
+        <span className={[styles.acMatch, match && styles.acMatchOk].filter(Boolean).join(' ')}>
+          {query.trim().length < 3 ? t('admin.access.typeAtLeast3')
+            : searching ? t('admin.access.searching')
+            : match ? t('admin.access.found', { name: match.name })
+            : t('admin.access.noMatch')}
+          {match && <EveWhoLink kind={kind} id={match.id} t={t} />}
+        </span>
+        {kind === 'character' && (
+          <Select
+            value={inviteRole}
+            onChange={setInviteRole}
+            options={[
+              { value: '', label: t('admin.access.roleDefault') },
+              // Same filter the Users tab applies, mirroring the server guard:
+              // only an alliance admin can hand out the alliance_admin tier.
+              ...ROLES
+                .filter((r) => r !== 'alliance_admin' || isAllianceAdminRole(user?.role ?? 'readonly'))
+                .map((r) => ({ value: r, label: formatRole(r) })),
+            ]}
+          />
+        )}
+        <button type="button" className="btn btn--ghost btn--sm" disabled={!match || submitting} onClick={addGrant}>
+          {submitting ? t('admin.access.adding') : t('admin.access.add')}
+        </button>
+      </div>
+      {kind === 'character' && inviteRole && (
+        <p className={styles.acHint}>{t('admin.access.inviteRoleHint')}</p>
+      )}
+      {addError && <div className={styles.pgError}>{addError}</div>}
+
+      {loading ? <div className={styles.pgLoading}>{t('admin.access.loading')}</div>
+        : error ? <div className={styles.pgError}>{error}</div>
+        : grants.length === 0 ? <div className={styles.pgEmpty}>{t('admin.access.none')}</div>
+        : (
+          <table className={styles.mTable}>
+            <thead>
+              <tr>
+                <th>{t('admin.access.colKind')}</th>
+                <th>{t('admin.access.colEntity')}</th>
+                <th>{t('admin.access.colInviteRole')}</th>
+                <th>{t('admin.access.colSource')}</th>
+                <th>{t('admin.access.colAddedBy')}</th>
+                <th />
+              </tr>
+            </thead>
+            <tbody>
+              {grants.map((g) => (
+                <tr key={g.id}>
+                  <td>{t(`admin.access.kind_${g.kind}`)}</td>
+                  <td title={String(g.eveId)}>
+                    {g.label}
+                    <EveWhoLink kind={g.kind} id={g.eveId} t={t} />
+                  </td>
+                  <td>
+                    {g.role
+                      ? <span className={`role-badge role-badge--${g.role}`} title={t('admin.access.inviteRoleHint')}>
+                          {formatRole(g.role as Role)}
+                        </span>
+                      : <span className={styles.mMono}>{DASH}</span>}
+                  </td>
+                  <td>{g.source === 'env' ? t('admin.access.sourceEnv') : g.source}</td>
+                  <td>{g.addedByName ?? (g.source === 'env' ? t('admin.access.sourceEnv') : DASH)}</td>
+                  <td>
+                    {g.kind === 'character' && (
+                      <button
+                        type="button"
+                        className="btn btn--ghost btn--sm"
+                        disabled={mailing === g.id}
+                        title={t('admin.access.inviteMailHint')}
+                        onClick={() => mailInvite(g)}
+                      >
+                        {mailing === g.id ? t('admin.access.inviteMailSending') : t('admin.access.inviteMail')}
+                      </button>
+                    )}
+                    {g.immutable
+                      ? <span className={styles.mPill} title={t('admin.access.envLockedHint')}>{t('admin.access.envLocked')}</span>
+                      : <button type="button" className={`btn btn--ghost btn--sm ${styles.mDanger}`} onClick={() => removeGrant(g)}>
+                          {t('admin.access.remove')}
+                        </button>}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+    </div>
+  );
 }
 
 // ── Users tab ───────────────────────────────────────────────────────────────
@@ -159,12 +540,12 @@ function SortableTh({ col, label, sort, onToggle }: {
   const arrow  = active ? (sort.dir === 'asc' ? '↑' : '↓') : '↕';
   return (
     <th
-      className={`admin-modal__th-sort${active ? ' admin-modal__th-sort--active' : ''}`}
+      className={[styles.mThSort, active && styles.mThSortActive].filter(Boolean).join(' ')}
       onClick={() => onToggle(col)}
       role="button"
       aria-sort={active ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}
     >
-      {label} <span className="admin-modal__th-sort-arrow">{arrow}</span>
+      {label} <span className={styles.mThSortArrow}>{arrow}</span>
     </th>
   );
 }
@@ -284,11 +665,11 @@ function UsersTab() {
 
   return (
     <>
-      <div className="admin-page__section-head">
-        <h2 className="admin-page__section-title">{t('admin.users.title')}</h2>
+      <div className={styles.pgSectionHead}>
+        <h2 className={styles.pgSectionTitle}>{t('admin.users.title')}</h2>
         <input
           type="search"
-          className="admin-users__search"
+          className={styles.usersSearch}
           placeholder={t('admin.users.searchPlaceholder')}
           aria-label={t('admin.users.searchPlaceholder')}
           value={query}
@@ -299,11 +680,11 @@ function UsersTab() {
         </button>
       </div>
       {showRoles && <RolesInfoModal onClose={() => setShowRoles(false)} />}
-      {error && <div className="admin-page__error">{error}</div>}
-      {!users && !error && <div className="admin-page__loading">{t('admin.loading')}</div>}
-      {users && !users.length && <div className="admin-page__empty">{t('admin.users.none')}</div>}
+      {error && <div className={styles.pgError}>{error}</div>}
+      {!users && !error && <div className={styles.pgLoading}>{t('admin.loading')}</div>}
+      {users && !users.length && <div className={styles.pgEmpty}>{t('admin.users.none')}</div>}
       {users && users.length > 0 && (
-        <table className="admin-modal__table">
+        <table className={styles.mTable}>
           <thead>
             <tr>
               <SortableTh col="characterName"  label={t('admin.users.colCharacter')} sort={sort} onToggle={toggleSort} />
@@ -321,62 +702,60 @@ function UsersTab() {
               const isSelf = self?.id === u.id;
               const isBusy = busyId === u.id;
               return (
-                <tr key={u.id} className={u.blocked ? 'admin-modal__tr--blocked' : ''}>
-                  <td className="admin-modal__name-cell">
+                <tr key={u.id} className={u.blocked ? styles.mTrBlocked : ''}>
+                  <td className={styles.mNameCell}>
                     <img
-                      className="admin-modal__avatar"
+                      className={styles.mAvatar}
                       src={charPortrait(u.characterId, 32)}
                       alt=""
                     />
                     <span>{u.characterName}</span>
-                    {isSelf && <span className="admin-modal__self-tag">{t('admin.users.you')}</span>}
+                    {isSelf && <span className={styles.mSelfTag}>{t('admin.users.you')}</span>}
                   </td>
                   <td title={u.corpName ?? undefined}>
                     {u.corpTicker
-                      ? <span className="admin-modal__ticker">[{u.corpTicker}]</span>
-                      : <span className="admin-modal__mono">{u.corpId ?? '—'}</span>}
+                      ? <span className={styles.mTicker}>[{u.corpTicker}]</span>
+                      : <span className={styles.mMono}>{u.corpId ?? '—'}</span>}
                   </td>
                   <td title={u.allianceName ?? undefined}>
                     {u.allianceTicker
-                      ? <span className="admin-modal__ticker">[{u.allianceTicker}]</span>
-                      : <span className="admin-modal__mono">—</span>}
+                      ? <span className={styles.mTicker}>[{u.allianceTicker}]</span>
+                      : <span className={styles.mMono}>—</span>}
                   </td>
                   <td>
                     {canEdit ? (
-                      <select
-                        className="admin-modal__role-select"
+                      <Select
                         value={u.role}
                         // A non-alliance-admin can't touch an alliance admin's
                         // role, nor grant the tier (matches the server guard).
                         disabled={isBusy || isSelf || (u.role === 'alliance_admin' && !canGrantAllianceAdmin)}
-                        onChange={(e) => changeRole(u, e.target.value as Role)}
-                      >
-                        {ROLES
+                        onChange={(v) => changeRole(u, v as Role)}
+                        options={ROLES
                           .filter((r) => r !== 'alliance_admin' || canGrantAllianceAdmin)
-                          .map((r) => <option key={r} value={r}>{formatRole(r)}</option>)}
-                      </select>
+                          .map((r) => ({ value: r, label: formatRole(r) }))}
+                      />
                     ) : (
-                      <span className="admin-modal__mono">{formatRole(u.role as AuthRole)}</span>
+                      <span className={styles.mMono}>{formatRole(u.role as AuthRole)}</span>
                     )}
                   </td>
                   <td>
                     {u.blocked
-                      ? <span className="admin-modal__pill admin-modal__pill--blocked">{t('admin.users.blocked')}</span>
-                      : <span className="admin-modal__pill admin-modal__pill--ok">{t('admin.users.active')}</span>}
+                      ? <span className={`${styles.mPill} ${styles.mPillBlocked}`}>{t('admin.users.blocked')}</span>
+                      : <span className={`${styles.mPill} ${styles.mPillOk}`}>{t('admin.users.active')}</span>}
                   </td>
-                  <td className="admin-modal__when">{formatRelative(t, u.lastLogin)}</td>
+                  <td className={styles.mWhen}>{formatRelative(t, u.lastLogin)}</td>
                   <td title={u.lastKnownSystemAt ? formatRelative(t, u.lastKnownSystemAt) : undefined}>
                     {u.lastKnownSystemName ?? '—'}
                   </td>
                   {canEdit && (
-                    <td className="admin-modal__actions">
+                    <td className={styles.mActions}>
                       {u.blocked ? (
                         <button className="btn btn--ghost btn--sm" disabled={isBusy} onClick={() => setBlocked(u, false)}>
                           {t('admin.users.unblock')}
                         </button>
                       ) : (
                         <button
-                          className="btn btn--ghost btn--sm admin-modal__danger"
+                          className={`btn btn--ghost btn--sm ${styles.mDanger}`}
                           disabled={isBusy || isSelf}
                           onClick={() => setBlockTarget(u)}
                         >
@@ -400,7 +779,7 @@ function UsersTab() {
         </table>
       )}
       {users && users.length > 0 && query.trim() && visibleUsers.length === 0 && (
-        <div className="admin-page__empty">{t('admin.users.noMatch', { query: query.trim() })}</div>
+        <div className={styles.pgEmpty}>{t('admin.users.noMatch', { query: query.trim() })}</div>
       )}
 
       {blockTarget && (
@@ -484,12 +863,12 @@ function MapsTab() {
 
   return (
     <>
-      <h2 className="admin-page__section-title">{t('admin.maps.title')}</h2>
-      {error && <div className="admin-page__error">{error}</div>}
-      {!maps && !error && <div className="admin-page__loading">{t('admin.loading')}</div>}
-      {maps && !maps.length && <div className="admin-page__empty">{t('admin.maps.none')}</div>}
+      <h2 className={styles.pgSectionTitle}>{t('admin.maps.title')}</h2>
+      {error && <div className={styles.pgError}>{error}</div>}
+      {!maps && !error && <div className={styles.pgLoading}>{t('admin.loading')}</div>}
+      {maps && !maps.length && <div className={styles.pgEmpty}>{t('admin.maps.none')}</div>}
       {maps && maps.length > 0 && (
-        <table className="admin-modal__table">
+        <table className={styles.mTable}>
           <thead>
             <tr>
               <th>{t('admin.maps.colName')}</th>
@@ -508,9 +887,9 @@ function MapsTab() {
               return (
                 <tr key={m.id}>
                   <td>{m.name}</td>
-                  <td className="admin-modal__name-cell">
+                  <td className={styles.mNameCell}>
                     <img
-                      className="admin-modal__avatar"
+                      className={styles.mAvatar}
                       src={charPortrait(m.ownerCharacterId, 32)}
                       alt=""
                     />
@@ -518,18 +897,18 @@ function MapsTab() {
                   </td>
                   <td title={m.corpName ?? undefined}>
                     {m.corpTicker
-                      ? <span className="admin-modal__ticker">[{m.corpTicker}]</span>
-                      : <span className="admin-modal__mono">{m.corpId}</span>}
+                      ? <span className={styles.mTicker}>[{m.corpTicker}]</span>
+                      : <span className={styles.mMono}>{m.corpId}</span>}
                   </td>
-                  <td className="admin-modal__num">{m.systemCount}</td>
-                  <td className="admin-modal__num">{m.connectionCount}</td>
+                  <td className={styles.mNum}>{m.systemCount}</td>
+                  <td className={styles.mNum}>{m.connectionCount}</td>
                   <td>
                     {m.locked
-                      ? <span className="admin-modal__pill admin-modal__pill--blocked">{t('admin.maps.locked')}</span>
-                      : <span className="admin-modal__pill admin-modal__pill--ok">{t('admin.maps.open')}</span>}
+                      ? <span className={`${styles.mPill} ${styles.mPillBlocked}`}>{t('admin.maps.locked')}</span>
+                      : <span className={`${styles.mPill} ${styles.mPillOk}`}>{t('admin.maps.open')}</span>}
                   </td>
-                  <td className="admin-modal__when">{formatRelative(t, m.lastActiveAt)}</td>
-                  <td className="admin-modal__actions">
+                  <td className={styles.mWhen}>{formatRelative(t, m.lastActiveAt)}</td>
+                  <td className={styles.mActions}>
                     {m.locked ? (
                       <button
                         className="btn btn--ghost btn--sm"
@@ -550,7 +929,7 @@ function MapsTab() {
                       </button>
                     )}
                     <button
-                      className="btn btn--ghost btn--sm admin-modal__danger"
+                      className={`btn btn--ghost btn--sm ${styles.mDanger}`}
                       disabled={isBusy}
                       onClick={() => setDeleteTarget(m)}
                     >
@@ -570,6 +949,129 @@ function MapsTab() {
           onCancel={() => setDeleteTarget(null)}
           onConfirm={() => destroy(deleteTarget)}
         />
+      )}
+
+      <IskMapsSection />
+    </>
+  );
+}
+
+// ── ISK for extra maps ───────────────────────────────────────────────────────
+
+interface UnmatchedDonation {
+  journalId: number; characterId: number; amount: string; reason: string; occurredAt: string;
+}
+interface IskMapsStatus {
+  enabled: boolean;
+  corpId?: number; readerCharId?: number; priceIsk?: number; mapsPerGrant?: number;
+  reader?: { characterId: number; characterName: string; creditFrom: string;
+             lastOkAt: string | null; lastError: string | null } | null;
+  unmatched?: UnmatchedDonation[];
+  totalIsk?: number; matchedIsk?: number;
+}
+
+/**
+ * Operating surface for ISK-for-maps. Renders nothing at all when the feature is
+ * disabled, which is every corp and alliance deployment.
+ *
+ * The point of it is that a wallet reader which has quietly stopped working —
+ * token expired, in-game role removed, character left the corp — is invisible
+ * otherwise: donations simply stop being credited and the first you hear is a
+ * complaint. So lastOkAt and lastError are shown prominently rather than logged.
+ */
+function IskMapsSection() {
+  const { t } = useTranslation();
+  const [data, setData] = useState<IskMapsStatus | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [assignTo, setAssignTo] = useState<Record<number, string>>({});
+
+  const load = useCallback(async () => {
+    try { setData(await api<IskMapsStatus>('/api/admin/isk-maps')); }
+    catch { setData({ enabled: false }); }
+  }, []);
+
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { void load(); }, [load]);
+
+  if (!data?.enabled) return null;
+
+  const reader = data.reader ?? null;
+  const stale  = !reader || !!reader.lastError;
+
+  async function assign(journalId: number) {
+    const characterId = Number(assignTo[journalId]);
+    if (!Number.isInteger(characterId) || characterId <= 0) return;
+    setBusy(true);
+    try {
+      await api('/api/admin/isk-maps/assign', {
+        method: 'POST', body: JSON.stringify({ journalId, characterId }),
+      });
+      await load();
+    } catch { /* surfaced by the row staying put */ }
+    finally { setBusy(false); }
+  }
+
+  return (
+    <>
+      <h2 className={styles.pgSectionTitle}>{t('admin.iskMaps.title')}</h2>
+
+      <div className={stale ? styles.pgError : styles.pgEmpty}>
+        {!reader
+          ? t('admin.iskMaps.notConnected')
+          : reader.lastError
+            ? t('admin.iskMaps.readerError', { error: reader.lastError })
+            : t('admin.iskMaps.readerOk', {
+                name: reader.characterName || reader.characterId,
+                when: reader.lastOkAt ? new Date(reader.lastOkAt).toLocaleString() : '-',
+              })}
+      </div>
+
+      <p>
+        <a className="btn btn--ghost" href="/auth/wallet-reader">
+          {reader ? t('admin.iskMaps.reconnect') : t('admin.iskMaps.connect')}
+        </a>
+      </p>
+
+      {data.unmatched && data.unmatched.length > 0 && (
+        <>
+          <h3>{t('admin.iskMaps.unmatchedTitle')}</h3>
+          <div className={styles.pgEmpty}>{t('admin.iskMaps.unmatchedHint')}</div>
+          <table className={styles.mTable}>
+            <thead>
+              <tr>
+                <th>{t('admin.iskMaps.colWhen')}</th>
+                <th>{t('admin.iskMaps.colCharacter')}</th>
+                <th>{t('admin.iskMaps.colAmount')}</th>
+                <th aria-label={t('actions.column')} />
+              </tr>
+            </thead>
+            <tbody>
+              {data.unmatched.map((d) => (
+                <tr key={d.journalId}>
+                  <td>{new Date(d.occurredAt).toLocaleString()}</td>
+                  <td className={styles.mMono}>{d.characterId}</td>
+                  <td>{Number(d.amount).toLocaleString()}</td>
+                  <td>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      placeholder={t('admin.iskMaps.assignPlaceholder')}
+                      value={assignTo[d.journalId] ?? ''}
+                      onChange={(e) => setAssignTo((m) => ({ ...m, [d.journalId]: e.target.value }))}
+                    />
+                    <button
+                      className="btn btn--ghost"
+                      disabled={busy}
+                      onClick={() => void assign(d.journalId)}
+                    >
+                      {t('admin.iskMaps.assign')}
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </>
       )}
     </>
   );
@@ -636,12 +1138,12 @@ function ReportsTab() {
 
   return (
     <>
-      <h2 className="admin-page__section-title">{t('admin.reports.title')}</h2>
-      <div className="admin-page__subtabs">
+      <h2 className={styles.pgSectionTitle}>{t('admin.reports.title')}</h2>
+      <div className={styles.pgSubtabs}>
         {visibleReports.map((r) => (
           <button
             key={r.key}
-            className={`admin-page__subtab${kind === r.key ? ' admin-page__subtab--active' : ''}`}
+            className={[styles.pgSubtab, kind === r.key && styles.pgSubtabActive].filter(Boolean).join(' ')}
             onClick={() => navigate(`/admin/reports/${r.key}`)}
           >
             {t(REPORT_TAB_KEY[r.key])}
@@ -832,30 +1334,25 @@ function UsersReport() {
   }
 
   const controls = (
-    <div className="admin-page__filter-bar">
-      <div className="admin-page__filter-group">
-        <label className="admin-page__filter-label">{t('admin.reports.filter')}</label>
-        <select
-          className="admin-modal__role-select"
+    <div className={styles.pgFilterBar}>
+      <div className={styles.pgFilterGroup}>
+        <label className={styles.pgFilterLabel}>{t('admin.reports.filter')}</label>
+        <Select
           value={filter}
-          onChange={(e) => setFilter(e.target.value as UserFilterKey)}
-        >
-          {USER_FILTER_OPTIONS.map((o) => <option key={o.value} value={o.value}>{t(`admin.reports.userFilters.${o.value}`)}</option>)}
-        </select>
+          onChange={(v) => setFilter(v as UserFilterKey)}
+          options={USER_FILTER_OPTIONS.map((o) => ({ value: o.value, label: t(`admin.reports.userFilters.${o.value}`) }))}
+        />
       </div>
-      <div className="admin-page__filter-group">
-        <label className="admin-page__filter-label">{t('admin.reports.window')}</label>
-        <select
-          className="admin-modal__role-select"
+      <div className={styles.pgFilterGroup}>
+        <label className={styles.pgFilterLabel}>{t('admin.reports.window')}</label>
+        <Select
           value={window}
-          onChange={(e) => setWindow(e.target.value as WindowKey)}
+          onChange={(v) => setWindow(v as WindowKey)}
           disabled={filter === 'all'}
-          title={filter === 'all' ? t('admin.reports.windowHint') : ''}
-        >
-          {WINDOW_OPTIONS.map((o) => <option key={o.value} value={o.value}>{t(`admin.reports.windowOptions.${o.value}`)}</option>)}
-        </select>
+          options={WINDOW_OPTIONS.map((o) => ({ value: o.value, label: t(`admin.reports.windowOptions.${o.value}`) }))}
+        />
       </div>
-      <div className="admin-page__filter-spacer" />
+      <div className={styles.pgFilterSpacer} />
       {sortedRows && sortedRows.length > 0 && (
         <button className="btn btn--ghost btn--sm" onClick={downloadCsv}>
           ↓ {t('admin.exportCsv')}
@@ -864,9 +1361,9 @@ function UsersReport() {
     </div>
   );
 
-  if (error) return <>{controls}<div className="admin-page__error">{error}</div></>;
-  if (!sortedRows) return <>{controls}<div className="admin-page__loading">{t('admin.loading')}</div></>;
-  if (!sortedRows.length) return <>{controls}<div className="admin-page__empty">{t('admin.reports.users.empty')}</div></>;
+  if (error) return <>{controls}<div className={styles.pgError}>{error}</div></>;
+  if (!sortedRows) return <>{controls}<div className={styles.pgLoading}>{t('admin.loading')}</div></>;
+  if (!sortedRows.length) return <>{controls}<div className={styles.pgEmpty}>{t('admin.reports.users.empty')}</div></>;
 
   return (
     <>
@@ -876,7 +1373,7 @@ function UsersReport() {
       <StatCard label={t('admin.reports.users.uniqueCorps')}     value={summary.corps} />
       <StatCard label={t('admin.reports.users.uniqueAlliances')} value={summary.alliances} />
     </div>
-    <table className="admin-modal__table admin-page__sortable">
+    <table className={`${styles.mTable} admin-page__sortable`}>
       <thead>
         <tr>
           <SortHeader label={t('admin.reports.users.colCharacter')}         colKey="name"           sort={sort} onSort={handleSort} />
@@ -906,9 +1403,9 @@ function UsersReport() {
           const total = Object.values(u.sigTypeCounts).reduce((a, b) => a + b, 0);
           return (
             <tr key={u.id}>
-              <td className="admin-modal__name-cell">
+              <td className={styles.mNameCell}>
                 <img
-                  className="admin-modal__avatar"
+                  className={styles.mAvatar}
                   src={charPortrait(u.characterId, 32)}
                   alt=""
                 />
@@ -916,28 +1413,28 @@ function UsersReport() {
               </td>
               <td title={u.corpName ?? undefined}>
                 {u.corpTicker
-                  ? <span className="admin-modal__ticker">[{u.corpTicker}]</span>
-                  : <span className="admin-modal__mono">{u.corpId ?? '—'}</span>}
+                  ? <span className={styles.mTicker}>[{u.corpTicker}]</span>
+                  : <span className={styles.mMono}>{u.corpId ?? '—'}</span>}
               </td>
               <td title={u.allianceName ?? undefined}>
                 {u.allianceTicker
-                  ? <span className="admin-modal__ticker">[{u.allianceTicker}]</span>
+                  ? <span className={styles.mTicker}>[{u.allianceTicker}]</span>
                   : u.allianceId !== null
-                    ? <span className="admin-modal__mono">{u.allianceId}</span>
+                    ? <span className={styles.mMono}>{u.allianceId}</span>
                     : '—'}
               </td>
-              <td className="admin-modal__when">{u.lastLogin ? formatRelative(t, u.lastLogin) : '—'}</td>
+              <td className={styles.mWhen}>{u.lastLogin ? formatRelative(t, u.lastLogin) : '—'}</td>
               <td>{u.lastKnownSystemName ?? '—'}</td>
-              <td className="admin-modal__num">{u.systemsAdded   > 0 ? u.systemsAdded   : '—'}</td>
-              <td className="admin-modal__num">{u.systemsDeleted > 0 ? u.systemsDeleted : '—'}</td>
-              <td className="admin-modal__when">{u.lastActive ? formatRelative(t, u.lastActive) : '—'}</td>
-              <td className="admin-modal__when">{u.lastCorpSigAt ? formatRelative(t, u.lastCorpSigAt) : '—'}</td>
-              <td className="admin-modal__num">{total > 0 ? total : '—'}</td>
+              <td className={styles.mNum}>{u.systemsAdded   > 0 ? u.systemsAdded   : '—'}</td>
+              <td className={styles.mNum}>{u.systemsDeleted > 0 ? u.systemsDeleted : '—'}</td>
+              <td className={styles.mWhen}>{u.lastActive ? formatRelative(t, u.lastActive) : '—'}</td>
+              <td className={styles.mWhen}>{u.lastCorpSigAt ? formatRelative(t, u.lastCorpSigAt) : '—'}</td>
+              <td className={styles.mNum}>{total > 0 ? total : '—'}</td>
               {SIG_TYPE_ORDER.map((st) => {
                 const n = u.sigTypeCounts[st.key] ?? 0;
                 return (
-                  <td key={st.key} className="admin-modal__num--center">
-                    {n > 0 ? n : <span className="admin-modal__mono">—</span>}
+                  <td key={st.key} className={styles.mNumCenter}>
+                    {n > 0 ? n : <span className={styles.mMono}>—</span>}
                   </td>
                 );
               })}
@@ -967,10 +1464,11 @@ function SortHeader<K extends string>({
   align?: 'center';
 }) {
   const active = sort.key === colKey;
-  const cls =
-    'admin-page__sort-th' +
-    (active ? ' admin-page__sort-th--active' : '') +
-    (align === 'center' ? ' admin-page__sort-th--center' : '');
+  const cls = [
+    'admin-page__sort-th',
+    active && 'admin-page__sort-th--active',
+    align === 'center' && styles.pgSortThCenter,
+  ].filter(Boolean).join(' ');
   return (
     <th className={cls} onClick={() => onSort(colKey)}>
       <span>{label}</span>
@@ -993,7 +1491,7 @@ interface SystemsReportData {
 }
 
 // Stable palette for the sig-type donut so colours don't shuffle on refresh.
-// CSS custom properties (--cv-sig-* in App.css) for colour-vision support.
+// CSS custom properties (--cv-sig-* in styles/tokens.css) for colour-vision support.
 // Resolved to hex via cssVarToHex where consumed, since the donut paints to a
 // <canvas> (chart.js) which can't read var().
 const SIG_TYPE_COLORS: Record<string, string> = {
@@ -1003,6 +1501,7 @@ const SIG_TYPE_COLORS: Record<string, string> = {
   gas:      'var(--cv-sig-gas)',
   ore:      'var(--cv-sig-ore)',
   combat:   'var(--cv-sig-combat)',
+  ghost:    'var(--cv-sig-ghost)',
   unknown:  'var(--cv-sig-unknown)',
 };
 
@@ -1051,23 +1550,21 @@ function SystemsReport() {
   }
 
   const controls = (
-    <div className="admin-page__filter-bar">
-      <div className="admin-page__filter-group">
-        <label className="admin-page__filter-label">{t('admin.reports.window')}</label>
-        <select
-          className="admin-modal__role-select"
+    <div className={styles.pgFilterBar}>
+      <div className={styles.pgFilterGroup}>
+        <label className={styles.pgFilterLabel}>{t('admin.reports.window')}</label>
+        <Select
           value={window}
-          onChange={(e) => setWindow(e.target.value as WindowKey)}
-        >
-          {WINDOW_OPTIONS.map((o) => <option key={o.value} value={o.value}>{t(`admin.reports.windowOptions.${o.value}`)}</option>)}
-        </select>
+          onChange={(v) => setWindow(v as WindowKey)}
+          options={WINDOW_OPTIONS.map((o) => ({ value: o.value, label: t(`admin.reports.windowOptions.${o.value}`) }))}
+        />
       </div>
     </div>
   );
 
-  if (error) return <>{controls}<div className="admin-page__error">{error}</div></>;
-  if (!data || !sortedWh) return <>{controls}<div className="admin-page__loading">{t('admin.loading')}</div></>;
-  if (data.total === 0) return <>{controls}<div className="admin-page__empty">{t('admin.reports.systems.empty')}</div></>;
+  if (error) return <>{controls}<div className={styles.pgError}>{error}</div></>;
+  if (!data || !sortedWh) return <>{controls}<div className={styles.pgLoading}>{t('admin.loading')}</div></>;
+  if (data.total === 0) return <>{controls}<div className={styles.pgEmpty}>{t('admin.reports.systems.empty')}</div></>;
 
   // Exclude unidentified ("unknown") signatures from the sig-type breakdown —
   // they're not a real type, so they're left out of the stat cards, the donut,
@@ -1170,9 +1667,9 @@ function SystemsReport() {
 
       <h3 className="admin-page__report-heading">{t('admin.reports.systems.whHeading')}</h3>
       {sortedWh.length === 0 ? (
-        <div className="admin-page__empty">{t('admin.reports.systems.whEmpty')}</div>
+        <div className={styles.pgEmpty}>{t('admin.reports.systems.whEmpty')}</div>
       ) : (
-        <table className="admin-modal__table admin-page__sortable admin-page__wh-table">
+        <table className={`${styles.mTable} admin-page__sortable admin-page__wh-table`}>
           <thead>
             <tr>
               <SortHeader label={t('admin.reports.systems.colType')}  colKey="whType" sort={whSort} onSort={handleWhSort} />
@@ -1182,8 +1679,8 @@ function SystemsReport() {
           <tbody>
             {sortedWh.map((row) => (
               <tr key={row.whType}>
-                <td className="admin-modal__mono">{row.whType}</td>
-                <td className="admin-modal__num">{row.count}</td>
+                <td className={styles.mMono}>{row.whType}</td>
+                <td className={styles.mNum}>{row.count}</td>
               </tr>
             ))}
           </tbody>
@@ -1259,16 +1756,16 @@ function GhostSitesReport() {
       : { key, dir: key === 'observations' || key === 'lastSeen' ? 'desc' : 'asc' });
   }
 
-  if (error)   return <div className="admin-page__error">{error}</div>;
-  if (!sorted) return <div className="admin-page__loading">{t('admin.loading')}</div>;
+  if (error)   return <div className={styles.pgError}>{error}</div>;
+  if (!sorted) return <div className={styles.pgLoading}>{t('admin.loading')}</div>;
 
   return (
     <>
       <h3 className="admin-page__report-heading">{t('admin.reports.ghost.heading')}</h3>
       {sorted.length === 0 ? (
-        <div className="admin-page__empty">{t('admin.reports.ghost.empty')}</div>
+        <div className={styles.pgEmpty}>{t('admin.reports.ghost.empty')}</div>
       ) : (
-        <table className="admin-modal__table admin-page__sortable">
+        <table className={`${styles.mTable} admin-page__sortable`}>
           <thead>
             <tr>
               <SortHeader label={t('admin.reports.ghost.colRegion')}        colKey="region"        sort={sort} onSort={onSort} />
@@ -1287,12 +1784,12 @@ function GhostSitesReport() {
               <tr key={r.eveSystemId}>
                 <td>{r.regionName        ?? '—'}</td>
                 <td>{r.constellationName ?? '—'}</td>
-                <td className="admin-modal__mono">{r.systemName}</td>
+                <td className={styles.mMono}>{r.systemName}</td>
                 <td>{r.systemClass}</td>
                 <td>{r.sunType     ?? '—'}</td>
-                <td className="admin-modal__num">{r.planetCount ?? '—'}</td>
-                <td className="admin-modal__num">{r.moonCount   ?? '—'}</td>
-                <td className="admin-modal__num">{r.observations}</td>
+                <td className={styles.mNum}>{r.planetCount ?? '—'}</td>
+                <td className={styles.mNum}>{r.moonCount   ?? '—'}</td>
+                <td className={styles.mNum}>{r.observations}</td>
                 <td>{new Date(r.lastSeenAt).toLocaleString()}</td>
               </tr>
             ))}
@@ -1353,19 +1850,19 @@ function AuditTab() {
 
   return (
     <>
-      <div className="admin-page__section-bar">
-        <h2 className="admin-page__section-title">{t('admin.audit.title')}</h2>
+      <div className={styles.pgSectionBar}>
+        <h2 className={styles.pgSectionTitle}>{t('admin.audit.title')}</h2>
         {entries && entries.length > 0 && (
           <button className="btn btn--ghost btn--sm" onClick={downloadCsv}>
             ↓ {t('admin.exportCsv')}
           </button>
         )}
       </div>
-      {error && <div className="admin-page__error">{error}</div>}
-      {!entries && !error && <div className="admin-page__loading">{t('admin.loading')}</div>}
-      {entries && !entries.length && <div className="admin-page__empty">{t('admin.audit.none')}</div>}
+      {error && <div className={styles.pgError}>{error}</div>}
+      {!entries && !error && <div className={styles.pgLoading}>{t('admin.loading')}</div>}
+      {entries && !entries.length && <div className={styles.pgEmpty}>{t('admin.audit.none')}</div>}
       {entries && entries.length > 0 && (
-        <table className="admin-modal__table">
+        <table className={styles.mTable}>
           <thead>
             <tr>
               <th>{t('admin.audit.colWhen')}</th>
@@ -1378,11 +1875,11 @@ function AuditTab() {
           <tbody>
             {entries.map((e) => (
               <tr key={e.id}>
-                <td className="admin-modal__when">{formatRelative(t, e.createdAt)}</td>
+                <td className={styles.mWhen}>{formatRelative(t, e.createdAt)}</td>
                 <td>{e.actorCharacterName ?? '—'}</td>
-                <td><span className="admin-modal__action">{e.action}</span></td>
+                <td><span className={styles.mAction}>{e.action}</span></td>
                 <td>{e.targetCharacterName ?? '—'}</td>
-                <td className="admin-modal__mono">
+                <td className={styles.mMono}>
                   {e.oldValue ?? '∅'} → {e.newValue ?? '∅'}
                 </td>
               </tr>
@@ -1420,11 +1917,16 @@ interface DiscordSettings {
   allRegions:   boolean;
   regions:      string[];
   notifyChains: boolean;
+  notifyK162: boolean;
+  notifyExits: boolean;
   whTypes:      string[];
   whClasses:    string[];
   whSizes:      string[];
   connectionsWebhook: string;
   chainsWebhook:      string;
+  exitsMinSecurity:   number;
+  killWebhook:        string;
+  killMinIsk:         number;
   maps:         { id: string; name: string; excluded: boolean }[];
 }
 interface RegionOption { id: number; name: string }
@@ -1461,6 +1963,12 @@ function DiscordTab() {
   // Editable copies of the per-event webhook URLs (empty = off).
   const [connWebhook, setConnWebhook]   = useState('');
   const [chainWebhook, setChainWebhook] = useState('');
+  // Minimum k-space exit security for the rich exit embed (default 0.45 = HS).
+  const [exitMinSec, setExitMinSec]     = useState(0.45);
+  // Kill-alert webhook (empty = off) + its per-org minimum ISK (0 = every kill
+  // the feed surfaces). Requires the server KILL_FEED consumer to be enabled.
+  const [killWebhook, setKillWebhook]   = useState('');
+  const [killMinIsk, setKillMinIsk]     = useState(0);
 
   const load = useCallback(async () => {
     try {
@@ -1476,6 +1984,9 @@ function DiscordTab() {
       setWhSizes(s.whSizes ?? []);
       setConnWebhook(s.connectionsWebhook ?? '');
       setChainWebhook(s.chainsWebhook ?? '');
+      setExitMinSec(s.exitsMinSecurity ?? 0.45);
+      setKillWebhook(s.killWebhook ?? '');
+      setKillMinIsk(s.killMinIsk ?? 0);
       setRegionOpts(r.regions);
       setError(null);
     } catch (e) {
@@ -1494,8 +2005,8 @@ function DiscordTab() {
     try {
       // Send every field the PUT can wipe (it defaults absent flags/lists), so a
       // save never silently resets the chain toggle or another filter dimension.
-      await api('/api/admin/discord', { method: 'PUT', body: JSON.stringify({ allRegions, regions, notifyChains: data.notifyChains, whTypes, whClasses, whSizes, connectionsWebhook: connWebhook.trim(), chainsWebhook: chainWebhook.trim() }) });
-      setData((d) => (d ? { ...d, allRegions, regions, whTypes, whClasses, whSizes, connectionsWebhook: connWebhook.trim(), chainsWebhook: chainWebhook.trim() } : d));
+      await api('/api/admin/discord', { method: 'PUT', body: JSON.stringify({ allRegions, regions, notifyChains: data.notifyChains, notifyK162: data.notifyK162, notifyExits: data.notifyExits, whTypes, whClasses, whSizes, connectionsWebhook: connWebhook.trim(), chainsWebhook: chainWebhook.trim(), exitsMinSecurity: exitMinSec, killWebhook: killWebhook.trim(), killMinIsk }) });
+      setData((d) => (d ? { ...d, allRegions, regions, whTypes, whClasses, whSizes, connectionsWebhook: connWebhook.trim(), chainsWebhook: chainWebhook.trim(), exitsMinSecurity: exitMinSec, killWebhook: killWebhook.trim(), killMinIsk } : d));
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
     } catch (e) {
@@ -1506,15 +2017,23 @@ function DiscordTab() {
   }
 
   // Broadcast toggles persist immediately, using the last-saved filters so an
-  // unsaved draft isn't dragged along and no other filter is wiped.
-  async function toggleChains(next: boolean) {
+  // unsaved draft isn't dragged along and no other filter is wiped. Every event
+  // flag goes up on each call — omitting one reads as "off" server-side.
+  async function toggleEvent(field: 'notifyChains' | 'notifyK162' | 'notifyExits', next: boolean) {
     if (!data) return;
-    const prev = data.notifyChains;
-    setData((d) => (d ? { ...d, notifyChains: next } : d));
+    const prev = data[field];
+    setData((d) => (d ? { ...d, [field]: next } : d));
     try {
-      await api('/api/admin/discord', { method: 'PUT', body: JSON.stringify({ allRegions: data.allRegions, regions: data.regions, notifyChains: next, whTypes: data.whTypes, whClasses: data.whClasses, whSizes: data.whSizes, connectionsWebhook: data.connectionsWebhook, chainsWebhook: data.chainsWebhook }) });
+      await api('/api/admin/discord', { method: 'PUT', body: JSON.stringify({
+        allRegions: data.allRegions, regions: data.regions,
+        notifyChains: data.notifyChains, notifyK162: data.notifyK162, notifyExits: data.notifyExits,
+        [field]: next,
+        whTypes: data.whTypes, whClasses: data.whClasses, whSizes: data.whSizes,
+        connectionsWebhook: data.connectionsWebhook, chainsWebhook: data.chainsWebhook,
+        exitsMinSecurity: data.exitsMinSecurity, killWebhook: data.killWebhook, killMinIsk: data.killMinIsk,
+      }) });
     } catch (e) {
-      setData((d) => (d ? { ...d, notifyChains: prev } : d));
+      setData((d) => (d ? { ...d, [field]: prev } : d));
       setError(e instanceof Error ? e.message : t('admin.discord.saveFailed'));
     }
   }
@@ -1545,11 +2064,11 @@ function DiscordTab() {
     ? Object.keys(whCatalog).filter((c) => c.includes(wq) && !whTypes.includes(c)).sort().slice(0, 8)
     : [];
 
-  if (!data && error) return (<><h2 className="admin-page__section-title">{t('admin.discord.title')}</h2><div className="admin-page__error">{error}</div></>);
-  if (!data)          return (<><h2 className="admin-page__section-title">{t('admin.discord.title')}</h2><div className="admin-page__loading">{t('admin.loading')}</div></>);
+  if (!data && error) return (<><h2 className={styles.pgSectionTitle}>{t('admin.discord.title')}</h2><div className={styles.pgError}>{error}</div></>);
+  if (!data)          return (<><h2 className={styles.pgSectionTitle}>{t('admin.discord.title')}</h2><div className={styles.pgLoading}>{t('admin.loading')}</div></>);
   if (data.scope == null) {
-    return (<><h2 className="admin-page__section-title">{t('admin.discord.title')}</h2>
-      <div className="admin-page__empty">{t('admin.discord.noCorp')}</div></>);
+    return (<><h2 className={styles.pgSectionTitle}>{t('admin.discord.title')}</h2>
+      <div className={styles.pgEmpty}>{t('admin.discord.noCorp')}</div></>);
   }
 
   const sortJoin = (a: string[]) => a.slice().sort().join('|');
@@ -1559,57 +2078,80 @@ function DiscordTab() {
     || sortJoin(whClasses) !== sortJoin(data.whClasses)
     || sortJoin(whSizes)   !== sortJoin(data.whSizes)
     || connWebhook.trim()  !== data.connectionsWebhook
-    || chainWebhook.trim() !== data.chainsWebhook;
+    || chainWebhook.trim() !== data.chainsWebhook
+    || exitMinSec          !== data.exitsMinSecurity
+    || killWebhook.trim()  !== data.killWebhook
+    || killMinIsk          !== data.killMinIsk;
 
   return (
     <>
-      <h2 className="admin-page__section-title">{t('admin.discord.titleNotifications')}</h2>
-      {error && <div className="admin-page__error">{error}</div>}
-      <p className="discord-admin__hint">{t('admin.discord.hint')}</p>
+      <h2 className={styles.pgSectionTitle}>{t('admin.discord.titleNotifications')}</h2>
+      {error && <div className={styles.pgError}>{error}</div>}
+      <p className={styles.dcHint}>{t('admin.discord.hint')}</p>
 
-      <section className="discord-admin__section">
-        <h3 className="discord-admin__heading">{t('admin.discord.webhooks')}</h3>
-        <p className="discord-admin__hint">{t('admin.discord.webhooksHint')}</p>
-        <label className="discord-admin__sublabel" htmlFor="conn-webhook">{t('admin.discord.connectionsWebhook')}</label>
+      <section className={styles.dcSection}>
+        <h3 className={styles.dcHeading}>{t('admin.discord.webhooks')}</h3>
+        <p className={styles.dcHint}>{t('admin.discord.webhooksHint')}</p>
+        <label className={styles.dcSublabel} htmlFor="conn-webhook">{t('admin.discord.connectionsWebhook')}</label>
         <input
           id="conn-webhook"
           type="url"
-          className="discord-admin__search discord-admin__search--wide"
+          className={`${styles.dcSearch} ${styles.dcSearchWide}`}
           placeholder="https://discord.com/api/webhooks/…"
           value={connWebhook}
           spellCheck={false}
           onChange={(e) => setConnWebhook(e.target.value)}
         />
-        <label className="discord-admin__sublabel" htmlFor="chain-webhook">{t('admin.discord.chainsWebhook')}</label>
+        <label className={styles.dcSublabel} htmlFor="chain-webhook">{t('admin.discord.chainsWebhook')}</label>
         <input
           id="chain-webhook"
           type="url"
-          className="discord-admin__search discord-admin__search--wide"
+          className={`${styles.dcSearch} ${styles.dcSearchWide}`}
           placeholder="https://discord.com/api/webhooks/…"
           value={chainWebhook}
           spellCheck={false}
           onChange={(e) => setChainWebhook(e.target.value)}
         />
+        <label className={styles.dcSublabel} htmlFor="kill-webhook">{t('admin.discord.killWebhook')}</label>
+        <input
+          id="kill-webhook"
+          type="url"
+          className={`${styles.dcSearch} ${styles.dcSearchWide}`}
+          placeholder="https://discord.com/api/webhooks/…"
+          value={killWebhook}
+          spellCheck={false}
+          onChange={(e) => setKillWebhook(e.target.value)}
+        />
+        <label className={styles.dcSublabel} htmlFor="kill-min-isk">{t('admin.discord.killMinIsk')}</label>
+        <input
+          id="kill-min-isk"
+          type="number"
+          min={0}
+          step={1000000}
+          className={styles.dcSearch}
+          value={killMinIsk}
+          onChange={(e) => setKillMinIsk(Math.max(0, Math.floor(Number(e.target.value) || 0)))}
+        />
       </section>
 
-      <section className="discord-admin__section">
-        <h3 className="discord-admin__heading">{t('admin.discord.regions')}</h3>
-        <label className="discord-admin__radio">
+      <section className={styles.dcSection}>
+        <h3 className={styles.dcHeading}>{t('admin.discord.regions')}</h3>
+        <label className={styles.dcRadio}>
           <input type="radio" name="discord-regions" checked={allRegions} onChange={() => setAllRegions(true)} />
           {t('admin.discord.notifyAll')}
         </label>
-        <label className="discord-admin__radio">
+        <label className={styles.dcRadio}>
           <input type="radio" name="discord-regions" checked={!allRegions} onChange={() => setAllRegions(false)} />
           {t('admin.discord.notifySelected')}
         </label>
 
         {!allRegions && (
-          <div className="discord-admin__regions">
-            <div className="discord-admin__chips">
+          <div className={styles.dcRegions}>
+            <div className={styles.dcChips}>
               {regions.length === 0
-                ? <span className="admin-page__empty">{t('admin.discord.noRegionsSelected')}</span>
+                ? <span className={styles.pgEmpty}>{t('admin.discord.noRegionsSelected')}</span>
                 : regions.map((r) => (
-                    <span key={r} className="discord-admin__chip">
+                    <span key={r} className={styles.dcChip}>
                       {r}
                       <button type="button" onClick={() => removeRegion(r)} aria-label={t('admin.discord.removeRegion', { name: r })}>×</button>
                     </span>
@@ -1617,13 +2159,13 @@ function DiscordTab() {
             </div>
             <input
               type="text"
-              className="discord-admin__search"
+              className={styles.dcSearch}
               placeholder={t('admin.discord.searchPlaceholder')}
               value={query}
               onChange={(e) => setQuery(e.target.value)}
             />
             {matches.length > 0 && (
-              <ul className="discord-admin__results">
+              <ul className={styles.dcResults}>
                 {matches.map((o) => (
                   <li key={o.id}><button type="button" onClick={() => addRegion(o.name)}>{o.name}</button></li>
                 ))}
@@ -1633,86 +2175,112 @@ function DiscordTab() {
         )}
 
         {/* ── Wormhole filters (type code / dest class / size) — empty = all ── */}
-        <h4 className="discord-admin__subheading">{t('admin.discord.whFilters')}</h4>
-        <p className="discord-admin__hint">{t('admin.discord.whFiltersHint')}</p>
+        <h4 className={styles.dcSubheading}>{t('admin.discord.whFilters')}</h4>
+        <p className={styles.dcHint}>{t('admin.discord.whFiltersHint')}</p>
 
-        <label className="discord-admin__sublabel">{t('admin.discord.whTypeLabel')}</label>
-        <div className="discord-admin__chips">
+        <label className={styles.dcSublabel}>{t('admin.discord.whTypeLabel')}</label>
+        <div className={styles.dcChips}>
           {whTypes.length === 0
-            ? <span className="admin-page__empty">{t('admin.discord.whAll')}</span>
+            ? <span className={styles.pgEmpty}>{t('admin.discord.whAll')}</span>
             : whTypes.map((c) => (
-                <span key={c} className="discord-admin__chip">{c}
+                <span key={c} className={styles.dcChip}>{c}
                   <button type="button" onClick={() => setWhTypes(whTypes.filter((x) => x !== c))} aria-label={t('admin.discord.removeType', { name: c })}>×</button>
                 </span>
               ))}
         </div>
         <input
           type="text"
-          className="discord-admin__search"
+          className={styles.dcSearch}
           placeholder={t('admin.discord.whTypePlaceholder')}
           value={whQuery}
           onChange={(e) => setWhQuery(e.target.value.toUpperCase())}
         />
         {whMatches.length > 0 && (
-          <ul className="discord-admin__results">
+          <ul className={styles.dcResults}>
             {whMatches.map((c) => (
               <li key={c}>
                 <button type="button" onClick={() => { setWhTypes([...whTypes, c]); setWhQuery(''); }}>
-                  {c}<span className="discord-admin__result-meta"> → {whCatalog[c]?.dest ?? '?'}</span>
+                  {c}<span className={styles.dcResultMeta}> → {whCatalog[c]?.dest ?? '?'}</span>
                 </button>
               </li>
             ))}
           </ul>
         )}
 
-        <label className="discord-admin__sublabel">{t('admin.discord.whClassLabel')}</label>
-        <div className="discord-admin__togglechips">
+        <label className={styles.dcSublabel}>{t('admin.discord.whClassLabel')}</label>
+        <div className={styles.dcTogglechips}>
           {WH_CLASS_OPTS.map((c) => (
             <button
               key={c}
               type="button"
-              className={`discord-admin__togglechip${whClasses.includes(c) ? ' discord-admin__togglechip--on' : ''}`}
+              className={[styles.dcTogglechip, whClasses.includes(c) && styles.dcTogglechipOn].filter(Boolean).join(' ')}
               onClick={() => toggleIn(whClasses, setWhClasses, c)}
             >{c}</button>
           ))}
         </div>
 
-        <label className="discord-admin__sublabel">{t('admin.discord.whSizeLabel')}</label>
-        <div className="discord-admin__togglechips">
+        <label className={styles.dcSublabel}>{t('admin.discord.whSizeLabel')}</label>
+        <div className={styles.dcTogglechips}>
           {WH_SIZE_OPTS.map((o) => (
             <button
               key={o.key}
               type="button"
-              className={`discord-admin__togglechip${whSizes.includes(o.key) ? ' discord-admin__togglechip--on' : ''}`}
+              className={[styles.dcTogglechip, whSizes.includes(o.key) && styles.dcTogglechipOn].filter(Boolean).join(' ')}
               onClick={() => toggleIn(whSizes, setWhSizes, o.key)}
             >{t(o.labelKey)}</button>
           ))}
         </div>
 
-        <div className="discord-admin__actions">
+        {/* Minimum security a revealed k-space exit needs for the rich exit embed. */}
+        <label className={styles.dcSublabel} htmlFor="exit-min-sec">{t('admin.discord.exitsMinSecLabel')}</label>
+        <p className={styles.dcHint}>{t('admin.discord.exitsMinSecHint')}</p>
+        <input
+          id="exit-min-sec"
+          type="number"
+          className={styles.dcSearch}
+          min={-1}
+          max={1}
+          step={0.1}
+          value={exitMinSec}
+          onChange={(e) => setExitMinSec(Number(e.target.value))}
+        />
+
+        <div className={styles.dcActions}>
           <button className="btn btn--primary" disabled={!dirty || saving} onClick={saveFilters}>
             {saving ? t('admin.discord.saving') : t('actions.save')}
           </button>
-          {saved && <span className="discord-admin__saved">{t('admin.discord.saved')}</span>}
+          {saved && <span className={styles.dcSaved}>{t('admin.discord.saved')}</span>}
         </div>
       </section>
 
-      <section className="discord-admin__section">
-        <h3 className="discord-admin__heading">{t('admin.discord.events')}</h3>
-        <label className="discord-admin__radio">
-          <input type="checkbox" checked={data.notifyChains} onChange={(e) => toggleChains(e.target.checked)} />
+      <section className={styles.dcSection}>
+        <h3 className={styles.dcHeading}>{t('admin.discord.events')}</h3>
+        <label className={styles.dcRadio}>
+          <input type="checkbox" checked={data.notifyChains} onChange={(e) => toggleEvent('notifyChains', e.target.checked)} />
           {t('admin.discord.broadcastChains')}
         </label>
-        <p className="discord-admin__hint">{t('admin.discord.broadcastChainsHint')}</p>
+        <p className={styles.dcHint}>{t('admin.discord.broadcastChainsHint')}</p>
+
+        <label className={styles.dcRadio}>
+          <input type="checkbox" checked={data.notifyK162} onChange={(e) => toggleEvent('notifyK162', e.target.checked)} />
+          {t('admin.discord.broadcastK162')}
+        </label>
+        <p className={styles.dcHint}>{t('admin.discord.broadcastK162Hint')}</p>
+
+        <label className={styles.dcRadio}>
+          <input type="checkbox" checked={data.notifyExits} onChange={(e) => toggleEvent('notifyExits', e.target.checked)} />
+          {t('admin.discord.broadcastExits')}
+        </label>
+        <p className={styles.dcHint}>{t('admin.discord.broadcastExitsHint')}</p>
       </section>
 
-      <section className="discord-admin__section">
-        <h3 className="discord-admin__heading">{t('admin.discord.excludedMaps')}</h3>
-        <p className="discord-admin__hint">{t('admin.discord.excludedHint')}</p>
+      <section className={styles.dcSection}>
+        <h3 className={styles.dcHeading}>{t('admin.discord.excludedMaps')}</h3>
+        <p className={styles.dcHint}>{t('admin.discord.excludedHint')}</p>
         {data.maps.length === 0
-          ? <div className="admin-page__empty">{t('admin.discord.noCorpMaps')}</div>
+          ? <div className={styles.pgEmpty}>{t('admin.discord.noCorpMaps')}</div>
           : (
-            <table className="admin-modal__table">
+            <table className={styles.mTable}>
               <thead><tr><th>{t('admin.discord.colMap')}</th><th>{t('admin.discord.colExclude')}</th></tr></thead>
               <tbody>
                 {data.maps.map((m) => (

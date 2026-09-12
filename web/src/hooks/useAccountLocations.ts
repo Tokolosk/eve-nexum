@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
 import { api } from '../api/client';
 import { useShareMode } from '../context/ShareModeContext';
+import { createPolledStore } from './createPolledStore';
 
 export interface AccountCharLocation {
   charId:        number;
@@ -26,17 +26,12 @@ interface RawResponse {
   }>;
 }
 
-// Matches the active character's location cadence (useCharacterLocation) so a
-// tracked alt's dot keeps up gate-to-gate instead of lagging ~30 s behind. The
-// endpoint already fans out to ESI per character, and ESI caches location, so a
-// 10 s cadence is in line with what the main character already does.
+// Matches the active character's location cadence (useCharacterLocation, 10 s)
+// so a tracked alt's dot keeps up without doubling the per-session request rate.
+// This poll plus location/online/fleet all share the esiLimiter, so several open
+// tabs add up fast; 10 s (ESI caches location ~5 s anyway) keeps well clear.
 const POLL_MS = 10_000;
 const EMPTY: AccountLocations = { bySystem: new Map(), byChar: new Map() };
-
-let moduleCache: { data: AccountLocations; fetchedAt: number } | null = null;
-let inflight: Promise<AccountLocations> | null = null;
-const subscribers = new Set<(d: AccountLocations) => void>();
-let pollTimer: ReturnType<typeof setInterval> | null = null;
 
 function indexBySystem(list: AccountCharLocation[]): Map<number, AccountCharLocation[]> {
   const idx = new Map<number, AccountCharLocation[]>();
@@ -48,23 +43,42 @@ function indexBySystem(list: AccountCharLocation[]): Map<number, AccountCharLoca
   return idx;
 }
 
-function notify(d: AccountLocations) { subscribers.forEach((fn) => fn(d)); }
-
-function load() {
-  if (inflight) return inflight;
-  inflight = api<RawResponse>('/api/character/account-locations')
-    .then((r) => {
-      const byChar = new Map<number, AccountCharLocation>();
-      for (const c of r.characters) byChar.set(c.charId, c);
-      const data: AccountLocations = { bySystem: indexBySystem(r.characters), byChar };
-      moduleCache = { data, fetchedAt: Date.now() };
-      inflight = null;
-      notify(data);
-      return data;
-    })
-    .catch(() => { inflight = null; return moduleCache?.data ?? EMPTY; });
-  return inflight;
+// True when two polls describe the same characters in the same places, so we
+// can keep the previous reference and skip the all-node re-render. Keyed by
+// charId; compares only the fields a node actually renders.
+function sameLocations(a: AccountLocations, b: AccountLocations): boolean {
+  if (a.byChar.size !== b.byChar.size) return false;
+  for (const [k, va] of a.byChar) {
+    const vb = b.byChar.get(k);
+    if (!vb
+        || vb.eveSystemId   !== va.eveSystemId
+        || vb.online        !== va.online
+        || vb.systemName    !== va.systemName
+        || vb.systemClass   !== va.systemClass
+        || vb.characterName !== va.characterName) return false;
+  }
+  return true;
 }
+
+function fromList(list: AccountCharLocation[]): AccountLocations {
+  const byChar = new Map<number, AccountCharLocation>();
+  for (const c of list) byChar.set(c.charId, c);
+  return { bySystem: indexBySystem(list), byChar };
+}
+
+const store = createPolledStore<AccountLocations>({
+  pollMs: POLL_MS,
+  empty: EMPTY,
+  equals: sameLocations,
+  fetch: async () => fromList((await api<RawResponse>('/api/character/account-locations')).characters),
+  // Account-wide (same for every tab of this session) — share it across tabs so
+  // several open tabs make one poll total, not one each.
+  crossTab: {
+    key: 'account-locations',
+    serialize: (v) => [...v.byChar.values()],
+    deserialize: (j) => fromList(j as AccountCharLocation[]),
+  },
+});
 
 /**
  * The signed-in account's OTHER characters (alts) and where each is — live when
@@ -73,20 +87,5 @@ function load() {
  */
 export function useAccountLocations(): AccountLocations {
   const { isShareMode } = useShareMode();
-  const [data, setData] = useState<AccountLocations>(moduleCache?.data ?? EMPTY);
-
-  useEffect(() => {
-    if (isShareMode) return;
-    subscribers.add(setData);
-    const now = Date.now();
-    if (!moduleCache || now - moduleCache.fetchedAt >= POLL_MS) load();
-    else setData(moduleCache.data);
-    if (!pollTimer) pollTimer = setInterval(load, POLL_MS);
-    return () => {
-      subscribers.delete(setData);
-      if (subscribers.size === 0 && pollTimer) { clearInterval(pollTimer); pollTimer = null; }
-    };
-  }, [isShareMode]);
-
-  return isShareMode ? EMPTY : data;
+  return store.use(!isShareMode);
 }

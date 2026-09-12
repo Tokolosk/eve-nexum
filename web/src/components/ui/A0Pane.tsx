@@ -1,17 +1,20 @@
 import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { MapPinSimpleIcon, PathIcon } from '@phosphor-icons/react';
+import { MapPinSimpleIcon, PathIcon } from '../../icons';
 import { jumps } from '../../i18n/format';
 import { useA0Systems } from '../../hooks/useA0Systems';
 import { useRouteOrigin } from '../../hooks/useRouteOrigin';
 import { useRoute } from '../../hooks/useRoute';
-import { setWaypoint, RouteSquares } from './routeUi';
+import { RouteSquares } from './routeUi';
+import { setWaypoint, canSetAutopilot } from '../../utils/routeActions';
+import { useSystemAlias } from '../../hooks/useSystemAlias';
 import { useMapStore } from '../../store/mapStore';
 
 const TOP_N = 10;
 
 export function A0Pane() {
   const { t } = useTranslation();
+  const aliasName = useSystemAlias();
   const all      = useA0Systems();
   const routeMode = useMapStore((s) => s.routeMode);
   const origin   = useRouteOrigin();
@@ -58,18 +61,19 @@ export function A0Pane() {
   return (
     <div className="scout-pane">
       {origin.characterName && origin.name ? (
-        <div className="scout-pane__note scout-pane__note--lastknown">{t('route.fromCharacter', { character: origin.characterName, system: origin.name })}</div>
+        <div className="scout-pane__note scout-pane__note--lastknown">{t('route.fromCharacter', { character: origin.characterName, system: aliasName(origin.name) })}</div>
       ) : origin.fromLastKnown && origin.name ? (
-        <div className="scout-pane__note scout-pane__note--lastknown">{t('route.fromLastKnown', { system: origin.name })}</div>
+        <div className="scout-pane__note scout-pane__note--lastknown">{t('route.fromLastKnown', { system: aliasName(origin.name) })}</div>
       ) : null}
       <div className="scout-pane__note">{t('a0.showing', { count: TOP_N })}</div>
       {closest.map(s => {
         const route   = routes[String(s.id)];
         const isOpen  = expanded.has(s.id);
+        const canAutopilot = canSetAutopilot(route);
         return (
           <div key={s.id} className="scout-row">
             <div className="scout-row__sys">
-              <span className="scout-row__name">{s.name}</span>
+              <span className="scout-row__name">{aliasName(s.name)}</span>
               <span className="scout-row__class scout-row__class--a0">A0</span>
             </div>
             <div className="scout-row__region">{s.regionName}</div>
@@ -80,9 +84,9 @@ export function A0Pane() {
                 type="button"
                 className="sys-btn scout-row__btn scout-row__btn--icon"
                 onClick={() => setWaypoint(s.id, s.name, true)}
-                disabled={route?.usesSpecial}
+                disabled={!canAutopilot}
                 aria-label={t('waypoint.setDestination')}
-                data-tooltip={route?.usesSpecial ? t('route.shortcutNoWaypoint') : t('waypoint.setDestination')}
+                data-tooltip={canAutopilot ? t('waypoint.setDestination') : t('route.jspaceNoWaypoint')}
               >
                 <MapPinSimpleIcon size={14} weight="regular" color="#3ddc84" />
               </button>
@@ -90,9 +94,9 @@ export function A0Pane() {
                 type="button"
                 className="sys-btn scout-row__btn scout-row__btn--icon"
                 onClick={() => setWaypoint(s.id, s.name, false)}
-                disabled={route?.usesSpecial}
+                disabled={!canAutopilot}
                 aria-label={t('waypoint.addWaypoint')}
-                data-tooltip={route?.usesSpecial ? t('route.shortcutNoWaypoint') : t('waypoint.addWaypoint')}
+                data-tooltip={canAutopilot ? t('waypoint.addWaypoint') : t('route.jspaceNoWaypoint')}
               >
                 <PathIcon size={14} weight="regular" color="#5a9af8" />
               </button>

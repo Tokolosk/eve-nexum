@@ -19,6 +19,83 @@ async function encryptLegacyTokens() {
   console.log(`Encrypted OAuth tokens for ${rows.length} legacy user row(s)`);
 }
 
+// One-shot pass that makes existing map systems agree with the SDE. Idempotent
+// and self-limiting — both statements only match rows that are still wrong, so
+// after the first boot they update nothing and stay silent. Safe on a database
+// with no SDE seeded: every join simply finds nothing.
+//
+// This lives here rather than in scripts/backfill-system-facts.ts because
+// deployments are docker builds — nobody runs a manual script inside a
+// container, and self-hosters would never see one. The script remains for
+// inspecting a database on demand — it dry-runs by default and also reports
+// connections whose jump type the SDE contradicts, which this pass leaves
+// alone.
+async function syncSystemFactsFromSde() {
+  // solar_systems is created by the SDE importer (setup-db), NOT by migrate, so
+  // on a database that has never imported it the table simply isn't there —
+  // a fresh self-host, and the integration-test databases. Querying it anyway
+  // throws 42P01 and takes the whole migration (and the server start) with it.
+  const { rows: [sde] } = await db.query<{ present: boolean }>(
+    `SELECT to_regclass('public.solar_systems') IS NOT NULL AS present`);
+  if (!sde?.present) return;
+
+  // Sorted so a difference in order alone doesn't count as drift.
+  const sorted = (col: string) =>
+    `COALESCE((SELECT array_agg(x ORDER BY x) FROM unnest(${col}) x), '{}')`;
+
+  // J-code nodes stored with no eve_system_id — the old hardcoded starter map
+  // wrote thousands of them. Detached placeholders: no routing, no ESI identity,
+  // and whatever statics the seeder happened to carry. Only ^J\d{6}$ names are
+  // matched: a J-code is unambiguous, whereas resolving arbitrary names risks
+  // re-pointing a custom node someone named after a real system.
+  //
+  // map_systems is unique on (map_id, eve_system_id), so rows whose map already
+  // holds that system are left alone, and where several rows in one map would
+  // resolve to the same system only the oldest is taken.
+  const resolved = await db.query(`
+    UPDATE map_systems ms
+       SET eve_system_id = c.eve_id,
+           system_class  = c.class,
+           effect        = c.effect,
+           statics       = c.statics
+      FROM (
+        SELECT ms2.id,
+               ss.id AS eve_id,
+               ss.class,
+               COALESCE(ss.effect, 'none') AS effect,
+               COALESCE(ss.statics, '{}')  AS statics,
+               ROW_NUMBER() OVER (PARTITION BY ms2.map_id, ss.id
+                                  ORDER BY ms2.created_at, ms2.id) AS rn
+          FROM map_systems ms2
+          JOIN solar_systems ss ON ss.name = ms2.name
+         WHERE ms2.eve_system_id IS NULL
+           AND ms2.name ~ '^J[0-9]{6}$'
+           AND NOT EXISTS (SELECT 1 FROM map_systems x
+                            WHERE x.map_id = ms2.map_id AND x.eve_system_id = ss.id)
+      ) c
+     WHERE ms.id = c.id AND c.rn = 1`);
+  if ((resolved.rowCount ?? 0) > 0) {
+    console.log(`Resolved ${resolved.rowCount} placeholder wormhole system(s) to their real system`);
+  }
+
+  // Systems that resolve to a real one but disagree with it — class, effect or
+  // statics typed over before those fields became SDE-derived.
+  const resynced = await db.query(`
+    UPDATE map_systems ms
+       SET system_class = ss.class,
+           effect       = COALESCE(ss.effect, 'none'),
+           statics      = COALESCE(ss.statics, '{}')
+      FROM solar_systems ss
+     WHERE ss.id = ms.eve_system_id
+       AND (upper(ms.system_class) IS DISTINCT FROM upper(ss.class)
+         OR COALESCE(ms.effect, 'none') IS DISTINCT FROM COALESCE(ss.effect, 'none')
+         OR ${sorted('ms.statics')} IS DISTINCT FROM ${sorted('ss.statics')})`);
+  if ((resynced.rowCount ?? 0) > 0) {
+    console.log(`Re-synced ${resynced.rowCount} map system(s) to the SDE`);
+  }
+
+}
+
 export async function migrate() {
   await db.query(`
     CREATE TABLE IF NOT EXISTS users (
@@ -137,12 +214,27 @@ export async function migrate() {
     -- max lifetime and quarantines (marks broken) any connection they backed.
     -- DEFAULT FALSE — purely opt-in, nothing auto-deletes until enabled.
     ALTER TABLE maps ADD COLUMN IF NOT EXISTS lazy_remove_wormholes BOOLEAN NOT NULL DEFAULT FALSE;
+    -- Map-level "Don't track K-space" policy for corp/alliance maps. When TRUE, no
+    -- one on this map records K-space jumps, fully overriding each member's personal
+    -- nexum.tracking.skipKspace while they are on the map. Only ever set on corp or
+    -- alliance maps (personal maps keep the per-user setting). DEFAULT FALSE.
+    ALTER TABLE maps ADD COLUMN IF NOT EXISTS skip_kspace BOOLEAN NOT NULL DEFAULT FALSE;
+    -- Per-map grace period (hours) a connection stays past its expiry before the
+    -- lifetime sweep collapses it (severs + drops its backing sigs) on lazy-removal
+    -- maps. 0.5 = 30 min. Editable from the map settings; also applied to the sig
+    -- sweep so a hole's sig and connection disappear together.
+    ALTER TABLE maps ADD COLUMN IF NOT EXISTS collapse_grace_hours DOUBLE PRECISION NOT NULL DEFAULT 0.5;
 
     -- Per-map bookmark-name format override. NULL (the default) means "no map
     -- policy" and each user falls back to their own nexum.sig.bookmarkFormat.
     -- When set, every user copying a bookmark on this map gets the same format,
     -- so shared bookmarks stay consistent across the group.
     ALTER TABLE maps ADD COLUMN IF NOT EXISTS bookmark_format TEXT;
+
+    -- Per-map override for the relic/data/gas SITE bookmark format, mirroring
+    -- bookmark_format above (which is wormhole-only). NULL = no map policy;
+    -- users fall back to their own nexum.sig.siteBookmarkFormat.
+    ALTER TABLE maps ADD COLUMN IF NOT EXISTS site_bookmark_format TEXT;
 
     -- Per-corp Discord notification settings (region filter). No row => the
     -- defaults below => notify for every region. The regions column holds
@@ -189,6 +281,20 @@ export async function migrate() {
     ALTER TABLE alliance_discord_settings ADD COLUMN IF NOT EXISTS connections_webhook TEXT;
     ALTER TABLE alliance_discord_settings ADD COLUMN IF NOT EXISTS chains_webhook      TEXT;
 
+    -- Minimum solar-system security a revealed k-space exit must have for the
+    -- new-connection notification to upgrade to the rich routing-intel embed.
+    -- Default 0.45 (high-sec). Applied to both scopes.
+    ALTER TABLE corp_discord_settings     ADD COLUMN IF NOT EXISTS exits_min_security REAL NOT NULL DEFAULT 0.45;
+    ALTER TABLE alliance_discord_settings ADD COLUMN IF NOT EXISTS exits_min_security REAL NOT NULL DEFAULT 0.45;
+
+    -- Kill alerts (zKill live feed): per-org webhook + a minimum ISK value the
+    -- kill must clear to notify. NULL webhook = kill alerts off for the org;
+    -- kill_min_isk default 0 = notify for every kill the feed already surfaces.
+    ALTER TABLE corp_discord_settings     ADD COLUMN IF NOT EXISTS kill_webhook TEXT;
+    ALTER TABLE alliance_discord_settings ADD COLUMN IF NOT EXISTS kill_webhook TEXT;
+    ALTER TABLE corp_discord_settings     ADD COLUMN IF NOT EXISTS kill_min_isk BIGINT NOT NULL DEFAULT 0;
+    ALTER TABLE alliance_discord_settings ADD COLUMN IF NOT EXISTS kill_min_isk BIGINT NOT NULL DEFAULT 0;
+
     CREATE TABLE IF NOT EXISTS map_systems (
       id            UUID        PRIMARY KEY,
       map_id        UUID        NOT NULL REFERENCES maps(id) ON DELETE CASCADE,
@@ -228,6 +334,23 @@ export async function migrate() {
     -- connection is kept on the map but quarantined (rendered severed, excluded
     -- from routing) so the chain is still traceable. See broken_chain_feature.
     ALTER TABLE map_connections ADD COLUMN IF NOT EXISTS broken    BOOLEAN NOT NULL DEFAULT FALSE;
+    -- Manual wormhole-lifetime override: when set, this is the estimated moment
+    -- the hole collapses and it drives the connection's time bucket (fresh / <1d
+    -- / <4h / <1h / expired). NULL = auto: the lifetime is derived on the fly
+    -- from created_at + the wh_type's charted max life (see services/connLifetimeSweep.ts
+    -- and the client's whLifetime util). Only user edits write this column, so a
+    -- non-null value always wins over the auto estimate.
+    ALTER TABLE map_connections ADD COLUMN IF NOT EXISTS lifetime_expires_at TIMESTAMPTZ;
+    -- Optional corp/alliance-shared "flag" on a connection: a single Phosphor
+    -- icon export name (e.g. WarningIcon) + a free-text note, to mark intel like
+    -- "DO NOT ROLL -- fleet inbound". Shown as a badge on the edge; the note
+    -- surfaces on hover. Both NULL = no flag.
+    ALTER TABLE map_connections ADD COLUMN IF NOT EXISTS flag_icon TEXT;
+    ALTER TABLE map_connections ADD COLUMN IF NOT EXISTS flag_note TEXT;
+    -- Opt-in: make the flag icon blink on the edge to grab attention.
+    ALTER TABLE map_connections ADD COLUMN IF NOT EXISTS flag_blink BOOLEAN NOT NULL DEFAULT FALSE;
+    -- Optional flag colour (hex, e.g. #f0a030). NULL = the default amber.
+    ALTER TABLE map_connections ADD COLUMN IF NOT EXISTS flag_color TEXT;
     ALTER TABLE map_systems     ADD COLUMN IF NOT EXISTS last_activity_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
 
     -- Manual intel tag a user can apply to a system via right-click. Distinct
@@ -247,6 +370,11 @@ export async function migrate() {
     -- system, NULL means untagged. Used for ad-hoc "system A / B / 1 / 2" marking.
     ALTER TABLE map_systems     ADD COLUMN IF NOT EXISTS tag           TEXT;
 
+    -- Display-only per-system alias: a user-set label shown in place of the real
+    -- system name on this map. NULL = show the real name. The real name still
+    -- drives all logic (connections, leads-to, matching, ESI); this is cosmetic.
+    ALTER TABLE map_systems     ADD COLUMN IF NOT EXISTS alias         TEXT;
+
     CREATE TABLE IF NOT EXISTS map_signatures (
       id          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
       system_id   UUID        NOT NULL REFERENCES map_systems(id) ON DELETE CASCADE,
@@ -256,6 +384,7 @@ export async function migrate() {
       notes       TEXT        NOT NULL DEFAULT '',
       wh_type     TEXT        NOT NULL DEFAULT '',
       wh_leads_to TEXT        NOT NULL DEFAULT '',
+      ghost_type  TEXT        NOT NULL DEFAULT '',
       created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
@@ -271,6 +400,39 @@ export async function migrate() {
       created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
+
+    -- Jump log: a passive, shared record of which known ships have physically
+    -- jumped THROUGH a wormhole connection (either direction), so pilots can
+    -- eyeball the mass that's gone through. Pure intel — it NEVER mutates the
+    -- connection's mass_used (that's the rolling calculator's separate job).
+    -- Each row is one crossing, recorded by the jumping pilot's own client.
+    -- ship_* are resolved server-side from the SDE by type id (not client-trusted).
+    CREATE TABLE IF NOT EXISTS map_connection_jumps (
+      id             UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+      connection_id  UUID        NOT NULL REFERENCES map_connections(id) ON DELETE CASCADE,
+      map_id         UUID        NOT NULL,      -- for map-scoped reads / SSE routing
+      direction      TEXT        NOT NULL DEFAULT 'forward',  -- source→target vs target→source
+      from_eve_system_id INTEGER,               -- system jumped FROM (self-describing order)
+      to_eve_system_id   INTEGER,               -- system jumped TO
+      from_system_name   TEXT,                  -- resolved server-side from solar_systems
+      to_system_name     TEXT,
+      character_id   BIGINT,                    -- EVE character id of the pilot
+      character_name TEXT,
+      ship_type_id   INTEGER,
+      ship_type_name TEXT,
+      ship_group     TEXT,                       -- ship class, e.g. "Battleship"
+      ship_mass      BIGINT,                     -- base SDE mass, kg
+      hot            BOOLEAN     NOT NULL DEFAULT FALSE,  -- pilot had prop active (known by a viewer)
+      jumped_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    -- Columns added after the table's first cut — CREATE TABLE IF NOT EXISTS won't
+    -- add them to a DB that already has the table, so ALTER them in idempotently
+    -- (no-op on a fresh DB where CREATE already made them).
+    ALTER TABLE map_connection_jumps ADD COLUMN IF NOT EXISTS from_eve_system_id INTEGER;
+    ALTER TABLE map_connection_jumps ADD COLUMN IF NOT EXISTS to_eve_system_id   INTEGER;
+    ALTER TABLE map_connection_jumps ADD COLUMN IF NOT EXISTS from_system_name   TEXT;
+    ALTER TABLE map_connection_jumps ADD COLUMN IF NOT EXISTS to_system_name     TEXT;
+    ALTER TABLE map_connection_jumps ADD COLUMN IF NOT EXISTS hot BOOLEAN NOT NULL DEFAULT FALSE;
 
     -- Cosmic anomalies (no scanning required — already 100% on the probe
     -- scanner). Separate from map_signatures: anomalies have no wormhole
@@ -313,6 +475,38 @@ export async function migrate() {
     -- the FK target is present; ADD COLUMN IF NOT EXISTS keeps it idempotent.
     ALTER TABLE map_connections ADD COLUMN IF NOT EXISTS source_signature_id UUID REFERENCES map_signatures(id) ON DELETE SET NULL;
     ALTER TABLE map_connections ADD COLUMN IF NOT EXISTS target_signature_id UUID REFERENCES map_signatures(id) ON DELETE SET NULL;
+
+    -- Discord dedupe: a connection is broadcast at most once, the first time it
+    -- becomes a confirmed wormhole link (standard + a backing sig). Set true on
+    -- send so a later edit (mass/time/type change, or filling in the sig after a
+    -- manual connect) can re-check without re-broadcasting. On first add, mark
+    -- every EXISTING connection as already-handled so the current chain isn't
+    -- re-announced when its holes are next edited after deploy — guarded so the
+    -- backfill runs exactly once, not on every boot.
+    -- discord_notified: broadcast at least once. discord_notified_known: the
+    -- broadcast carried a KNOWN wormhole type (not a bare K162) — lets a hole
+    -- first announced as an unknown K162 re-broadcast once when its real type is
+    -- scanned. Each column is guarded and backfilled INDEPENDENTLY (TRUE for
+    -- pre-existing connections, so the current chain isn't re-announced) — the
+    -- second must not be gated on the first, since an earlier deploy may already
+    -- have added discord_notified alone.
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'map_connections' AND column_name = 'discord_notified'
+      ) THEN
+        ALTER TABLE map_connections ADD COLUMN discord_notified BOOLEAN NOT NULL DEFAULT FALSE;
+        UPDATE map_connections SET discord_notified = TRUE;
+      END IF;
+      IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'map_connections' AND column_name = 'discord_notified_known'
+      ) THEN
+        ALTER TABLE map_connections ADD COLUMN discord_notified_known BOOLEAN NOT NULL DEFAULT FALSE;
+        UPDATE map_connections SET discord_notified_known = TRUE;
+      END IF;
+    END $$;
 
     -- Saved chains: a named, user-recorded path through the map's own
     -- connections (A..B). Stored as the explicit step sequence — ordered
@@ -418,16 +612,22 @@ export async function migrate() {
     ALTER TABLE IF EXISTS solar_systems ADD COLUMN IF NOT EXISTS stargate_count INTEGER;
 
     -- Opt-in anonymous deployment pings (NEXUM_TELEMETRY). One row per install,
-    -- keyed by a random per-instance id; stores only the app version and seen
-    -- timestamps — deliberately NO IP and no user/map data. On most installs
-    -- this stays empty; only the project's central collector receives pings.
+    -- keyed by a random per-instance id; stores the app version, seen timestamps
+    -- and two AGGREGATE counts (# maps, # users) for vague scale analytics —
+    -- deliberately NO IP and no identifying user/map data. On most installs this
+    -- stays empty; only the project's central collector receives pings.
     CREATE TABLE IF NOT EXISTS telemetry_pings (
       instance_id TEXT        PRIMARY KEY,
       version     TEXT,
+      map_count   INTEGER,
+      user_count  INTEGER,
       first_seen  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       last_seen   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       ping_count  INTEGER     NOT NULL DEFAULT 1
     );
+    -- Backfill the aggregate-count columns onto an already-collecting instance.
+    ALTER TABLE telemetry_pings ADD COLUMN IF NOT EXISTS map_count  INTEGER;
+    ALTER TABLE telemetry_pings ADD COLUMN IF NOT EXISTS user_count INTEGER;
 
     CREATE TABLE IF NOT EXISTS user_events (
       id          BIGSERIAL   PRIMARY KEY,
@@ -541,7 +741,18 @@ export async function migrate() {
       ON map_systems (map_id, eve_system_id)
       WHERE eve_system_id IS NOT NULL;
     CREATE INDEX IF NOT EXISTS idx_map_connections_map   ON map_connections (map_id);
+    -- FK referencing columns on map_connections. Postgres does NOT auto-index a
+    -- referencing side, so without these every map_signatures DELETE (the wh /
+    -- lifetime sweeps run these on a timer) and every map_systems DELETE / map
+    -- cascade seq-scans the whole map_connections table to find referencing rows.
+    CREATE INDEX IF NOT EXISTS idx_map_connections_source     ON map_connections (source_id);
+    CREATE INDEX IF NOT EXISTS idx_map_connections_target     ON map_connections (target_id);
+    CREATE INDEX IF NOT EXISTS idx_map_connections_source_sig ON map_connections (source_signature_id);
+    CREATE INDEX IF NOT EXISTS idx_map_connections_target_sig ON map_connections (target_signature_id);
     CREATE INDEX IF NOT EXISTS idx_map_signatures_system ON map_signatures (system_id);
+    -- FK referencing column — Postgres doesn't auto-index it, and a connection
+    -- delete cascades to these, so index it to avoid a seq-scan per connection drop.
+    CREATE INDEX IF NOT EXISTS idx_conn_jumps_conn ON map_connection_jumps (connection_id, jumped_at DESC);
     CREATE INDEX IF NOT EXISTS idx_map_structures_system ON map_structures (system_id);
     CREATE INDEX IF NOT EXISTS idx_user_events_user      ON user_events (user_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_system_activity       ON system_activity (eve_system_id, hour DESC);
@@ -660,12 +871,45 @@ export async function migrate() {
     CREATE INDEX IF NOT EXISTS idx_map_shares_char ON map_shares (target_character_id) WHERE target_character_id IS NOT NULL;
     CREATE INDEX IF NOT EXISTS idx_map_shares_corp ON map_shares (target_corp_id)      WHERE target_corp_id      IS NOT NULL;
 
+    -- Phase 2: alliance share targets (alliance installs only). Add the column,
+    -- swap the 2-way XOR CHECK for an "exactly one of three" rule, and add the
+    -- matching partial indexes. The original inline CHECK is unnamed (Postgres
+    -- calls it map_shares_check); drop it by that name, then add a named one.
+    ALTER TABLE map_shares ADD COLUMN IF NOT EXISTS target_alliance_id INTEGER;
+    ALTER TABLE map_shares DROP CONSTRAINT IF EXISTS map_shares_check;
+    ALTER TABLE map_shares DROP CONSTRAINT IF EXISTS map_shares_target_xor;
+    ALTER TABLE map_shares ADD CONSTRAINT map_shares_target_xor CHECK (
+      (target_character_id IS NOT NULL)::int
+      + (target_corp_id     IS NOT NULL)::int
+      + (target_alliance_id IS NOT NULL)::int = 1
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS uq_map_shares_alliance ON map_shares (map_id, target_alliance_id) WHERE target_alliance_id IS NOT NULL;
+    CREATE INDEX IF NOT EXISTS idx_map_shares_alliance ON map_shares (target_alliance_id) WHERE target_alliance_id IS NOT NULL;
+
+    -- Phase 3: per-grant permission, so an owner can share a map (incl. corp/
+    -- alliance maps) view-only OR editable. TRUE = recipient can edit — the
+    -- original share behaviour, so the default keeps every existing grant as
+    -- edit; FALSE = read-only.
+    ALTER TABLE map_shares ADD COLUMN IF NOT EXISTS can_write BOOLEAN NOT NULL DEFAULT TRUE;
+
     -- Last known solar system per user, updated from the ESI location poll as
     -- the pilot jumps. Lets the profile remember where they were last seen.
     -- INTEGER to match solar_systems.id (SDE-seeded); nullable until the first
     -- poll lands. No FK — system ids are immutable SDE data.
     ALTER TABLE users ADD COLUMN IF NOT EXISTS last_known_system_id INTEGER;
     ALTER TABLE users ADD COLUMN IF NOT EXISTS last_known_system_at TIMESTAMPTZ;
+
+    -- "Pilots online" needs two things last_known_system_at can't give it.
+    -- That column is written only when a pilot MOVES, so it means "last jumped",
+    -- not "last seen" — someone docked for an hour reads as long gone. last_seen_at
+    -- is touched on every location read instead (throttled to once a minute), so
+    -- recency actually means recency. Ship is recorded on the same write: the
+    -- location poll already fetches it, so this costs no extra ESI call.
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS last_seen_at   TIMESTAMPTZ;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS ship_type_id   INTEGER;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS ship_name      TEXT;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS ship_type_name TEXT;
+    CREATE INDEX IF NOT EXISTS idx_users_last_seen ON users (last_seen_at DESC) WHERE last_seen_at IS NOT NULL;
 
     -- True last-login timestamp, written only on an SSO auth (see auth callback).
     -- Distinct from updated_at, which is bumped by token refreshes, location
@@ -737,7 +981,154 @@ export async function migrate() {
       created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
     CREATE INDEX IF NOT EXISTS idx_api_tokens_owner ON api_tokens (owner_id);
+
+    -- Login allow-list. Who may sign in to a restricted deployment, beyond the
+    -- .env CORP_ID/ALLIANCE_ID core. Each row admits a corp, an alliance, or a
+    -- single character by raw EVE id. Seeded from .env on boot (source='env',
+    -- immutable from the admin API); everything else is managed live from the
+    -- admin area. See access-control-design.md.
+    CREATE TABLE IF NOT EXISTS access_grants (
+      id            UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+      kind          TEXT        NOT NULL CHECK (kind IN ('corp','alliance','character')),
+      eve_id        BIGINT      NOT NULL,
+      source        TEXT        NOT NULL DEFAULT 'admin' CHECK (source IN ('env','admin','share','standing')),
+      note          TEXT,
+      added_by_user INTEGER     REFERENCES users(id) ON DELETE SET NULL,
+      created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE (kind, eve_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_access_grants_lookup ON access_grants (kind, eve_id);
+
+    -- Role to give an invited character the first time they log in. NULL keeps
+    -- the deployment default (DEFAULT_USER_ROLE), which is what every grant made
+    -- before this column did. Only meaningful for kind='character': a corp or
+    -- alliance grant admits many people, and handing a whole corp a role on
+    -- first login is not something an admin should be able to do in one click.
+    -- Applied ONLY when the users row is created — see the role policy in
+    -- routes/auth.ts — so a stale invite can never re-promote someone an admin
+    -- has since demoted.
+    ALTER TABLE access_grants ADD COLUMN IF NOT EXISTS role TEXT;
+    -- The role vocabulary grows ('contributor' was added after this column
+    -- shipped), so the constraint is replaced rather than created once —
+    -- ADD COLUMN IF NOT EXISTS won't revisit a CHECK on a column that already
+    -- exists, which would leave a deployed database rejecting the new role.
+    ALTER TABLE access_grants DROP CONSTRAINT IF EXISTS access_grants_role_check;
+    ALTER TABLE access_grants ADD CONSTRAINT access_grants_role_check
+      CHECK (role IS NULL OR role IN ('alliance_admin','admin','full','edit','contributor','readonly'));
+
+    -- Deployment-level key/value settings (distinct from per-user ui_settings).
+    -- Phase 3 uses standings_login_enabled ('true'|'false') and
+    -- standings_login_threshold ('5'|'10') for the standings auto-admit toggle.
+    CREATE TABLE IF NOT EXISTS app_settings (
+      key             TEXT        PRIMARY KEY,
+      value           TEXT        NOT NULL,
+      updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_by_user INTEGER     REFERENCES users(id) ON DELETE SET NULL
+    );
+
+    -- Saved jump-planner routes (account-scoped). Stores the inputs only; the
+    -- route is recomputed on load against the account's current skills.
+    CREATE TABLE IF NOT EXISTS jump_plans (
+      id          UUID        PRIMARY KEY,
+      owner_id    INTEGER     NOT NULL,
+      name        TEXT        NOT NULL,
+      from_eve_id INTEGER     NOT NULL,
+      to_eve_id   INTEGER     NOT NULL,
+      ship_class  TEXT        NOT NULL,
+      objective   TEXT        NOT NULL DEFAULT 'hops',
+      created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_jump_plans_owner ON jump_plans (owner_id);
+    -- Persist the routing controls with a saved plan (added after the table).
+    ALTER TABLE jump_plans ADD COLUMN IF NOT EXISTS avoid_system_ids    INTEGER[] NOT NULL DEFAULT '{}';
+    ALTER TABLE jump_plans ADD COLUMN IF NOT EXISTS waypoint_system_ids INTEGER[] NOT NULL DEFAULT '{}';
+    ALTER TABLE jump_plans ADD COLUMN IF NOT EXISTS prefer_level        TEXT      NOT NULL DEFAULT 'off';
+
+    -- Corp structures pulled from ESI (esi-corporations.read_structures.v1),
+    -- scoped by corporation. Populated by a role-holding member's refresh; any
+    -- corp member can read them (e.g. as jump-planner endpoints). The full set
+    -- for a corp is replaced on each sync, so stale structures drop out.
+    CREATE TABLE IF NOT EXISTS structures (
+      structure_id    BIGINT      PRIMARY KEY,
+      corporation_id  INTEGER     NOT NULL,
+      name            TEXT        NOT NULL DEFAULT '',
+      solar_system_id INTEGER,
+      type_id         INTEGER,
+      type_name       TEXT        NOT NULL DEFAULT '',
+      updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_structures_corp ON structures (corporation_id);
+
+    -- NPC stations from the SDE (npcStations.jsonl), for jump-planner endpoints.
+    -- Names aren't in the SDE (they're generated), so we store id/system/type and
+    -- label them by system + station type at query time. Populated by setup-db's
+    -- importNpcStations or scripts/backfill-npc-stations.ts.
+    CREATE TABLE IF NOT EXISTS npc_stations (
+      station_id      BIGINT  PRIMARY KEY,
+      solar_system_id INTEGER,
+      type_id         INTEGER
+    );
+    CREATE INDEX IF NOT EXISTS idx_npc_stations_system ON npc_stations (solar_system_id);
+
+    -- ── ISK for extra maps (config.iskMaps, services/iskDonations.ts) ─────────
+    -- The operator token that reads the donation corp's wallet journal.
+    --
+    -- In its OWN table, deliberately, not on the users row: login upserts
+    -- refresh_token, so the reader character's next ordinary login would replace
+    -- a wallet-scoped token with one that lacks the scope, and crediting would
+    -- stop dead with nothing to show why.
+    CREATE TABLE IF NOT EXISTS wallet_reader (
+      character_id   INTEGER     PRIMARY KEY,
+      character_name TEXT        NOT NULL DEFAULT '',
+      refresh_token  TEXT        NOT NULL,
+      scopes         TEXT        NOT NULL DEFAULT '',
+      -- Donations count only from here on. ESI still returns 30 days of history,
+      -- and connecting a reader must not retroactively hand out maps for it.
+      credit_from    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      last_ok_at     TIMESTAMPTZ,
+      last_error     TEXT,
+      created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    -- One row per journal entry seen. journal_id is ESI's own unique reference,
+    -- so re-reading a page — which the hourly cache makes routine — can never
+    -- credit the same donation twice.
+    CREATE TABLE IF NOT EXISTS isk_donations (
+      journal_id   BIGINT        PRIMARY KEY,
+      character_id INTEGER       NOT NULL,
+      -- NULL means the donating character isn't linked to any account. Held for
+      -- an admin to assign rather than silently dropped.
+      owner_id     INTEGER       REFERENCES owners(id) ON DELETE SET NULL,
+      amount       NUMERIC(20,2) NOT NULL,
+      reason       TEXT          NOT NULL DEFAULT '',
+      occurred_at  TIMESTAMPTZ   NOT NULL,
+      credited_at  TIMESTAMPTZ   NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_isk_donations_owner ON isk_donations (owner_id);
+    CREATE INDEX IF NOT EXISTS idx_isk_donations_unmatched
+      ON isk_donations (occurred_at) WHERE owner_id IS NULL;
+
+    -- Manual adjustment to an account's map allowance: admin goodwill, a refund,
+    -- or crediting a donation that came from an unlinked character.
+    ALTER TABLE owners ADD COLUMN IF NOT EXISTS map_bonus INTEGER NOT NULL DEFAULT 0;
+
+    -- Ghost sites carry a tier (Lesser/Standard/Improved/Superior) that sets how
+    -- hard the rats hit and which space the site belongs in. Read from the site
+    -- name on a paste; stored here once a scout picks one by hand, so a
+    -- mis-scanned or hand-typed name can be corrected without editing the name.
+    ALTER TABLE map_signatures ADD COLUMN IF NOT EXISTS ghost_type TEXT NOT NULL DEFAULT '';
+
+    -- K162 and k-space-exit pings are opt-in. Both default FALSE: an exit ping
+    -- is new, and K162 previously fired for anyone with a connections webhook
+    -- whether they wanted it or not. Existing orgs therefore lose K162 pings on
+    -- upgrade until an admin switches them back on — a deliberate reset, since
+    -- there was never a way to say no to them.
+    ALTER TABLE corp_discord_settings     ADD COLUMN IF NOT EXISTS notify_k162  BOOLEAN NOT NULL DEFAULT FALSE;
+    ALTER TABLE corp_discord_settings     ADD COLUMN IF NOT EXISTS notify_exits BOOLEAN NOT NULL DEFAULT FALSE;
+    ALTER TABLE alliance_discord_settings ADD COLUMN IF NOT EXISTS notify_k162  BOOLEAN NOT NULL DEFAULT FALSE;
+    ALTER TABLE alliance_discord_settings ADD COLUMN IF NOT EXISTS notify_exits BOOLEAN NOT NULL DEFAULT FALSE;
   `);
 
   await encryptLegacyTokens();
+  await syncSystemFactsFromSde();
 }

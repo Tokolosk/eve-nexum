@@ -9,6 +9,9 @@ export interface SystemSearchResult {
   security: number;
   systemClass: string;
   regionName?: string | null;
+  /** Special-region NPC type, e.g. 'Triglavian' for Pochven. Used to exclude
+   *  Pochven (LS/NS by security but not jump-capable) from jump-point pickers. */
+  npcType?: string | null;
 }
 
 const K_SPACE_CLASSES = new Set(['HS', 'LS', 'NS']);
@@ -42,6 +45,8 @@ export function useEsiSearch(query: string, debounceMs = 300) {
 
   useEffect(() => {
     if (query.length < 2) {
+      // Deliberate: clears results when the query stops qualifying.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setResults([]);
       return;
     }

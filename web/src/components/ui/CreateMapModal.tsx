@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
-import { XIcon } from '@phosphor-icons/react';
+import { XIcon } from '../../icons';
 import { api } from '../../api/client';
 import { useMapStore } from '../../store/mapStore';
 import { useAuth, isAdminRole, isAllianceAdminRole } from '../../context/AuthContext';
-import { toast } from './Toaster';
+import { toast } from '../../utils/toastStore';
+import { Select } from './Select';
 
 type MapScope = 'personal' | 'corp' | 'alliance';
 
@@ -48,6 +49,9 @@ export function CreateMapModal({ onClose }: { onClose: () => void }) {
   const [scope, setScope] = useState<MapScope>('personal');
   const isCorp     = scope === 'corp';
   const isAlliance = scope === 'alliance';
+  // Corp/alliance-only map-level "Don't track K-space" policy; ignored (and
+  // forced false server-side) for personal maps.
+  const [skipKspace, setSkipKspace] = useState(false);
 
   const [regions, setRegions] = useState<Region[]>([]);
   const [query, setQuery]     = useState('');
@@ -91,11 +95,12 @@ export function CreateMapModal({ onClose }: { onClose: () => void }) {
     setError(null);
     try {
       const trimmed = name.trim();
+      const skip = (isCorp || isAlliance) && skipKspace;
       if (region) {
-        await createFromRegion(region.id, trimmed, isCorp, isAlliance);
+        await createFromRegion(region.id, trimmed, isCorp, isAlliance, skip);
         toast.success(t('createMap.created', { name: trimmed, region: region.name }));
       } else {
-        await createMap(trimmed, isCorp, isAlliance);
+        await createMap(trimmed, isCorp, isAlliance, skip);
       }
       onClose();
     } catch (e) {
@@ -131,12 +136,27 @@ export function CreateMapModal({ onClose }: { onClose: () => void }) {
           {(canCorp || canAlliance) && (
             <label className="field">
               <span>{t('createMap.type')}</span>
-              <select value={scope} onChange={(e) => setScope(e.target.value as MapScope)}>
-                <option value="personal">{t('createMap.personal')}</option>
-                {canCorp && <option value="corp">{t('createMap.corp')}</option>}
-                {canAlliance && <option value="alliance">{t('createMap.alliance')}</option>}
-              </select>
+              <Select
+                value={scope}
+                onChange={(v) => setScope(v as MapScope)}
+                options={[
+                  { value: 'personal', label: t('createMap.personal') },
+                  ...(canCorp     ? [{ value: 'corp',     label: t('createMap.corp') }]     : []),
+                  ...(canAlliance ? [{ value: 'alliance', label: t('createMap.alliance') }] : []),
+                ]}
+              />
             </label>
+          )}
+
+          {(isCorp || isAlliance) && (
+            <div className="field">
+              <label className="map-sidebar__row map-sidebar__toggle-row">
+                <span className="map-sidebar__label">{t('createMap.skipKspace')}</span>
+                <input type="checkbox" className="map-sidebar__toggle-input"
+                  checked={skipKspace} onChange={(e) => setSkipKspace(e.target.checked)} />
+              </label>
+              <div className="map-sidebar__hint">{t('createMap.skipKspaceHint')}</div>
+            </div>
           )}
 
           <div className="field">

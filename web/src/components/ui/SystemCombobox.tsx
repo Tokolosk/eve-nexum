@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import type { MapSystem } from '../../types';
+import { systemDisplayName } from '../../utils/systemName';
 
 interface Props {
   systems: MapSystem[];
@@ -18,7 +19,7 @@ interface Props {
 // overflow can't clip it.
 export function SystemCombobox({ systems, value, onChange, placeholder, excludeId }: Props) {
   const { t } = useTranslation();
-  const nameById = useMemo(() => new Map(systems.map((s) => [s.id, s.name])), [systems]);
+  const nameById = useMemo(() => new Map(systems.map((s) => [s.id, systemDisplayName(s)])), [systems]);
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(-1);
@@ -39,6 +40,8 @@ export function SystemCombobox({ systems, value, onChange, placeholder, excludeI
 
   // Position the portalled dropdown under the field; track while open.
   useEffect(() => {
+    // Deliberate: clears the portalled dropdown position when it closes.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (!open) { setPos(null); return; }
     const place = () => {
       const r = wrapRef.current?.getBoundingClientRect();
@@ -139,7 +142,7 @@ export function SystemCombobox({ systems, value, onChange, placeholder, excludeI
                 onMouseDown={(e) => { e.preventDefault(); select(s.id); }}
                 onMouseEnter={() => setActiveIndex(i)}
               >
-                <span>{s.name}</span>
+                <span>{systemDisplayName(s)}</span>
                 <span className="search-results__class">{s.systemClass}</span>
               </li>
             ))

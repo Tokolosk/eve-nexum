@@ -1,8 +1,7 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import { api } from '../api/client';
+import { createContext, useContext } from 'react';
 
 // Role tiers, low to high: readonly < edit < full < admin < alliance_admin.
-export type Role = 'alliance_admin' | 'admin' | 'full' | 'edit' | 'readonly';
+export type Role = 'alliance_admin' | 'admin' | 'full' | 'edit' | 'contributor' | 'readonly';
 
 /** True for corp admin OR alliance admin — every admin capability. */
 export function isAdminRole(role: Role): boolean {
@@ -15,7 +14,7 @@ export function isAllianceAdminRole(role: Role): boolean {
 
 // The canonical role order (highest tier first), for pickers and the roles
 // explainer. `readonly` is the default for a new member.
-export const ROLE_ORDER: Role[] = ['alliance_admin', 'admin', 'full', 'edit', 'readonly'];
+export const ROLE_ORDER: Role[] = ['alliance_admin', 'admin', 'full', 'edit', 'contributor', 'readonly'];
 
 /** Human display label for a role id: 'alliance_admin' -> 'Alliance admin'. */
 export function formatRole(role: Role): string {
@@ -69,6 +68,8 @@ export interface AuthUser {
   uiSettings: Record<string, unknown>;
   panelOrder: string[];
   canViewReports: boolean;
+  /** External read API (/api/v1) is switched off — the UI disables API-key creation. */
+  externalApiDisabled?: boolean;
 }
 
 interface AuthContextValue {
@@ -82,7 +83,9 @@ interface AuthContextValue {
   refresh: () => Promise<void>;
 }
 
-const AuthContext = createContext<AuthContextValue>({
+// Exported so AuthProvider (its own module, so this file stays free of
+// components and Fast Refresh keeps working for both) can supply it.
+export const AuthContext = createContext<AuthContextValue>({
   user: null,
   loading: true,
   locked: false,
@@ -92,57 +95,5 @@ const AuthContext = createContext<AuthContextValue>({
   refresh: async () => {},
 });
 
-export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<AuthUser | null>(null);
-  const [loading, setLoading] = useState(true);
-  // Idle-lock pauses the UI without ending the session — clicking "Continue"
-  // resumes instantly, no SSO round-trip. Cleared on real logout / no session.
-  const [locked, setLocked] = useState(false);
-  const lock = useCallback(() => setLocked(true), []);
-  const unlock = useCallback(() => setLocked(false), []);
-
-  useEffect(() => {
-    api<{ user: AuthUser | null }>('/auth/me')
-      .then((d) => {
-        setUser(d.user);
-        if (d.user) {
-          localStorage.setItem('nexum.last_character', JSON.stringify({
-            characterId:   d.user.characterId,
-            characterName: d.user.characterName,
-          }));
-        }
-      })
-      .catch(() => setUser(null))
-      .finally(() => setLoading(false));
-  }, []);
-
-  const logout = useCallback(async () => {
-    setLocked(false);
-    await api('/auth/logout', { method: 'POST' });
-    setUser(null);
-  }, []);
-
-  // Re-pull /auth/me without a full reload — e.g. after the character list
-  // changes (linking handled via redirect; removal stays in-page).
-  const refresh = useCallback(async () => {
-    try {
-      const d = await api<{ user: AuthUser | null }>('/auth/me');
-      setUser(d.user);
-    } catch { /* keep the current user on a transient failure */ }
-  }, []);
-
-  // Memoize so consumers don't re-render every time AuthProvider re-renders
-  // for an unrelated reason. logout / refresh are stable via useCallback.
-  const value = useMemo(
-    () => ({ user, loading, locked, lock, unlock, logout, refresh }),
-    [user, loading, locked, lock, unlock, logout, refresh],
-  );
-
-  return (
-    <AuthContext.Provider value={value}>
-      {children}
-    </AuthContext.Provider>
-  );
-}
 
 export const useAuth = () => useContext(AuthContext);

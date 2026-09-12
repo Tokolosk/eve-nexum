@@ -12,12 +12,13 @@ const log = createLogger('whSweep');
 const MIN_LIFETIME_HOURS = 4.5;
 
 interface CandidateRow {
-  id:        string;
-  systemId:  string;
-  mapId:     string;
-  whType:    string;
-  whLeadsTo: string;
-  createdAt: Date;
+  id:         string;
+  systemId:   string;
+  mapId:      string;
+  whType:     string;
+  whLeadsTo:  string;
+  createdAt:  Date;
+  graceHours: number;
 }
 
 interface SysRow  { id: string; name: string; systemClass: string }
@@ -92,14 +93,14 @@ async function sweepMap(mapId: string, expired: CandidateRow[]): Promise<void> {
   try {
     await client.query('BEGIN');
 
-    const [sysRes, connRes] = await Promise.all([
-      client.query<SysRow>(
-        `SELECT id, name, system_class AS "systemClass" FROM map_systems WHERE map_id = $1`, [mapId]),
-      client.query<ConnRow>(
-        `SELECT id, source_id AS "sourceId", target_id AS "targetId", wh_type AS "type",
-                connection_type AS "connectionType", broken
-           FROM map_connections WHERE map_id = $1`, [mapId]),
-    ]);
+    // Sequential, not Promise.all — concurrent queries on one pooled tx client
+    // are serialised by node-pg anyway and the parallel form is deprecated (pg@9).
+    const sysRes = await client.query<SysRow>(
+      `SELECT id, name, system_class AS "systemClass" FROM map_systems WHERE map_id = $1`, [mapId]);
+    const connRes = await client.query<ConnRow>(
+      `SELECT id, source_id AS "sourceId", target_id AS "targetId", wh_type AS "type",
+              connection_type AS "connectionType", broken
+         FROM map_connections WHERE map_id = $1`, [mapId]);
 
     await client.query(`DELETE FROM map_signatures WHERE id = ANY($1::uuid[])`, [expiredIds]);
 
@@ -150,19 +151,32 @@ async function sweepMap(mapId: string, expired: CandidateRow[]): Promise<void> {
 }
 
 /** One sweep pass over every opted-in map. */
-async function sweepAll(): Promise<void> {
+export async function sweepAll(): Promise<void> {
   let rows: CandidateRow[];
   try {
+    // When the connection-lifetime sweep is running, it is the single authority
+    // for any connection carrying a MANUAL lifetime override (lifetime_expires_at)
+    // — it honours the override, this sig-age sweep can't see it. Defer those sigs
+    // to it, so a hole whose life was manually EXTENDED past its type max isn't
+    // collapsed early here (the two sweeps otherwise disagree). Shorter overrides
+    // are collapsed by connLifetimeSweep first anyway. When it's disabled, this
+    // sweep handles everything as before.
+    const deferOverrides = config.connLifetimeSweepMinutes > 0;
     const res = await db.query<CandidateRow>(
       `SELECT s.id, s.system_id AS "systemId", sys.map_id AS "mapId",
-              s.wh_type AS "whType", s.wh_leads_to AS "whLeadsTo", s.created_at AS "createdAt"
+              s.wh_type AS "whType", s.wh_leads_to AS "whLeadsTo", s.created_at AS "createdAt",
+              m.collapse_grace_hours AS "graceHours"
          FROM map_signatures s
          JOIN map_systems sys ON sys.id = s.system_id
          JOIN maps m ON m.id = sys.map_id
         WHERE m.lazy_remove_wormholes = TRUE
           AND s.sig_type = 'wormhole'
-          AND s.created_at < NOW() - ($1 || ' hours')::interval`,
-      [String(MIN_LIFETIME_HOURS)],
+          AND s.created_at < NOW() - ($1 || ' hours')::interval
+          AND (NOT $2::boolean OR NOT EXISTS (
+                SELECT 1 FROM map_connections c
+                 WHERE (c.source_signature_id = s.id OR c.target_signature_id = s.id)
+                   AND c.lifetime_expires_at IS NOT NULL))`,
+      [String(MIN_LIFETIME_HOURS), deferOverrides],
     );
     rows = res.rows;
   } catch (err) {
@@ -176,7 +190,10 @@ async function sweepAll(): Promise<void> {
     const maxH = whLifetimeHours(r.whType);
     if (maxH === null) continue; // unknown code → never auto-remove
     const ageH = (now - new Date(r.createdAt).getTime()) / 3_600_000;
-    if (ageH <= maxH) continue;
+    // Same per-map grace buffer the connection-lifetime collapse uses, so a
+    // hole's sig and its connection are removed together (~max life + grace)
+    // rather than the sig vanishing a couple of hours before the edge severs.
+    if (ageH <= maxH + r.graceHours) continue;
     const list = byMap.get(r.mapId);
     if (list) list.push(r); else byMap.set(r.mapId, [r]);
   }

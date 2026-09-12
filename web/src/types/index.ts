@@ -1,7 +1,8 @@
 export type SystemClass =
   | 'C1' | 'C2' | 'C3' | 'C4' | 'C5' | 'C6' | 'C13'
   | 'HS' | 'LS' | 'NS'
-  | 'Thera' | 'Pochven' | 'Drifter';
+  | 'Thera' | 'Pochven' | 'Drifter'
+  | 'unknown';   // placeholder node — an unmapped wormhole destination (no eve id)
 
 export type WormholeEffect =
   | 'none' | 'pulsar' | 'black_hole' | 'cataclysmic_variable'
@@ -47,20 +48,34 @@ export type WatchMatch =
   | { by: 'system';   query: string }
   | { by: 'whType';   code: string }
   | { by: 'class';    cls: SystemClass }
+  | { by: 'leadsTo';  cls: SystemClass }
   | { by: 'effect';   effect: WormholeEffect }
   | { by: 'frigHole' };
 
 export interface WatchEntry {
   id:     string;
   match:  WatchMatch;
+  /** Extra conditions combined with `match` per `criteriaMode`. The full set
+   *  [match, ...criteria] is ANDed (all) or ORed (any) when testing a system /
+   *  connection. Absent/empty = a plain single-condition entry. The editor
+   *  limits criteria to whType ("contains") and leadsTo ("leads to"). */
+  criteria?: WatchMatch[];
+  /** How [match, ...criteria] combine. Default 'and'. */
+  criteriaMode?: 'and' | 'or';
   note:   string;
   marker: WatchMarkerKind;
+  // Optional named list this entry belongs to. Absent = ungrouped (shown at the
+  // top, always visible); a value files it under a collapsible group section.
+  group?: string;
 }
 
 export interface MapSystem {
   id: string;
   eveSystemId: number | null;
   name: string;
+  /** Display-only per-map rename. When set, shown in place of `name` in the UI;
+   *  `name` still drives all logic (connections, leads-to, matching, ESI). */
+  alias?: string | null;
   /** True-security status from the SDE (solar_systems.security). Served with
    *  the map so nodes don't each hit ESI. Null for legacy rows with no eve id. */
   security?: number | null;
@@ -88,7 +103,9 @@ export interface MapSystem {
   lastActivityAt: string; // ISO timestamp, updated when system or its sigs are touched
 }
 
-export type SigType = 'unknown' | 'wormhole' | 'data' | 'relic' | 'combat' | 'gas' | 'ore';
+// 'ghost' is a Covert Research Facility — a ghost site. The probe scanner
+// reports them as ordinary sites, so they are identified by name on paste.
+export type SigType = 'unknown' | 'wormhole' | 'data' | 'relic' | 'combat' | 'gas' | 'ore' | 'ghost';
 
 export interface Signature {
   id: string;
@@ -98,6 +115,9 @@ export interface Signature {
   notes: string;
   whType: string;
   whLeadsTo: string;
+  /** Ghost sites only: the tier a scout picked by hand. Blank means "read it
+   *  from the site name", which is what a pasted scan gives you. */
+  ghostType: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -145,7 +165,7 @@ export interface NpcStation {
 // (warp to gate, jump); 'jumpgate' = player Ansiblex jump bridge. 'standard'
 // is kept (rather than renamed to 'wormhole') to avoid migrating every stored
 // row + call site — it remains the wormhole sentinel.
-export type ConnectionType = 'standard' | 'gate' | 'jumpgate';
+export type ConnectionType = 'standard' | 'gate' | 'jumpgate' | 'cyno';
 
 export interface MapConnection {
   id: string;
@@ -160,6 +180,11 @@ export interface MapConnection {
   size: ConnectionSize;
   massUsed: number; // kg — total mass jumped through this connection
   eolAt: string | null; // ISO timestamp when EOL was marked (null = fresh)
+  /** Manual wormhole-lifetime override: the estimated ISO timestamp the hole
+   *  collapses, driving its time bucket. Null = auto (derived from createdAt +
+   *  the wh type's charted max life). Only user edits set this; a non-null value
+   *  wins over the auto estimate. See utils/whLifetime.ts. */
+  lifetimeExpiresAt?: string | null;
   /** Optional links to the backing wormhole signature at each end: the sig you
    *  warp to in the source system, and the (usually K162) sig in the target.
    *  Powers the per-hop "warp to ABC-123" directions in saved chains. Null when
@@ -171,6 +196,14 @@ export interface MapConnection {
    *  connection is kept on the map but quarantined — rendered severed and
    *  excluded from routing — so the chain is still traceable. */
   broken: boolean;
+  /** Optional corp/alliance-shared flag: a single Phosphor icon export name
+   *  (e.g. 'WarningIcon') shown as a badge on the edge, plus a free-text note
+   *  revealed on hover — for intel like "DO NOT ROLL — fleet inbound". A new
+   *  icon replaces the old (single flag). Both null = no flag. */
+  flagIcon: string | null;
+  flagNote: string | null;
+  flagBlink: boolean;
+  flagColor: string | null;
   createdAt: string;
 }
 
@@ -180,6 +213,14 @@ export interface WormholeMap {
   isCorpMap?: boolean;
   /** Alliance-scoped map (visible to the whole alliance). */
   isAllianceMap?: boolean;
+  /** How the caller reached this map (server-authoritative, from GET /maps/:id):
+   *  'owner' | 'corp_member' | 'alliance_member' | 'shared'. Drives whether the
+   *  edit UI is shown — the server still enforces every write. */
+  accessKind?: 'owner' | 'corp_member' | 'alliance_member' | 'shared';
+  /** For accessKind 'shared' only: did the grant confer edit (true) or view-only
+   *  (false)? null/absent otherwise. A view-only share caps editing regardless
+   *  of the caller's role. */
+  shareCanWrite?: boolean | null;
   locked?: boolean;
   /** Corp maps only: whether this map is opted in as a merge source. */
   allowAsMergeSource?: boolean;
@@ -188,10 +229,21 @@ export interface WormholeMap {
   /** Opt-in: a server-side sweep removes wormhole sigs older than their type's
    *  max lifetime and quarantines (marks broken) any connection they backed. */
   lazyRemoveWormholes?: boolean;
+  /** Corp/alliance maps only: map-level "Don't track K-space" policy. When true,
+   *  no one on this map records K-space jumps, overriding each member's personal
+   *  nexum.tracking.skipKspace. Only owner/admins can change it. */
+  skipKspace?: boolean;
+  /** Lazy-removal maps only: hours an expired connection lingers before the
+   *  lifetime sweep severs it and drops its backing sigs. Default 0.5 (30 min). */
+  collapseGraceHours?: number;
   /** Per-map bookmark-name format override. When set (non-empty), every user on
    *  this map copies bookmarks in this format; when null/absent, each user falls
    *  back to their own nexum.sig.bookmarkFormat global setting. */
   bookmarkFormat?: string | null;
+  /** Per-map override for the relic/data/gas SITE bookmark format, mirroring
+   *  bookmarkFormat (which is wormhole-only). Null/absent = each user falls back
+   *  to their own nexum.sig.siteBookmarkFormat. */
+  siteBookmarkFormat?: string | null;
   /** Present when the map has an active or expired share link. The token
    *  itself is in shareToken; shareExpiresAt is the cutoff. The owner UI
    *  treats an expired token as "no link" — regenerate to share again.

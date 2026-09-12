@@ -1,15 +1,21 @@
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { mass } from '../../i18n/format';
+import { mass, timeAgo } from '../../i18n/format';
 import { useMapStore } from '../../store/mapStore';
+import { useConnectionJumps, useJumpLogStore, type JumpRow } from '../../store/jumpLogStore';
 import { useWormholeTypes } from '../../hooks/useWormholeTypes';
 import { useNow30s } from '../../hooks/useNow30s';
 import { useCanEdit } from '../../hooks/useCanEdit';
+import { systemDisplayName } from '../../utils/systemName';
 import { useCharacterLocation } from '../../hooks/useCharacterLocation';
 import { WHTypeInfo } from './WHTypeInfo';
+import { Select } from './Select';
 import { whSizeForType } from '../../utils/wormholeSize';
+import { effectiveExpiryMs, lifeBucket, knownMaxLifeHours } from '../../utils/whLifetime';
 import { ConfirmModal } from './ConfirmModal';
-import { XIcon } from '@phosphor-icons/react';
+import { IconPickerDialog } from './IconPickerDialog';
+import { XIcon, TagIcon } from '../../icons';
+import { DynamicIcon } from '../DynamicIcon';
 import { api } from '../../api/client';
 import type { MassStatus, TimeStatus, ConnectionSize, Signature, SystemClass } from '../../types';
 import {
@@ -39,6 +45,20 @@ function deriveStatus(remainingFraction: number): MassStatus {
   if (remainingFraction <= 0.10) return 'critical';
   if (remainingFraction <= 0.50) return 'destabilized';
   return 'stable';
+}
+
+// Inverse of deriveStatus: the most-remaining edge of each status band. Used
+// when the pilot picks a mass status by hand (they eyeballed the hole in-game,
+// or someone else rolled it) so the rolling calculator reflects that state
+// instead of only counting passes it saw. Each maps to the boundary — the
+// optimistic edge — of its band: destabilized = 50% left, critical = 10% left.
+const STATUS_REMAINING_FRACTION: Record<MassStatus, number> = {
+  stable:       1.0,
+  destabilized: 0.50,
+  critical:     0.10,
+};
+function massUsedForStatus(status: MassStatus, totalMass: number): number {
+  return Math.round(totalMass * (1 - STATUS_REMAINING_FRACTION[status]));
 }
 
 // Match a sig's `whLeadsTo` against the other endpoint. The dropdown can
@@ -99,6 +119,13 @@ export function ConnectionPanel() {
   const [stack,  setStack]  = useState<number[]>([]);
   const [pendingPass, setPendingPass] = useState<{ kg: number; strand: boolean } | null>(null);
   const [sessionConnId, setSessionConnId] = useState<string | undefined>(undefined);
+  // "Custom" ship explicitly chosen from the preset dropdown. Needed because the
+  // preset name is otherwise derived purely from the cold/hot masses — so picking
+  // "Custom" while the masses still match a preset would snap straight back. This
+  // flag makes the choice stick so the pilot can then type their own masses.
+  const [rollerCustom, setRollerCustom] = useState(false);
+  // Open state for the connection-flag icon picker.
+  const [flagPickerOpen, setFlagPickerOpen] = useState(false);
   // Signatures on the two endpoint systems — feeds both the WH-type auto-detect
   // and the per-end "backing signature" link dropdowns below.
   const [endpointSigs, setEndpointSigs] = useState<{ src: Signature[]; tgt: Signature[] }>({ src: [], tgt: [] });
@@ -118,6 +145,8 @@ export function ConnectionPanel() {
   // gate / Ansiblex links, which are never wormholes.
   useEffect(() => {
     if (!conn || !src || !tgt || !map.id || conn.connectionType !== 'standard') {
+      // Deliberate: clears this pane's own state when the record it shows changes.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setEndpointSigs({ src: [], tgt: [] });
       return;
     }
@@ -129,6 +158,21 @@ export function ConnectionPanel() {
     return () => { cancelled = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conn?.id, src?.id, tgt?.id, map.id, conn?.connectionType]);
+
+  // Jump log for the selected wormhole connection. Fetched once per connection
+  // (SSE keeps it live after that via jumpLogStore). Read from the store so live
+  // `jump.logged` events update the panel without a refetch.
+  const jumps = useConnectionJumps(conn?.id ?? null);
+  useEffect(() => {
+    if (!conn || !map.id || conn.connectionType !== 'standard') return;
+    const cid = conn.id;
+    let cancelled = false;
+    api<JumpRow[]>(`/api/maps/${map.id}/connections/${cid}/jumps`)
+      .then((rows) => { if (!cancelled) useJumpLogStore.getState().seed(cid, rows); })
+      .catch(() => { /* best-effort */ });
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conn?.id, conn?.connectionType, map.id]);
 
   // Auto-detect the WH type from the fetched endpoint signatures. Only fills if
   // conn.type is strictly `null` (never touched) so manual entries — including
@@ -175,6 +219,7 @@ export function ConnectionPanel() {
     setSide(s.side);
     setStack(s.stack);
     setPendingPass(null);
+    setRollerCustom(false);
   }
 
   if (!conn) return null;
@@ -197,7 +242,13 @@ export function ConnectionPanel() {
   const addMass = (kg: number) => {
     if (!whSpec) return;
     const next = Math.max(0, massUsed + kg);
-    const nextStatus = deriveStatus((whSpec.totalMass - next) / whSpec.totalMass);
+    // Derive the status from the WORST-case remaining — the same basis as the
+    // calculator's fill bar and pass warnings — so a pass that pushes the hole
+    // into the critical band flags Critical, not just Destabilized. Deriving
+    // from nominal here lagged: the bar went red while the dropdown stayed
+    // destabilized.
+    const r = massRange(whSpec.totalMass, next);
+    const nextStatus = deriveStatus(r.worstRemaining / (r.worstTotal || 1));
     update({ massUsed: next, massStatus: nextStatus });
   };
 
@@ -241,33 +292,51 @@ export function ConnectionPanel() {
     update({ massUsed: 0, massStatus: 'stable' });
   };
 
+  // Picking a mass status by hand also seeds massUsed to that band's boundary,
+  // so the rolling calculator's remaining estimate reflects the chosen state
+  // (setting Critical drops "left" to ~10%, not the full bar). The previous
+  // per-pass undo history no longer matches, so clear it (keep the roll side).
+  const changeMassStatus = (status: MassStatus) => {
+    if (whSpec) update({ massStatus: status, massUsed: massUsedForStatus(status, whSpec.totalMass) });
+    else        update({ massStatus: status });
+    if (conn && stack.length) {
+      setStack([]);
+      saveSession(conn.id, { side, stack: [] });
+    }
+  };
+
   // Wormhole-only fields (type, sig link, mass / time / size, rolling calc)
   // don't apply to stargates or Ansiblex jump bridges — only 'standard' links.
   const isWormhole = conn.connectionType === 'standard';
 
   return (
     <aside className="system-panel">
-      <div className="system-panel__header">
-        <h2 className="system-panel__title">
-          {src?.name ?? '?'} → {tgt?.name ?? '?'}
-        </h2>
-        <button className="icon-btn" onClick={() => selectConnection(null)} title={t('actions.close')}><XIcon size={14} weight="bold" /></button>
-      </div>
-
-      {conn.broken && (
-        <div className="conn-broken-banner">
-          <span className="conn-broken-banner__text">{t('connPanel.brokenNotice')}</span>
-          <button
-            type="button"
-            className="sys-btn"
-            disabled={!canEdit}
-            onClick={() => update({ broken: false })}
-            title={t('connPanel.restoreTitle')}
-          >
-            {t('connPanel.restore')}
-          </button>
+      {/* Title + broken banner stack as one left column, so the banner sits
+          directly under the connection name and wraps within it instead of
+          becoming its own squeezed column that overlaps on narrow screens. */}
+      <div className="conn-headcol">
+        <div className="system-panel__header">
+          <h2 className="system-panel__title">
+            {src ? systemDisplayName(src) : '?'} → {tgt ? systemDisplayName(tgt) : '?'}
+          </h2>
+          <button className="icon-btn" onClick={() => selectConnection(null)} title={t('actions.close')}><XIcon size={14} weight="bold" /></button>
         </div>
-      )}
+
+        {conn.broken && (
+          <div className="conn-broken-banner">
+            <span className="conn-broken-banner__text">{t('connPanel.brokenNotice')}</span>
+            <button
+              type="button"
+              className="sys-btn"
+              disabled={!canEdit}
+              onClick={() => update({ broken: false })}
+              title={t('connPanel.restoreTitle')}
+            >
+              {t('connPanel.restore')}
+            </button>
+          </div>
+        )}
+      </div>
 
       {!isWormhole && (
         <p className="conn-gate-note">
@@ -276,6 +345,8 @@ export function ConnectionPanel() {
       )}
 
       {isWormhole && (<>
+      {/* Column 1 — wormhole type + backing signatures */}
+      <div className="conn-col conn-col--wh">
       <label className="field">
         <span>{t('connPanel.whType')} <WHTypeInfo code={conn.type} /></span>
         <input
@@ -290,94 +361,177 @@ export function ConnectionPanel() {
         <div className="conn-siglink">
           <div className="conn-siglink__label">{t('connPanel.sigLink')}</div>
           <label className="field">
-            <span>{t('connPanel.sigInSystem', { system: src?.name ?? '?' })}</span>
-            <select
+            <span>{t('connPanel.sigInSystem', { system: src ? systemDisplayName(src) : '?' })}</span>
+            <Select
               value={conn.sourceSignatureId ?? ''}
               disabled={!canEdit}
-              onChange={(e) => update({ sourceSignatureId: e.target.value || null })}
-            >
-              <option value="">{t('connPanel.sigNone')}</option>
-              {linkSigs(endpointSigs.src).map((s) => (
-                <option key={s.id} value={s.id}>{sigLabel(s)}</option>
-              ))}
-            </select>
+              onChange={(v) => update({ sourceSignatureId: v || null })}
+              options={[
+                { value: '', label: t('connPanel.sigNone') },
+                ...linkSigs(endpointSigs.src).map((s) => ({ value: s.id, label: sigLabel(s) })),
+              ]}
+            />
           </label>
           <label className="field">
-            <span>{t('connPanel.sigInSystem', { system: tgt?.name ?? '?' })}</span>
-            <select
+            <span>{t('connPanel.sigInSystem', { system: tgt ? systemDisplayName(tgt) : '?' })}</span>
+            <Select
               value={conn.targetSignatureId ?? ''}
               disabled={!canEdit}
-              onChange={(e) => update({ targetSignatureId: e.target.value || null })}
-            >
-              <option value="">{t('connPanel.sigNone')}</option>
-              {linkSigs(endpointSigs.tgt).map((s) => (
-                <option key={s.id} value={s.id}>{sigLabel(s)}</option>
-              ))}
-            </select>
+              onChange={(v) => update({ targetSignatureId: v || null })}
+              options={[
+                { value: '', label: t('connPanel.sigNone') },
+                ...linkSigs(endpointSigs.tgt).map((s) => ({ value: s.id, label: sigLabel(s) })),
+              ]}
+            />
           </label>
         </div>
       )}
+      </div>
 
+      {/* Column 2 — mass / time / size */}
+      <div className="conn-col conn-col--status">
       <label className="field">
         <span>{t('connPanel.massStatus')}</span>
-        <select
+        <Select
           value={conn.massStatus ?? ''}
-          onChange={(e) => update({ massStatus: e.target.value as MassStatus })}
-        >
-          <option value="stable">{t('connPanel.stable')}</option>
-          <option value="destabilized">{t('connPanel.destabilized')}</option>
-          <option value="critical">{t('connPanel.critical')}</option>
-        </select>
+          onChange={(v) => changeMassStatus(v as MassStatus)}
+          options={[
+            { value: 'stable', label: t('connPanel.stable') },
+            { value: 'destabilized', label: t('connPanel.destabilized') },
+            { value: 'critical', label: t('connPanel.critical') },
+          ]}
+        />
       </label>
 
       <label className="field">
         <span>{t('connPanel.timeStatus')}</span>
-        <select
+        <Select
           value={(() => {
-            // Derive the live stage from eolAt + timeStatus so the dropdown
-            // tracks the same countdown the edge label shows.
-            if (conn.timeStatus === 'lessThan24h' && !conn.eolAt) return 'lessThan24h';
-            if (conn.eolAt) {
-              const elapsedH = (now - new Date(conn.eolAt).getTime()) / 3_600_000;
-              if (elapsedH >= 4) return 'expired';
-              if (elapsedH >= 3) return 'lessThan1h';
-              return 'lessThan4h';
-            }
-            return 'fresh';
+            // Derive the live stage from the hole's effective expiry so the
+            // dropdown tracks the same countdown the edge label shows.
+            const expiry = effectiveExpiryMs(conn, whTypes);
+            if (expiry != null) return lifeBucket(expiry - now);
+            return conn.timeStatus === 'lessThan24h' ? 'lessThan24h' : 'fresh';
           })()}
-          onChange={(e) => {
-            const v = e.target.value as TimeStatus;
-            const offset = (h: number) => new Date(Date.now() - h * 3_600_000).toISOString();
+          onChange={(val) => {
+            const v = val as TimeStatus;
+            // A picked stage becomes a manual expiry that then ages from now.
+            const expiresIn = (h: number) => new Date(Date.now() + h * 3_600_000).toISOString();
+            const maxLife = knownMaxLifeHours(conn, whTypes);
             switch (v) {
-              case 'fresh':       update({ timeStatus: 'fresh',       eolAt: null });            break;
-              case 'lessThan24h': update({ timeStatus: 'lessThan24h', eolAt: null });            break;
-              case 'lessThan4h':  update({ timeStatus: 'eol',         eolAt: offset(0) });        break;
-              case 'lessThan1h':  update({ timeStatus: 'eol',         eolAt: offset(3) });        break;
-              case 'expired':     update({ timeStatus: 'eol',         eolAt: offset(4) });        break;
+              case 'fresh':       update({ timeStatus: 'fresh',       eolAt: null, lifetimeExpiresAt: maxLife ? expiresIn(maxLife) : null }); break;
+              case 'lessThan24h': update({ timeStatus: 'lessThan24h', eolAt: null, lifetimeExpiresAt: expiresIn(24) }); break;
+              case 'lessThan4h':  update({ timeStatus: 'lessThan4h',  eolAt: null, lifetimeExpiresAt: expiresIn(4) });  break;
+              case 'lessThan1h':  update({ timeStatus: 'lessThan1h',  eolAt: null, lifetimeExpiresAt: expiresIn(1) });  break;
+              case 'expired':     update({ timeStatus: 'expired',     eolAt: null, lifetimeExpiresAt: expiresIn(0) });  break;
             }
           }}
-        >
-          <option value="fresh">{t('connPanel.fresh')}</option>
-          <option value="lessThan24h">{t('connPanel.lessThan1d')}</option>
-          <option value="lessThan4h">{t('connPanel.lessThan4h')}</option>
-          <option value="lessThan1h">{t('connPanel.lessThan1h')}</option>
-          <option value="expired">{t('connPanel.expired')}</option>
-        </select>
+          options={[
+            ...((knownMaxLifeHours(conn, whTypes) ?? 48) > 24
+              ? [{ value: 'fresh', label: t('connPanel.fresh') }]
+              : []),
+            { value: 'lessThan24h', label: t('connPanel.lessThan1d') },
+            { value: 'lessThan4h', label: t('connPanel.lessThan4h') },
+            { value: 'lessThan1h', label: t('connPanel.lessThan1h') },
+            { value: 'expired', label: t('connPanel.expired') },
+          ]}
+        />
       </label>
 
       <label className="field">
         <span>{t('connPanel.size')}</span>
-        <select
+        <Select
           value={conn.size}
-          onChange={(e) => update({ size: e.target.value as ConnectionSize })}
-        >
-          <option value="xl">{t('connPanel.sizeXl')}</option>
-          <option value="large">{t('connPanel.sizeLarge')}</option>
-          <option value="medium">{t('connPanel.sizeMedium')}</option>
-          <option value="small">{t('connPanel.sizeSmall')}</option>
-        </select>
+          onChange={(v) => update({ size: v as ConnectionSize })}
+          options={[
+            { value: 'xl', label: t('connPanel.sizeXl') },
+            { value: 'large', label: t('connPanel.sizeLarge') },
+            { value: 'medium', label: t('connPanel.sizeMedium') },
+            { value: 'small', label: t('connPanel.sizeSmall') },
+          ]}
+        />
       </label>
+      </div>
 
+      {/* Column 3 — flag */}
+      <div className="conn-col conn-col--flag">
+      {/* Corp/alliance-shared flag: a single icon + note surfaced on the edge
+          (e.g. "DO NOT ROLL — fleet inbound"). Setting a new icon replaces the
+          old one. Synced to every viewer via the connection update path. */}
+      <label className="field conn-flag">
+        <span>{t('connPanel.flagLabel')}</span>
+        <div className="conn-flag__row">
+          {(() => {
+            return (
+              <button
+                type="button"
+                className="sys-btn conn-flag__pick"
+                disabled={!canEdit}
+                onClick={() => setFlagPickerOpen(true)}
+                title={t('connPanel.flagAdd')}
+              >
+                {conn.flagIcon ? <DynamicIcon name={conn.flagIcon} size={16} weight="fill" /> : <TagIcon size={16} />}
+                {!conn.flagIcon && <span>{t('connPanel.flagAdd')}</span>}
+              </button>
+            );
+          })()}
+          {conn.flagIcon && (
+            <input
+              type="color"
+              className="conn-flag__color"
+              value={conn.flagColor ?? '#f0a030'}
+              disabled={!canEdit}
+              onChange={(e) => update({ flagColor: e.target.value })}
+              title={t('connPanel.flagColor')}
+              aria-label={t('connPanel.flagColor')}
+            />
+          )}
+          {conn.flagIcon && (
+            <button
+              type="button"
+              className="icon-btn conn-flag__remove"
+              disabled={!canEdit}
+              onClick={() => update({ flagIcon: null, flagNote: null, flagColor: null, flagBlink: false })}
+              data-tooltip={t('connPanel.flagRemove')}
+            >
+              <XIcon size={14} weight="bold" />
+            </button>
+          )}
+        </div>
+        {conn.flagIcon && (
+          <input
+            type="text"
+            value={conn.flagNote ?? ''}
+            maxLength={200}
+            disabled={!canEdit}
+            onChange={(e) => update({ flagNote: e.target.value || null })}
+            placeholder={t('connPanel.flagNotePlaceholder')}
+          />
+        )}
+        {conn.flagIcon && (
+          <label className="conn-flag__blink">
+            <input
+              type="checkbox"
+              checked={conn.flagBlink}
+              disabled={!canEdit}
+              onChange={(e) => update({ flagBlink: e.target.checked })}
+            />
+            <span>{t('connPanel.flagBlink')}</span>
+          </label>
+        )}
+      </label>
+      </div>
+
+      {flagPickerOpen && (
+        <IconPickerDialog
+          current={conn.flagIcon}
+          onPick={(name) => update({ flagIcon: name })}
+          onClose={() => setFlagPickerOpen(false)}
+        />
+      )}
+
+      {/* Column 4 — rolling calculator */}
+      <div className="conn-col conn-col--roller">
       {whSpec ? (() => {
         const range    = massRange(whSpec.totalMass, massUsed);
         const cState   = collapseState(whSpec.totalMass, massUsed);
@@ -417,7 +571,7 @@ export function ConnectionPanel() {
 
         const myShip = location.ship;
         const canUseMyShip = !!(myShip && myShip.mass != null && myShip.mass > 0);
-        const presetName = ROLLER_PRESETS.find(p => p.coldKg === roller.coldKg && p.hotKg === roller.hotKg)?.name ?? 'Custom';
+        const presetName = rollerCustom ? 'Custom' : (ROLLER_PRESETS.find(p => p.coldKg === roller.coldKg && p.hotKg === roller.hotKg)?.name ?? 'Custom');
         const setMass = (key: 'coldKg' | 'hotKg', m: number) =>
           setRoller(r => ({ ...r, name: 'Custom', [key]: Math.max(0, Math.round(m * 1_000_000)) }));
 
@@ -444,16 +598,18 @@ export function ConnectionPanel() {
           {/* Roller ship config (per-pilot, persisted) */}
           <div className="roller">
             <div className="roller__row">
-              <select
+              <Select
                 value={presetName}
-                onChange={(e) => {
-                  const p = ROLLER_PRESETS.find(x => x.name === e.target.value);
-                  if (p) setRoller({ ...p });
+                onChange={(v) => {
+                  if (v === 'Custom') { setRollerCustom(true); return; }
+                  const p = ROLLER_PRESETS.find(x => x.name === v);
+                  if (p) { setRollerCustom(false); setRoller({ ...p }); }
                 }}
-              >
-                {ROLLER_PRESETS.map(p => <option key={p.name} value={p.name}>{p.name}</option>)}
-                <option value="Custom">{t('connPanel.custom')}</option>
-              </select>
+                options={[
+                  ...ROLLER_PRESETS.map(p => ({ value: p.name, label: p.name })),
+                  { value: 'Custom', label: t('connPanel.custom') },
+                ]}
+              />
               <button
                 type="button"
                 className="sys-btn"
@@ -546,6 +702,97 @@ export function ConnectionPanel() {
       ) : (
         <div className="mass-tracker__hint">{t('connPanel.enterWhType')}</div>
       )}
+      </div>
+
+      {/* Column 5 — jump log. Passive shared intel: which known ships have jumped
+          through this hole (either way), so pilots can eyeball the mass that's
+          gone through. It NEVER mutates the connection's mass — separate from the
+          rolling calculator on purpose. */}
+      <div className="conn-col conn-col--jumplog">
+        <div className="mass-tracker__header">
+          <span className="mass-tracker__label">{t('connPanel.jumpLog.title')}</span>
+          {canEdit && jumps.length > 0 && (
+            <button
+              type="button"
+              className="jumplog__clear"
+              title={t('connPanel.jumpLog.clearTitle')}
+              onClick={() => {
+                useJumpLogStore.getState().clearConnection(conn.id);
+                void api(`/api/maps/${map.id}/connections/${conn.id}/jumps`, { method: 'DELETE' }).catch(() => {});
+              }}
+            >
+              {t('connPanel.jumpLog.clear')}
+            </button>
+          )}
+        </div>
+        {jumps.length === 0 ? (
+          <div className="mass-tracker__hint">{t('connPanel.jumpLog.empty')}</div>
+        ) : (() => {
+          const srcName = src ? systemDisplayName(src) : '?';
+          const tgtName = tgt ? systemDisplayName(tgt) : '?';
+          // Prefer each row's own stored from/to (self-describing); fall back to
+          // the live connection endpoints via the direction flag for older rows.
+          const routeOf = (j: JumpRow) => {
+            const from = j.fromSystemName ?? (j.direction === 'forward' ? srcName : tgtName);
+            const to   = j.toSystemName   ?? (j.direction === 'forward' ? tgtName : srcName);
+            return `${from} → ${to}`;
+          };
+          // Each jump counts hot (base + one prop-mod's mass) or cold (base),
+          // per its own flag — a viewer marks it once they know. Can't add prop to
+          // a ship whose base mass we never resolved (leave null).
+          const shownMass = (j: JumpRow) => j.shipMass == null ? null : (j.hot ? j.shipMass + PROP_MASS : j.shipMass);
+          const totalMass = jumps.reduce((sum, j) => sum + (shownMass(j) ?? 0), 0);
+          // Flip one jump's hot flag: optimistic store update + PATCH.
+          const toggleHot = (j: JumpRow) => {
+            const updated = { ...j, hot: !j.hot };
+            useJumpLogStore.getState().updateJump(updated);
+            void api(`/api/maps/${map.id}/connections/${conn.id}/jumps/${j.id}`, {
+              method: 'PATCH', body: JSON.stringify({ hot: updated.hot }),
+            }).catch(() => { useJumpLogStore.getState().updateJump(j); /* revert on failure */ });
+          };
+          return (
+            <>
+              <div className="jumplog__total">
+                {t('connPanel.jumpLog.total', { count: jumps.length, mass: fmtMass(totalMass) })}
+              </div>
+              <ul className="jumplog__list">
+                {jumps.map((j) => (
+                  <li key={j.id} className="jumplog__row">
+                    <div className="jumplog__line">
+                      <span className="jumplog__pilot">{j.characterName ?? '—'}</span>
+                      <span className="jumplog__time">{timeAgo(t, j.jumpedAt)}</span>
+                    </div>
+                    <div className="jumplog__line jumplog__line--sub">
+                      <span className="jumplog__ship">
+                        {j.shipTypeName ?? t('connPanel.jumpLog.unknownShip')}
+                        {j.shipGroup ? <span className="jumplog__class"> · {j.shipGroup}</span> : null}
+                      </span>
+                      <span className="jumplog__mass">{shownMass(j) != null ? fmtMass(shownMass(j)!) : '—'}</span>
+                    </div>
+                    <div className="jumplog__line jumplog__line--sub">
+                      <span className="jumplog__route">{routeOf(j)}</span>
+                      {canEdit ? (
+                        <button
+                          type="button"
+                          className={`jumplog__hot-btn${j.hot ? ' jumplog__hot-btn--hot' : ''}`}
+                          title={j.hot ? t('connPanel.jumpLog.hotTitle', { prop: fmtMass(PROP_MASS) }) : t('connPanel.jumpLog.coldTitle')}
+                          onClick={() => toggleHot(j)}
+                        >
+                          {j.hot ? t('connPanel.hot') : t('connPanel.cold')}
+                        </button>
+                      ) : (
+                        <span className={`jumplog__hot-badge${j.hot ? ' jumplog__hot-badge--hot' : ''}`}>
+                          {j.hot ? t('connPanel.hot') : t('connPanel.cold')}
+                        </span>
+                      )}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </>
+          );
+        })()}
+      </div>
 
       {pendingPass && (
         <ConfirmModal

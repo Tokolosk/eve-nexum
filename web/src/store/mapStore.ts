@@ -2,9 +2,10 @@ import { create } from 'zustand';
 import { readUserSetting, writeUserSetting } from '../hooks/useUserSetting';
 import { v4 as uuid } from 'uuid';
 import { api } from '../api/client';
-import { enqueue } from './pendingQueue';
-import { toast } from '../components/ui/Toaster';
+import { enqueue, isPermanentRejection } from './pendingQueue';
+import { toast } from '../utils/toastStore';
 import type { WormholeMap, MapSystem, MapConnection, SavedRoute, SystemClass, WormholeEffect } from '../types';
+import type { WhSig, UndivedHole } from '../utils/undivedWormholes';
 import { pickHandles } from '../components/map/edgeUtils';
 
 // Another of the account's characters chosen as the route/centre origin.
@@ -27,6 +28,19 @@ const moveTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const connClassPromises = new Map<string, Promise<string>>();
 export function awaitConnectionType(id: string): Promise<string> | null {
   return connClassPromises.get(id) ?? null;
+}
+
+// Per-system promises that settle once the create POST for a newly-added system
+// has returned. A jump adds the arrival system and its connection (and opens the
+// system panel) in the same tick — all fire-and-forget POSTs/GETs that would
+// otherwise race the system INSERT: the connection FK-violates (server 409) and
+// the panes 404. Dependents await this so nothing hits the server before the
+// system row exists. Resolves (never rejects) so awaiters can't hang; absent
+// once settled, so lookups for an already-created system return null and proceed
+// immediately.
+const systemCreatePromises = new Map<string, Promise<void>>();
+export function awaitSystemCreate(id: string): Promise<void> | null {
+  return systemCreatePromises.get(id) ?? null;
 }
 // Per-node measured dimensions, kept out of reactive state so individual
 // ResizeObserver fires don't trigger re-renders across the whole map.
@@ -85,6 +99,27 @@ function recomputeUniformMax(): { w: number; h: number } {
   // the height would lock at 0 and the inline minHeight would never apply.
   return { w: snapUpToGrid(w), h: snapUpToGrid(anyHeightEligible ? h : hAll) };
 }
+
+// Coalesce the uniform-max recompute. On map load all N nodes report their size
+// in the same frame; recomputing (an O(N) scan) + writing the store per report
+// was O(N^2) and re-rendered every node up to N times as the max ratcheted.
+// Instead each report just schedules one recompute per frame that reads the
+// final nodeSizes and writes the store at most once.
+let uniformRaf: ReturnType<typeof requestAnimationFrame> | null = null;
+function scheduleUniformRecompute(): void {
+  if (uniformRaf !== null) return;
+  const run = () => {
+    uniformRaf = null;
+    const { w, h } = recomputeUniformMax();
+    const st = useMapStore.getState();
+    if (st.uniformWidth !== w || st.uniformHeight !== h) {
+      useMapStore.setState({ uniformWidth: w, uniformHeight: h });
+    }
+  };
+  // requestAnimationFrame is absent under SSR/tests — fall back to running now.
+  if (typeof requestAnimationFrame === 'undefined') { run(); return; }
+  uniformRaf = requestAnimationFrame(run);
+}
 // Debounce map name saves — keyed by mapId so two tabs renaming two different
 // maps don't clobber each other through a shared timer slot.
 const nameTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -120,6 +155,9 @@ export interface MapListItem {
   /** True when this map isn't owned by the caller and isn't a corp/alliance map
    *  they belong to — i.e. it reached their list via an explicit map_shares grant. */
   sharedWithMe?: boolean;
+  /** True when the caller has a CHARACTER-scoped share grant they can self-remove
+   *  ("leave the share"). False for corp/alliance grants (org-owned — admin only). */
+  canLeaveShare?: boolean;
   locked: boolean;
   /** Owning character's name — shown in the merge picker to disambiguate maps. */
   ownerName?: string | null;
@@ -156,12 +194,15 @@ export interface ContentFilter {
   sigTypes:  string[];
   anomTypes: string[];
   nameQuery: string;
+  undivedWh: boolean; // spotlight systems with a scanned-but-not-dived wormhole
 }
 
 interface MapStore {
   // Maps list
   maps: MapListItem[];
   maxMaps: number;
+  /** Deployment offers extra personal maps for an ISK donation. */
+  iskMapsEnabled: boolean;
   maxCorpMaps: number;
   corpMapCount: number;
   maxAllianceMaps: number;
@@ -178,6 +219,9 @@ interface MapStore {
   currentSystemId: string | null;
   snapToGrid: boolean;
   compactMode: boolean;
+  /** Docked panel beside the map (column layout) rather than beneath it. */
+  panelSideBySide: boolean;
+  setPanelSideBySide: (v: boolean) => void;
   showMinimap: boolean;
   uniformSize: boolean;
   showStatics: boolean;
@@ -251,9 +295,10 @@ interface MapStore {
   // Maps management
   loadMaps: () => Promise<void>;
   switchMap: (id: string) => Promise<void>;
-  createMap: (name?: string, isCorpMap?: boolean, isAllianceMap?: boolean) => Promise<void>;
-  createFromRegion: (regionId: number, name: string, isCorpMap: boolean, isAllianceMap?: boolean) => Promise<void>;
+  createMap: (name?: string, isCorpMap?: boolean, isAllianceMap?: boolean, skipKspace?: boolean) => Promise<void>;
+  createFromRegion: (regionId: number, name: string, isCorpMap: boolean, isAllianceMap?: boolean, skipKspace?: boolean) => Promise<void>;
   deleteMap: (id: string) => Promise<void>;
+  leaveShare: (id: string) => Promise<void>;
 
   // Map metadata
   setMapName: (name: string) => void;
@@ -303,8 +348,39 @@ interface MapStore {
   // chain — not just connections/statics. Loaded in bulk on map switch and
   // kept fresh by the open sig pane + remote sig.changed events.
   sigTypesBySystem: Record<string, string[]>;
+  // Scan progress per system: how many of its signatures have been identified
+  // (any type other than 'unknown') out of the total. Drives the "% scanned"
+  // badge on the node, which is how an unscanned sig appearing in your home
+  // system announces itself without opening the pane.
+  scanBySystem: Record<string, { total: number; scanned: number }>;
+  setScanBulk: (next: Record<string, { total: number; scanned: number }>) => void;
+  // Single-system update, pushed by the open signature pane. The bulk loader
+  // only re-runs on sigRev, which the user's OWN edits deliberately don't bump,
+  // so without this the badge would ignore every paste, add, edit and delete
+  // until something remote happened or the map was reloaded.
+  setSystemScan: (systemId: string, value: { total: number; scanned: number }) => void;
   setSigTypesBulk: (next: Record<string, string[]>) => void;
   setSystemSigTypes: (systemId: string, types: string[]) => void;
+
+  // Map-wide index of scanned wormhole SIGNATURES per system ({id, sigId,
+  // whType, leadsTo}) — richer than sigTypesBySystem, so undived holes can be
+  // derived. Loaded in bulk on map switch, kept fresh by the open sig pane +
+  // remote sig.changed events.
+  whSigsBySystem: Record<string, WhSig[]>;
+  setWhSigsBulk: (next: Record<string, WhSig[]>) => void;
+  setSystemWhSigs: (systemId: string, sigs: WhSig[]) => void;
+
+  // Derived index: the destination classes each system's wormholes lead to —
+  // from its statics, scanned wormhole sigs, and live connections. Rebuilt by
+  // useLeadsToIndex; powers the watchlist "leads to" match.
+  leadsToClassesBySystem: Record<string, SystemClass[]>;
+  setLeadsToClasses: (next: Record<string, SystemClass[]>) => void;
+
+  // Derived index: undived (scanned-but-not-dived) wormholes per system. Rebuilt
+  // from whSigsBySystem + connections by useUndivedWormholeIndex. Powers the
+  // under-node pills and the content filter's "undived wormhole" state.
+  undivedWhBySystem: Record<string, UndivedHole[]>;
+  setUndivedWhBulk: (next: Record<string, UndivedHole[]>) => void;
 
   // Map-wide content index per system for the content filter: the set of
   // signature types and anomaly types present, plus all site names (lowercased
@@ -336,11 +412,26 @@ export type RemoteEvent =
   | { type: 'route.update';      id: string; updates: Partial<SavedRoute> }
   | { type: 'route.remove';      id: string }
   | { type: 'route.reorder';     orderedIds: string[] }
-  | { type: 'map.meta';          name?: string; locked?: boolean; bookmarkFormat?: string | null }
+  | { type: 'map.meta';          name?: string; locked?: boolean; allowAsMergeSource?: boolean; allowAsMergeDestination?: boolean; skipKspace?: boolean; lazyRemoveWormholes?: boolean; collapseGraceHours?: number; bookmarkFormat?: string | null; siteBookmarkFormat?: string | null }
   | { type: 'map.resync' }
   | { type: 'sig.changed';       systemId: string }
   | { type: 'structure.changed'; systemId: string }
   | { type: 'anom.changed';      systemId: string };
+
+// Cross-tab sync for the /auth/preferences-backed UI prefs (compact mode, snap,
+// minimap, uniform size, statics, connection thickness, route mode, ui zoom,
+// easy-connect, panel order). These live in this store, not localStorage, so the
+// useUserSetting storage-event sync doesn't reach them. `savePref` persists to
+// the server AND broadcasts the change to sibling tabs; the listener installed
+// just after the store applies an incoming change to the store WITHOUT
+// re-persisting or re-broadcasting (so no echo/loop).
+const prefsChannel: BroadcastChannel | null =
+  typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel('nexum-prefs') : null;
+
+function savePref(patch: Record<string, unknown>): void {
+  api('/auth/preferences', { method: 'PATCH', body: JSON.stringify(patch) }).catch(console.error);
+  prefsChannel?.postMessage(patch);
+}
 
 export const useMapStore = create<MapStore>()((set, get) => {
 
@@ -482,6 +573,7 @@ export const useMapStore = create<MapStore>()((set, get) => {
   return {
     maps: [],
     maxMaps: 10,
+    iskMapsEnabled: false,
     maxCorpMaps: 5,
     corpMapCount: 0,
     maxAllianceMaps: 5,
@@ -494,6 +586,8 @@ export const useMapStore = create<MapStore>()((set, get) => {
     currentSystemId: null,
     snapToGrid: false,
     compactMode: false,
+    panelSideBySide: readUserSetting<boolean>('nexum.panelSideBySide', false),
+    setPanelSideBySide: (v) => { writeUserSetting('nexum.panelSideBySide', v); set({ panelSideBySide: v }); },
     showMinimap: true,
     uniformSize: true,
     showStatics: true,
@@ -519,15 +613,29 @@ export const useMapStore = create<MapStore>()((set, get) => {
     structRev: {},
     anomRev: {},
     sigTypesBySystem: {},
+    scanBySystem: {},
+    setScanBulk: (next) => set({ scanBySystem: next }),
+    setSystemScan: (systemId, value) => set((st) => ({
+      scanBySystem: { ...st.scanBySystem, [systemId]: value },
+    })),
     setSigTypesBulk: (next) => set({ sigTypesBySystem: next }),
     setSystemSigTypes: (systemId, types) => set((s) => ({
       sigTypesBySystem: { ...s.sigTypesBySystem, [systemId]: types },
     })),
     contentBySystem: {},
     setContentBulk: (next) => set({ contentBySystem: next }),
-    contentFilter: { sigTypes: [], anomTypes: [], nameQuery: '' },
+    whSigsBySystem: {},
+    setWhSigsBulk: (next) => set({ whSigsBySystem: next }),
+    setSystemWhSigs: (systemId, sigs) => set((s) => ({
+      whSigsBySystem: { ...s.whSigsBySystem, [systemId]: sigs },
+    })),
+    leadsToClassesBySystem: {},
+    setLeadsToClasses: (next) => set({ leadsToClassesBySystem: next }),
+    undivedWhBySystem: {},
+    setUndivedWhBulk: (next) => set({ undivedWhBySystem: next }),
+    contentFilter: { sigTypes: [], anomTypes: [], nameQuery: '', undivedWh: false },
     setContentFilter: (next) => set((s) => ({ contentFilter: { ...s.contentFilter, ...next } })),
-    clearContentFilter: () => set({ contentFilter: { sigTypes: [], anomTypes: [], nameQuery: '' } }),
+    clearContentFilter: () => set({ contentFilter: { sigTypes: [], anomTypes: [], nameQuery: '', undivedWh: false } }),
     panelOrder: ['activity', 'killboard', 'notes', 'signatures', 'anomalies', 'structures', 'npcStations'],
     undoStack: [],
 
@@ -561,15 +669,15 @@ export const useMapStore = create<MapStore>()((set, get) => {
 
     setPanelOrder: (order) => {
       set({ panelOrder: order });
-      api('/auth/preferences', { method: 'PATCH', body: JSON.stringify({ panelOrder: order }) }).catch(console.error);
+      savePref({ panelOrder: order });
     },
 
     // ── Maps management ───────────────────────────────────────────────────────
 
     loadMaps: async () => {
-      const { maps, maxMaps, maxCorpMaps, corpMapCount, maxAllianceMaps, allianceMapCount } = await api<{ maps: MapListItem[]; maxMaps: number; maxCorpMaps: number; corpMapCount: number; maxAllianceMaps: number; allianceMapCount: number }>('/api/maps');
+      const { maps, maxMaps, iskMapsEnabled, maxCorpMaps, corpMapCount, maxAllianceMaps, allianceMapCount } = await api<{ maps: MapListItem[]; maxMaps: number; iskMapsEnabled?: boolean; maxCorpMaps: number; corpMapCount: number; maxAllianceMaps: number; allianceMapCount: number }>('/api/maps');
       const activeId = get().activeMapId;
-      set({ maps, maxMaps, maxCorpMaps, corpMapCount, maxAllianceMaps, allianceMapCount });
+      set({ maps, maxMaps, iskMapsEnabled: !!iskMapsEnabled, maxCorpMaps, corpMapCount, maxAllianceMaps, allianceMapCount });
 
       // Pick an initial map if none is active yet, falling back to the
       // user's last-viewed id when it's still in the list.
@@ -622,7 +730,7 @@ export const useMapStore = create<MapStore>()((set, get) => {
         const keepSel     = prev.sel     && map.systems.some((s) => s.id === prev.sel)      ? prev.sel     : null;
         const keepConn    = prev.conn    && map.connections.some((c) => c.id === prev.conn) ? prev.conn    : null;
         const keepCurrent = prev.current && map.systems.some((s) => s.id === prev.current)  ? prev.current : null;
-        set({ map, activeMapId: id, selectedSystemId: keepSel, selectedConnectionId: keepConn, currentSystemId: keepCurrent, undoStack: [], sigTypesBySystem: {}, contentBySystem: {}, contentFilter: { sigTypes: [], anomTypes: [], nameQuery: '' } });
+        set({ map, activeMapId: id, selectedSystemId: keepSel, selectedConnectionId: keepConn, currentSystemId: keepCurrent, undoStack: [], sigTypesBySystem: {}, scanBySystem: {}, contentBySystem: {}, whSigsBySystem: {}, undivedWhBySystem: {}, contentFilter: { sigTypes: [], anomTypes: [], nameQuery: '', undivedWh: false } });
       } catch (err) {
         // 403/404 — the grant was revoked, or the map was deleted. Reload
         // the list (which will trigger the revocation-detection path above
@@ -636,19 +744,19 @@ export const useMapStore = create<MapStore>()((set, get) => {
       }
     },
 
-    createMap: async (name = 'New Map', isCorpMap = false, isAllianceMap = false) => {
+    createMap: async (name = 'New Map', isCorpMap = false, isAllianceMap = false, skipKspace = false) => {
       const { id } = await api<{ id: string }>('/api/maps', {
         method: 'POST',
-        body: JSON.stringify({ name, isCorpMap, isAllianceMap }),
+        body: JSON.stringify({ name, isCorpMap, isAllianceMap, skipKspace }),
       });
       await get().loadMaps();
       await get().switchMap(id);
     },
 
-    createFromRegion: async (regionId, name, isCorpMap, isAllianceMap = false) => {
+    createFromRegion: async (regionId, name, isCorpMap, isAllianceMap = false, skipKspace = false) => {
       const { id } = await api<{ id: string }>('/api/maps/from-region', {
         method: 'POST',
-        body: JSON.stringify({ regionId, name, isCorpMap, isAllianceMap }),
+        body: JSON.stringify({ regionId, name, isCorpMap, isAllianceMap, skipKspace }),
       });
       await get().loadMaps();
       await get().switchMap(id);
@@ -667,6 +775,23 @@ export const useMapStore = create<MapStore>()((set, get) => {
 
     deleteMap: async (id) => {
       await api(`/api/maps/${id}`, { method: 'DELETE' });
+      const remaining = get().maps.filter((m) => m.id !== id);
+      set({ maps: remaining });
+      if (get().activeMapId === id) {
+        if (remaining.length > 0) {
+          await get().switchMap(remaining[0].id);
+        } else {
+          set({ map: emptyMap(), activeMapId: null });
+        }
+      }
+    },
+
+    // Recipient-side "leave shared map": drops the map from the caller's own list
+    // by deleting their personal share grant. The map itself is untouched for its
+    // owner and everyone else. Local cleanup mirrors deleteMap (remove from the
+    // list, switch away if it was active).
+    leaveShare: async (id) => {
+      await api(`/api/maps/${id}/shares/mine`, { method: 'DELETE' });
       const remaining = get().maps.filter((m) => m.id !== id);
       set({ maps: remaining });
       if (get().activeMapId === id) {
@@ -699,7 +824,7 @@ export const useMapStore = create<MapStore>()((set, get) => {
 
     setSnapToGrid: (v) => {
       set({ snapToGrid: v });
-      api('/auth/preferences', { method: 'PATCH', body: JSON.stringify({ snapToGrid: v }) }).catch(console.error);
+      savePref({ snapToGrid: v });
     },
 
     setCompactMode: (v) => {
@@ -710,17 +835,17 @@ export const useMapStore = create<MapStore>()((set, get) => {
       // nodes, and the inflated min keeps them measuring big when compact comes
       // back on. Reset forces a clean re-measure of the natural sizes.
       get().resetUniformSizes();
-      api('/auth/preferences', { method: 'PATCH', body: JSON.stringify({ compactMode: v }) }).catch(console.error);
+      savePref({ compactMode: v });
     },
 
     setShowMinimap: (v) => {
       set({ showMinimap: v });
-      api('/auth/preferences', { method: 'PATCH', body: JSON.stringify({ showMinimap: v }) }).catch(console.error);
+      savePref({ showMinimap: v });
     },
 
     setUniformSize: (v) => {
       set({ uniformSize: v });
-      api('/auth/preferences', { method: 'PATCH', body: JSON.stringify({ uniformSize: v }) }).catch(console.error);
+      savePref({ uniformSize: v });
     },
 
     setShowStatics: (v) => {
@@ -728,23 +853,23 @@ export const useMapStore = create<MapStore>()((set, get) => {
       // Same as compact mode: showing/hiding statics changes WH nodes' natural
       // height (and which nodes count toward the uniform max), so re-measure.
       get().resetUniformSizes();
-      api('/auth/preferences', { method: 'PATCH', body: JSON.stringify({ showStatics: v }) }).catch(console.error);
+      savePref({ showStatics: v });
     },
 
     setConnectionThickness: (v) => {
       set({ connectionThickness: v });
-      api('/auth/preferences', { method: 'PATCH', body: JSON.stringify({ connectionThickness: v }) }).catch(console.error);
+      savePref({ connectionThickness: v });
     },
 
     setRouteMode: (v) => {
       set({ routeMode: v });
-      api('/auth/preferences', { method: 'PATCH', body: JSON.stringify({ routeMode: v }) }).catch(console.error);
+      savePref({ routeMode: v });
     },
 
     setUiZoom: (v) => {
       const clamped = Math.min(1.5, Math.max(0.8, Number.isFinite(v) ? v : 1));
       set({ uiZoom: clamped });
-      api('/auth/preferences', { method: 'PATCH', body: JSON.stringify({ uiZoom: clamped }) }).catch(console.error);
+      savePref({ uiZoom: clamped });
     },
 
     setTrackJumps: (v) => {
@@ -762,11 +887,7 @@ export const useMapStore = create<MapStore>()((set, get) => {
           && Math.abs(prev.h - height) < 1
           && prev.countHeight === countHeight) return;
       nodeSizes.set(id, { w: width, h: height, countHeight });
-      const { w, h } = recomputeUniformMax();
-      const cur = get();
-      if (cur.uniformWidth !== w || cur.uniformHeight !== h) {
-        set({ uniformWidth: w, uniformHeight: h });
-      }
+      scheduleUniformRecompute();
 
       // Consume a pending placement fix now we know this node's real size.
       // Only ever moves the node FARTHER from the source (restores the gap when
@@ -801,11 +922,7 @@ export const useMapStore = create<MapStore>()((set, get) => {
       // before the real measure consumes it. The fix is cleared in
       // reportNodeSize (on apply) or removeSystem (on real removal).
       if (!nodeSizes.delete(id)) return;
-      const { w, h } = recomputeUniformMax();
-      const cur = get();
-      if (cur.uniformWidth !== w || cur.uniformHeight !== h) {
-        set({ uniformWidth: w, uniformHeight: h });
-      }
+      scheduleUniformRecompute();
     },
 
     // Drop every cached natural size and reset the broadcast uniform
@@ -823,7 +940,7 @@ export const useMapStore = create<MapStore>()((set, get) => {
 
     setEasyConnect: (v) => {
       set({ easyConnect: v });
-      api('/auth/preferences', { method: 'PATCH', body: JSON.stringify({ easyConnect: v }) }).catch(console.error);
+      savePref({ easyConnect: v });
     },
     setMapOptionsOpen: (v) => set({ mapOptionsOpen: v }),
     setEdgeStyle: (v) => set({ edgeStyle: v }),
@@ -878,7 +995,7 @@ export const useMapStore = create<MapStore>()((set, get) => {
         if (activeMapId) {
           const url  = `/api/maps/${activeMapId}/systems`;
           const body = JSON.stringify({ ...added });
-          api<{ system?: { security?: number | null; eveSystemId?: number | null } }>(url, { method: 'POST', body })
+          const createP = api<{ system?: { security?: number | null; eveSystemId?: number | null } }>(url, { method: 'POST', body })
             .then((resp) => {
               // Backfill server-derived fields (SDE security, resolved eve id)
               // onto the optimistic node — addSystem can't know these, and the
@@ -900,7 +1017,26 @@ export const useMapStore = create<MapStore>()((set, get) => {
                 },
               }));
             })
-            .catch(() => enqueue(`addSystem:${added.name}`, url, 'POST', body));
+            .catch((err) => {
+              // The server refused the row outright — most often because the
+              // system is already on this map (uq_map_systems_eve_system). The
+              // optimistic node has to go: left standing it looks like a real
+              // duplicate that has to be deleted by hand, while existing
+              // nowhere but this tab. Queueing it would only retry a refusal.
+              if (isPermanentRejection(err)) {
+                console.warn(`[map] system "${added.name}" rejected by the server; dropping the local copy`);
+                set((s) => ({
+                  map: { ...s.map, systems: s.map.systems.filter((sys) => sys.id !== id) },
+                }));
+                return;
+              }
+              enqueue(`addSystem:${added.name}`, url, 'POST', body);
+            });
+          // Publish the settle signal so the jump's connection POST and the
+          // system panel's sig/structure/anomaly GETs wait for the row to exist
+          // instead of racing it. Never rejects; self-cleans after settling.
+          systemCreatePromises.set(id, createP);
+          void createP.finally(() => systemCreatePromises.delete(id));
         }
       }
 
@@ -1026,6 +1162,7 @@ export const useMapStore = create<MapStore>()((set, get) => {
                 massStatus: null, timeStatus: null, size: 'large',
                 massUsed: 0, eolAt: null,
                 sourceSignatureId: null, targetSignatureId: null, broken: false,
+                flagIcon: null, flagNote: null, flagBlink: false, flagColor: null,
                 createdAt: new Date().toISOString() },
             ],
           },
@@ -1044,7 +1181,18 @@ export const useMapStore = create<MapStore>()((set, get) => {
           const sourceEveId = systemsNow.find((s) => s.id === conn.sourceId)?.eveSystemId ?? null;
           const targetEveId = systemsNow.find((s) => s.id === conn.targetId)?.eveSystemId ?? null;
           const body = JSON.stringify({ ...conn, sourceEveId, targetEveId });
-          const classifyP = api<{ ok: boolean; connectionType?: string }>(url, { method: 'POST', body })
+          // On a jump the endpoint system(s) are being created this same tick;
+          // wait for their create POST to land before POSTing the connection, or
+          // its FK to map_systems violates (server 409) and the classification
+          // resolves 'unknown' — which makes the jump-confirm skip auto-filling
+          // the hole's leads-to. Endpoints that already exist resolve to null and
+          // don't wait.
+          const endpointsReady = Promise.all([
+            awaitSystemCreate(conn.sourceId),
+            awaitSystemCreate(conn.targetId),
+          ]);
+          const classifyP = endpointsReady
+            .then(() => api<{ ok: boolean; connectionType?: string }>(url, { method: 'POST', body }))
             .then((r) => {
               // Server may auto-classify an in-game gate (stargate-adjacent
               // systems). Reflect it locally so the chain/edge updates without
@@ -1058,7 +1206,19 @@ export const useMapStore = create<MapStore>()((set, get) => {
               }
               return ct;
             })
-            .catch(() => { enqueue(`addConnection:${id}`, url, 'POST', body); return 'unknown'; });
+            .catch((err) => {
+              // Same reasoning as addSystem: a refused connection that stays on
+              // the map is a link the server has never heard of.
+              if (isPermanentRejection(err)) {
+                console.warn(`[map] connection ${id} rejected by the server; dropping the local copy`);
+                set((s) => ({
+                  map: { ...s.map, connections: s.map.connections.filter((c) => c.id !== id) },
+                }));
+                return 'unknown';
+              }
+              enqueue(`addConnection:${id}`, url, 'POST', body);
+              return 'unknown';
+            });
           connClassPromises.set(id, classifyP);
           void classifyP.finally(() => connClassPromises.delete(id));
         }
@@ -1266,7 +1426,13 @@ export const useMapStore = create<MapStore>()((set, get) => {
           const patch = {
             ...(event.name   !== undefined ? { name:   event.name }   : {}),
             ...(event.locked !== undefined ? { locked: event.locked } : {}),
+            ...(event.allowAsMergeSource !== undefined ? { allowAsMergeSource: event.allowAsMergeSource } : {}),
+            ...(event.allowAsMergeDestination !== undefined ? { allowAsMergeDestination: event.allowAsMergeDestination } : {}),
+            ...(event.skipKspace !== undefined ? { skipKspace: event.skipKspace } : {}),
+            ...(event.lazyRemoveWormholes !== undefined ? { lazyRemoveWormholes: event.lazyRemoveWormholes } : {}),
+            ...(event.collapseGraceHours !== undefined ? { collapseGraceHours: event.collapseGraceHours } : {}),
             ...(event.bookmarkFormat !== undefined ? { bookmarkFormat: event.bookmarkFormat } : {}),
+            ...(event.siteBookmarkFormat !== undefined ? { siteBookmarkFormat: event.siteBookmarkFormat } : {}),
           };
           set((s) => ({
             map: { ...s.map, ...patch },
@@ -1296,3 +1462,16 @@ export const useMapStore = create<MapStore>()((set, get) => {
     },
   };
 });
+
+// Apply a UI-pref change broadcast by a sibling tab (see savePref). The payload
+// IS the store patch — its keys are store fields — so apply it directly, without
+// persisting or re-broadcasting (no echo). Compact-mode / statics changes also
+// need a uniform-size re-measure here, mirroring their own setters.
+if (prefsChannel) {
+  prefsChannel.onmessage = (e: MessageEvent) => {
+    const patch = e.data as Record<string, unknown> | null;
+    if (!patch || typeof patch !== 'object') return;
+    useMapStore.setState(patch as Partial<MapStore>);
+    if ('compactMode' in patch || 'showStatics' in patch) useMapStore.getState().resetUniformSizes();
+  };
+}

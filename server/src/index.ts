@@ -14,6 +14,8 @@ import { db } from './db.js';
 import { config } from './config.js';
 import { migrate } from './migrate.js';
 import { systemsRouter } from './routes/systems.js';
+import { jumpPlansRouter } from './routes/jumpPlans.js';
+import { structuresRouter } from './routes/structures.js';
 import { sdeRouter } from './routes/sde.js';
 import { regionsRouter } from './routes/regions.js';
 import { authRouter } from './routes/auth.js';
@@ -28,11 +30,18 @@ import stormsRouter       from './routes/storms.js';
 import scoutRouter        from './routes/scout.js';
 import routeRouter        from './routes/route.js';
 import wormholesRouter    from './routes/wormholes.js';
+import releasesRouter     from './routes/releases.js';
 import { loadRouteGraph } from './services/routeGraph.js';
 import { seedDiscordWebhooksFromEnv } from './services/discordSeed.js';
+import { seedAccessGrantsFromEnv } from './services/accessGrantsSeed.js';
+import { expireIdleOrgMaps, expireOrphanPersonalMaps } from './services/mapCleanup.js';
 import { startSdeAutoUpdate } from './services/sdeUpdate.js';
 import { startLocationPoller } from './services/locationPoll.js';
 import { startWhSweeper } from './services/whSweep.js';
+import { startConnLifetimeSweeper } from './services/connLifetimeSweep.js';
+import { startIskDonationPoller } from './services/iskDonations.js';
+import { startKillFeed } from './services/killFeed.js';
+import { startAccessRevalidation } from './services/accessRevalidate.js';
 import { startTelemetry } from './services/telemetry.js';
 import { telemetryRouter } from './routes/telemetry.js';
 import { adminRouter, adminReadRouter, reportsRouter } from './routes/admin.js';
@@ -98,7 +107,9 @@ app.use(session({
 // session middleware (so logout etc. still see the session) but before
 // any route is reached. SameSite=lax is the primary protection; this
 // catches the residual cases.
-app.use(originGuard(process.env.FRONTEND_URL ?? 'http://localhost:5174'));
+// The telemetry collector receives anonymous server-to-server pings (no browser
+// Origin, no credentials), so it must be exempt from the CSRF origin check.
+app.use(originGuard(process.env.FRONTEND_URL ?? 'http://localhost:5174', { exemptPaths: ['/api/telemetry'] }));
 
 // Tight limiter ONLY on the SSO brute-force surface (login spam, state
 // guessing). The rest of /auth — /me, /preferences, /settings,
@@ -113,6 +124,8 @@ app.use('/api/sde', publicLimiter, sdeRouter);
 app.use('/api/telemetry', publicLimiter, telemetryRouter);
 app.use('/api/regions', appLimiter, regionsRouter);
 app.use('/api/maps', appLimiter, mapsRouter);
+app.use('/api/jump-plans', appLimiter, jumpPlansRouter);
+app.use('/api/structures', appLimiter, structuresRouter);
 // Public read-only share endpoint — no auth, validates the share_token
 // itself. Rate-limited under publicLimiter alongside other unauthed routes.
 app.use('/api/share', publicLimiter, shareRouter);
@@ -120,6 +133,7 @@ app.use('/api/character', esiLimiter, characterRouter);
 app.use('/api/killboard', esiLimiter, killboardRouter);
 app.use('/api/activity',  esiLimiter, activityRouter);
 app.use('/api/stats',      appLimiter, statsRouter);
+app.use('/api/releases',   appLimiter, releasesRouter);
 app.use('/api/incursions',  esiLimiter, incursionsRouter);
 app.use('/api/insurgency',  esiLimiter, insurgencyRouter);
 app.use('/api/storms',      esiLimiter, stormsRouter);
@@ -133,7 +147,11 @@ app.use('/api/standings',         appLimiter, standingsRouter);
 app.use('/api/keys',              appLimiter, keysRouter);
 // External read API (Bearer key or session). Reuses the app limiter for now;
 // a per-key limiter (keyed on token id) is a planned safety follow-up.
-app.use('/api/v1',                appLimiter, apiV1Router);
+// DISABLE_EXTERNAL_API turns the whole surface off (403) without revoking keys.
+app.use('/api/v1', (req, res, next) => {
+  if (config.externalApiDisabled) return res.status(403).json({ error: 'External API is disabled' });
+  next();
+}, appLimiter, apiV1Router);
 app.use('/api/search',            esiLimiter, searchRouter);
 
 app.get('/health', (_req, res) => res.json({ ok: true }));
@@ -156,29 +174,29 @@ app.use((err: Error & { status?: number; type?: string }, req: express.Request, 
   res.status(err.status ?? 500).json({ error: 'internal' });
 });
 
-async function expireMaps() {
-  if (!config.restrictedMode) return;
-  const cutoff = new Date(Date.now() - config.corpMapExpireDays * 24 * 60 * 60 * 1000);
-  // Corp + alliance maps only — a member's idle personal maps must never be
-  // auto-deleted by this sweep (matches the partial idx_maps_last_active index).
-  const { rowCount } = await db.query(
-    `DELETE FROM maps WHERE last_active_at < $1 AND (corp_id IS NOT NULL OR alliance_id IS NOT NULL)`,
-    [cutoff],
-  );
-  if (rowCount) console.log(`Expired ${rowCount} inactive corp/alliance map(s)`);
+// Map-lifecycle cleanup: idle corp/alliance maps + personal maps whose owner can
+// no longer log in. Both no-op in solo mode. See services/mapCleanup.ts.
+async function cleanupMaps() {
+  await expireIdleOrgMaps().catch((err) => rootLog.warn('expireIdleOrgMaps failed:', err));
+  await expireOrphanPersonalMaps().catch((err) => rootLog.warn('expireOrphanPersonalMaps failed:', err));
 }
 
 migrate()
   .then(async () => {
     await seedDiscordWebhooksFromEnv();
-    await expireMaps();
-    setInterval(expireMaps, 60 * 60 * 1000); // re-check hourly
+    await seedAccessGrantsFromEnv();
+    await cleanupMaps();
+    setInterval(cleanupMaps, 60 * 60 * 1000); // re-check hourly
     await initActivity();
     await loadRouteGraph();
     app.listen(PORT, () => console.log(`Server running on http://localhost:${PORT}`));
     startSdeAutoUpdate();
     startLocationPoller();
     startWhSweeper();
+    startConnLifetimeSweeper();
+    startIskDonationPoller();
+    startAccessRevalidation();
+    startKillFeed();
     void startTelemetry();
   })
   .catch((err) => { console.error('Migration failed:', err); process.exit(1); });

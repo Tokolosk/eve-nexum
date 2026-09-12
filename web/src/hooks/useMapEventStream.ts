@@ -1,6 +1,10 @@
 import { useEffect, useRef } from 'react';
 import { useMapStore, type RemoteEvent } from '../store/mapStore';
 import { usePresenceStore, type PresenceViewer } from '../store/presenceStore';
+import { useKillStore, type KillRow } from '../store/killStore';
+import { refreshCurrentKills } from './useCurrentHourKills';
+import { useJumpLogStore, type JumpRow } from '../store/jumpLogStore';
+import { useRemoteActivity } from '../store/remoteActivityStore';
 import { apiUrl } from '../api/client';
 import { CLIENT_ID } from '../api/clientId';
 
@@ -17,6 +21,9 @@ export function useMapEventStream(): void {
     if (!activeMapId) return;
     openedOnce.current = false;
     usePresenceStore.getState().reset(); // clear last map's roster; snapshot repopulates
+    useKillStore.getState().reset();     // clear last map's kill flags
+    useJumpLogStore.getState().reset();  // clear last map's connection jump logs
+    useRemoteActivity.getState().reset(); // clear last map's remote-edit counters
 
     const es = new EventSource(apiUrl(`/api/maps/${activeMapId}/events`), { withCredentials: true });
 
@@ -46,9 +53,48 @@ export function useMapEventStream(): void {
           case 'presence.leave':
             presence.remove(data.characterId as number);
             return;
+          case 'kill.recent':
+            // Ephemeral, non-map state — route the whole decorated KillRow to the
+            // kill store (flags the node + feeds the log), not mapStore.
+            useKillStore.getState().recordKill({
+              killmailId:          data.killmailId as number,
+              atMs:                data.atMs as number,
+              eveSystemId:         data.eveSystemId as number,
+              systemName:          data.systemName as string,
+              regionName:          (data.regionName as string | null) ?? null,
+              shipTypeId:          data.shipTypeId as number,
+              shipTypeName:        data.shipTypeName as string,
+              totalValue:          data.totalValue as number,
+              victimCharacterId:   (data.victimCharacterId as number | null) ?? null,
+              victimName:          (data.victimName as string | null) ?? null,
+              victimCorporationId: (data.victimCorporationId as number | null) ?? null,
+              victimCorpName:      (data.victimCorpName as string | null) ?? null,
+              npc:                 !!data.npc,
+              finalBlow:           (data.finalBlow as KillRow['finalBlow']) ?? null,
+            });
+            // Also nudge the kills heatmap to refetch (debounced), so it reflects
+            // this kill within ~a second instead of on the 5-min poll.
+            refreshCurrentKills();
+            return;
+          case 'jump.logged':
+            // Ephemeral connection intel — append to the jump-log store. Handled
+            // before the echo check so the pilot who logged it also sees their own
+            // crossing (no optimistic add on the poster). Never touches mass.
+            useJumpLogStore.getState().recordJump(data.jump as JumpRow);
+            return;
+          case 'jump.updated':
+            useJumpLogStore.getState().updateJump(data.jump as JumpRow);
+            return;
+          case 'jump.cleared':
+            useJumpLogStore.getState().clearConnection(data.connectionId as string);
+            return;
         }
 
         if (data.actor === CLIENT_ID) return; // our own echo — already applied
+        // Another viewer saved a wormhole chain — count it for the voice
+        // announcer's "new chain" event (only remote adds reach here, never our
+        // own saves, and NOT plain map connections — only saved chains).
+        if (data.type === 'route.add') useRemoteActivity.getState().noteChainAdd();
         useMapStore.getState().applyRemote(data as unknown as RemoteEvent);
       } catch { /* ignore malformed frame */ }
     };

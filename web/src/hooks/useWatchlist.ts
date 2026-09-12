@@ -4,9 +4,9 @@ import type { WatchEntry, WatchMatch, WatchMarkerKind } from '../types';
 
 const SETTING_KEY = 'nexum.watchlist';
 
-/** Cap on watchlist entries. A hand-maintained hunting list; past this the
- *  user wants notes/intel tags, not a watchlist. */
-export const MAX_WATCH = 50;
+/** Cap on watchlist entries. Higher now that entries can be filed into
+ *  collapsible named lists (groups) rather than one flat hand-typed list. */
+export const MAX_WATCH = 75;
 
 const VALID_MARKERS: WatchMarkerKind[] = ['target', 'honeypot', 'avoid', 'friendly', 'watch'];
 
@@ -17,6 +17,7 @@ function isValidMatch(m: unknown): m is WatchMatch {
     case 'system':   return typeof (m as { query?: unknown }).query === 'string';
     case 'whType':   return typeof (m as { code?: unknown }).code === 'string';
     case 'class':    return typeof (m as { cls?: unknown }).cls === 'string';
+    case 'leadsTo':  return typeof (m as { cls?: unknown }).cls === 'string';
     case 'effect':   return typeof (m as { effect?: unknown }).effect === 'string';
     case 'frigHole': return true;
     default:         return false;
@@ -35,7 +36,17 @@ function coerce(v: unknown): WatchEntry | null {
   if (isValidMatch(o.match)) match = o.match as WatchMatch;
   else if (typeof o.query === 'string') match = { by: 'system', query: o.query }; // legacy
   if (!match) return null;
-  return { id: o.id, match, note: o.note, marker: o.marker as WatchMarkerKind };
+  const group = typeof o.group === 'string' && o.group.trim() !== '' ? o.group : undefined;
+  // Compound criteria (ANDed/ORed with `match`) — keep only well-formed ones.
+  const criteria = Array.isArray(o.criteria)
+    ? o.criteria.filter(isValidMatch) as WatchMatch[]
+    : [];
+  const criteriaMode: 'and' | 'or' = o.criteriaMode === 'or' ? 'or' : 'and';
+  return {
+    id: o.id, match, note: o.note, marker: o.marker as WatchMarkerKind,
+    ...(criteria.length ? { criteria, criteriaMode } : {}),
+    ...(group ? { group } : {}),
+  };
 }
 
 export function useWatchlist(): [WatchEntry[], (next: WatchEntry[] | ((prev: WatchEntry[]) => WatchEntry[])) => void] {

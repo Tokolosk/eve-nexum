@@ -21,6 +21,7 @@ import { mkdir, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { Readable, Transform } from 'node:stream';
+import { createInterface } from 'node:readline';
 import * as unzipper from 'unzipper';
 import { db } from '../src/db.js';
 
@@ -77,6 +78,10 @@ async function main() {
     }
     if (remoteVer === storedVer) {
       console.log(`SDE up to date (build ${remoteVer}). Skipping.`);
+      // Self-heal: an older deploy imported before npc_stations existed, so the
+      // full import was skipped and the table is empty. Top it up on its own
+      // (never fatal — a failure here must not break boot).
+      await topUpNpcStations(haveData);
       console.log('Set FORCE_SDE_IMPORT=1 to re-import anyway.');
       await db.end();
       return;
@@ -99,6 +104,7 @@ async function main() {
   await importConstellations(zip, constellationRegion);
   await importSolarSystems(zip, whMap, constellationRegion);
   await importStargates(zip);
+  await importNpcStations(zip);
   await importCategories(zip);
   await importGroups(zip);
   await importTypes(zip);
@@ -686,9 +692,9 @@ async function importStars(zip: Zip) {
 // Runs after importStargates. All static, so it only re-runs on a re-seed.
 async function importCelestialCounts(zip: Zip) {
   process.stdout.write('Counting celestials (moons, belts, gates)... ');
-  const moonCounts = tallyBySystem(await readJsonl(zip, 'mapMoons.jsonl'));
+  const moonCounts = await tallyBySystem(zip, 'mapMoons.jsonl');
   await applyCounts('moon_count', moonCounts);
-  const beltCounts = tallyBySystem(await readJsonl(zip, 'mapAsteroidBelts.jsonl'));
+  const beltCounts = await tallyBySystem(zip, 'mapAsteroidBelts.jsonl');
   await applyCounts('belt_count', beltCounts);
 
   await db.query(`
@@ -746,16 +752,30 @@ async function importShattered(zip: Zip) {
   console.log(`${ids.length} shattered`);
 }
 
-// Tally records by their solarSystemID. Pulls the id out with a regex to skip
-// JSON.parse over the giant moon/belt files; falls back to a parse on a miss.
-function tallyBySystem(lines: string[]): Map<number, number> {
+// Tally records by their solarSystemID, STREAMING the entry line-by-line rather
+// than buffering it whole. mapMoons/mapAsteroidBelts are hundreds of thousands
+// of rows; readJsonl's decompress -> toString -> split -> filter holds four huge
+// allocations at once and OOM-kills small import containers (exit 137). Here we
+// only ever hold one line plus the counts map. Pulls the id out with a regex to
+// skip JSON.parse on the hot path; falls back to a parse on a miss.
+async function tallyBySystem(zip: Zip, filename: string): Promise<Map<number, number>> {
+  const entry = zip.files.find(f => f.path === filename);
+  if (!entry) throw new Error(`${filename} not found in SDE zip`);
   const counts = new Map<number, number>();
-  for (const line of lines) {
+  const input  = entry.stream();
+  const rl     = createInterface({ input, crlfDelay: Infinity });
+  rl.on('line', (line) => {
+    if (!line.trim()) return;
     const m   = line.match(/"solarSystemID":\s*(\d+)/);
     let   sys = m ? parseInt(m[1], 10) : 0;
     if (!sys) { try { sys = JSON.parse(line).solarSystemID ?? 0; } catch { sys = 0; } }
     if (sys) counts.set(sys, (counts.get(sys) ?? 0) + 1);
-  }
+  });
+  await new Promise<void>((resolve, reject) => {
+    rl.on('close', resolve);
+    rl.on('error', reject);
+    input.on('error', reject);
+  });
   return counts;
 }
 
@@ -793,6 +813,54 @@ async function importStargates(zip: Zip) {
     ['id', 'system_id', 'destination_gate_id', 'destination_system_id'],
     'id', rows, 1000);
   console.log(`${rows.length} stargates`);
+}
+
+// NPC stations -> npc_stations (jump-planner endpoints). The SDE has no station
+// names (they're generated), so we keep id / system / type and label by system +
+// station type when queried.
+async function importNpcStations(zip: Zip) {
+  process.stdout.write('Importing NPC stations... ');
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS npc_stations (
+      station_id BIGINT PRIMARY KEY, solar_system_id INTEGER, type_id INTEGER
+    );
+    CREATE INDEX IF NOT EXISTS idx_npc_stations_system ON npc_stations (solar_system_id);
+  `);
+  const lines = await readJsonl(zip, 'npcStations.jsonl');
+  const rows: [number, number, number][] = [];
+  for (const line of lines) {
+    try {
+      const o = JSON.parse(line);
+      if (!o._key || !o.solarSystemID || !o.typeID) continue;
+      rows.push([o._key, o.solarSystemID, o.typeID]);
+    } catch { /* skip */ }
+  }
+  await batchUpsert('npc_stations', ['station_id', 'solar_system_id', 'type_id'], 'station_id', rows, 1000);
+  console.log(`${rows.length} NPC stations`);
+}
+
+// Targeted, NON-FATAL npc_stations back-fill for deploys that skip the full SDE
+// import (SDE already current) but predate the station table. Pulls a fresh SDE
+// only to import stations, then drops the zip. Any failure is swallowed so it
+// can never break server startup.
+async function topUpNpcStations(haveData: boolean): Promise<void> {
+  try {
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS npc_stations (
+        station_id BIGINT PRIMARY KEY, solar_system_id INTEGER, type_id INTEGER
+      );
+      CREATE INDEX IF NOT EXISTS idx_npc_stations_system ON npc_stations (solar_system_id);
+    `);
+    const { rows } = await db.query<{ n: number }>('SELECT count(*)::int AS n FROM npc_stations');
+    if (rows[0].n > 0) return;
+    console.log('npc_stations empty — pulling the SDE to back-fill station endpoints...');
+    const resolved = await resolveZip(haveData);
+    const zip = await unzipper.Open.file(resolved.path);
+    await importNpcStations(zip);
+    if (resolved.path === SDE_ZIP) await rm(SDE_ZIP, { force: true }).catch(() => {});
+  } catch (err) {
+    console.warn(`npc_stations back-fill skipped (non-fatal): ${(err as Error).message}`);
+  }
 }
 
 async function importCategories(zip: Zip) {

@@ -3,8 +3,9 @@ import { useTranslation } from 'react-i18next';
 import { useMapStore } from '../store/mapStore';
 import { useUserSetting } from './useUserSetting';
 import { useWatchlist } from './useWatchlist';
+import { systemDisplayName } from '../utils/systemName';
 import { matchSystem, matchConnection } from '../utils/watchMatch';
-import { toast } from '../components/ui/Toaster';
+import { toast } from '../utils/toastStore';
 import { NOTIFY, fireDesktopNotification } from '../utils/notificationPrefs';
 
 // Lazily-created shared audio context (autoplay policy: only on first sound).
@@ -54,6 +55,7 @@ export function useWatchlistAlerts() {
   const connections = useMapStore((s) => s.map.connections);
   const activeMapId = useMapStore((s) => s.activeMapId);
   const sigTypesBySystem = useMapStore((s) => s.sigTypesBySystem);
+  const leadsToClassesBySystem = useMapStore((s) => s.leadsToClassesBySystem);
   const [entries]   = useWatchlist();
   const [soundOn]   = useUserSetting<boolean>(NOTIFY.watchlistSound, true);
   const [desktopOn] = useUserSetting<boolean>(NOTIFY.watchlistDesktop, false);
@@ -71,8 +73,8 @@ export function useWatchlistAlerts() {
     // Present matches, keyed by target id, with the label/marker to announce.
     const present = new Map<string, { name: string; marker: string }>();
     for (const sys of systems) {
-      const e = matchSystem(entries, sys, sigTypesBySystem[sys.id]);
-      if (e) present.set(`sys:${sys.id}`, { name: sys.name || '?', marker: t(`watchMarker.${e.marker}`) });
+      const e = matchSystem(entries, sys, sigTypesBySystem[sys.id], leadsToClassesBySystem[sys.id]);
+      if (e) present.set(`sys:${sys.id}`, { name: systemDisplayName(sys) || '?', marker: t(`watchMarker.${e.marker}`) });
     }
     for (const conn of connections) {
       const e = matchConnection(entries, conn);
@@ -115,5 +117,5 @@ export function useWatchlistAlerts() {
     for (const key of Array.from(st.alerted)) {
       if (!present.has(key)) st.alerted.delete(key);
     }
-  }, [systems, connections, activeMapId, sigTypesBySystem, entries, soundOn, desktopOn, t]);
+  }, [systems, connections, activeMapId, sigTypesBySystem, leadsToClassesBySystem, entries, soundOn, desktopOn, t]);
 }

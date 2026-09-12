@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import { esiFetch } from '../utils/esi.js';
 import { db } from '../db.js';
+import { config } from '../config.js';
+import { liveKillCounts } from '../services/killBuffer.js';
 import { optionalAuth } from '../middleware/optionalAuth.js';
 
 const router = Router();
@@ -230,23 +232,39 @@ router.get('/:systemId(\\d+)', async (req, res) => {
 // fetchEsi(), so this endpoint adds no extra upstream load.
 router.get('/current-kills', async (_req, res) => {
   const snap = await fetchEsi();
-  if (!snap) { res.json([]); return; }
   // Union of systems with kills and/or jumps so the client has every active
   // system's full metric set (ship/pod/npc kills + jumps) in one payload —
   // feeds the activity heatmaps. Jumps is a separate ESI map and covers
   // different systems (e.g. a quiet system with jumps but no kills).
-  const ids = new Set<number>([...snap.kills.keys(), ...snap.jumps.keys()]);
-  const arr = Array.from(ids, (id) => {
-    const k = snap.kills.get(id);
-    return {
-      systemId:  id,
-      shipKills: k?.ship_kills ?? 0,
-      podKills:  k?.pod_kills ?? 0,
-      npcKills:  k?.npc_kills ?? 0,
-      jumps:     snap.jumps.get(id) ?? 0,
-    };
-  });
-  res.json(arr);
+  type Row = { systemId: number; shipKills: number; podKills: number; npcKills: number; jumps: number };
+  const bySys = new Map<number, Row>();
+  if (snap) {
+    const ids = new Set<number>([...snap.kills.keys(), ...snap.jumps.keys()]);
+    for (const id of ids) {
+      const k = snap.kills.get(id);
+      bySys.set(id, {
+        systemId:  id,
+        shipKills: k?.ship_kills ?? 0,
+        podKills:  k?.pod_kills ?? 0,
+        npcKills:  k?.npc_kills ?? 0,
+        jumps:     snap.jumps.get(id) ?? 0,
+      });
+    }
+  }
+  // The live R2Z2 feed OVERRIDES ESI's kill counts per system — it never sums,
+  // so there's no double counting. This makes the heatmap near-real-time for any
+  // system with recent kills and covers wormhole space (absent from ESI). ESI's
+  // jumps are kept (the feed has no jumps metric). Systems the feed hasn't seen
+  // recently fall back to ESI; when the feed is disabled this is a no-op and the
+  // heatmap is pure ESI as before.
+  for (const [systemId, c] of liveKillCounts(config.killFeed.heatWindowSeconds * 1_000)) {
+    const row = bySys.get(systemId) ?? { systemId, shipKills: 0, podKills: 0, npcKills: 0, jumps: 0 };
+    row.shipKills = c.shipKills;
+    row.podKills  = c.podKills;
+    row.npcKills  = c.npcKills;
+    bySys.set(systemId, row);
+  }
+  res.json([...bySys.values()]);
 });
 
 export default router;

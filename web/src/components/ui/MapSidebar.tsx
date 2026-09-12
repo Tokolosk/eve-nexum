@@ -8,9 +8,10 @@ import {
 } from "../../hooks/useNotificationPermission";
 import { expiresIn } from "../../i18n/format";
 import { useMapStore } from "../../store/mapStore";
-import { useAuth } from "../../context/AuthContext";
+import { useAuth, isAdminRole, isAllianceAdminRole, type Role } from "../../context/AuthContext";
 import { api } from "../../api/client";
-import { toast } from "./Toaster";
+import { toast } from '../../utils/toastStore';
+import { Select } from "./Select";
 import { useProximityThreshold } from "../../hooks/useProximityAlerts";
 import { useStaleThreshold } from "../../hooks/useStaleThreshold";
 import {
@@ -18,17 +19,20 @@ import {
   type MinimapPosition,
 } from "../../hooks/useMinimapPosition";
 import { useUserSetting } from "../../hooks/useUserSetting";
-import { useCanEditContent } from "../../hooks/useCanEditContent";
 import { normalizePlacement } from "../../hooks/useLocationTracking";
-import { NOTIFY } from "../../utils/notificationPrefs";
+import { NOTIFY, notifyDefault, EXITS_MIN_SECURITY_KEY, EXITS_MIN_SECURITY_DEFAULT } from "../../utils/notificationPrefs";
 import { useResettableState } from "../../hooks/useResettableState";
-import { DEFAULT_BOOKMARK_FORMAT, BOOKMARK_TOKENS } from "../../utils/signatureBookmark";
+import { DEFAULT_BOOKMARK_FORMAT, BOOKMARK_TOKENS, DEFAULT_SITE_BOOKMARK_FORMAT, SITE_BOOKMARK_TOKENS } from "../../utils/signatureBookmark";
 import { toPng } from "html-to-image";
-import { CaretLeftIcon, CaretRightIcon, GearIcon } from "@phosphor-icons/react";
+import { CaretLeftIcon, CaretRightIcon, GearIcon, DiscordLogoIcon } from "@phosphor-icons/react";
+import { DISCORD_INVITE_URL } from "../../data/links";
 import { ChainExitsSection } from "./ChainExitsSection";
+import { JumpRangePane } from "./JumpRangePane";
+import { AnnouncerSection } from "./AnnouncerSection";
 import { MapSharesSection } from "./MapSharesSection";
 import { MergeMapModal } from "./MergeMapModal";
 import { CustomIntelBlock } from "./CustomIntelBlock";
+import { PatchNotesModal } from "./PatchNotesModal";
 import { ContentFilterBlock } from "./ContentFilterBlock";
 import { useIsMapOwner } from "../../hooks/useIsMapOwner";
 import type { WormholeMap } from "../../types";
@@ -62,17 +66,16 @@ function SettingToggle({
 
 // One event row in the Notifications grid: an event label with independent
 // desktop + sound checkboxes, each backed by its own ui_settings key.
-function NotifRow({
-  label, desktopKey, soundKey, desktopDefault = true, soundDefault = true,
-}: {
+function NotifRow({ label, desktopKey, soundKey }: {
   label: string;
   desktopKey: string;
   soundKey: string;
-  desktopDefault?: boolean;
-  soundDefault?: boolean;
 }) {
-  const [desktop, setDesktop] = useUserSetting<boolean>(desktopKey, desktopDefault);
-  const [sound, setSound]     = useUserSetting<boolean>(soundKey, soundDefault);
+  // Defaults come from NOTIFY_DEFAULTS, the same table the alerts read at fire
+  // time. They used to be per-row props, which let a box render ticked for an
+  // alert that was actually off.
+  const [desktop, setDesktop] = useUserSetting<boolean>(desktopKey, notifyDefault(desktopKey));
+  const [sound, setSound]     = useUserSetting<boolean>(soundKey, notifyDefault(soundKey));
   return (
     <div className="notif-grid__row">
       <span className="notif-grid__label">{label}</span>
@@ -137,14 +140,18 @@ function CollapsibleSection({
 type SectionId =
   | "mapOptions"
   | "wormholeBookmarks"
+  | "bookmarks"
   | "mapControls"
   | "systemOptions"
   | "contentFilter"
   | "connections"
+  | "tracking"
   | "route"
   | "chainExits"
+  | "jumpRange"
   | "proximityAlerts"
   | "notifications"
+  | "announcer"
   | "activity"
   | "fleet"
   | "share"
@@ -155,18 +162,22 @@ type SectionId =
   | "shortcuts"
   | null;
 
-// Share permissions mirror the server's requireShareAdmin: corp maps are
-// admin-only, personal maps are owner-only. A personal map can now reach
-// the user via a map_shares grant (sharedWithMe = true), in which case
-// they're a recipient — not the owner — and must not see the share-link
-// controls.
+// Share permissions mirror the server's requireShareAdmin: alliance maps are
+// alliance-admin-only, corp maps admin-only, personal maps owner-only. A
+// personal map can now reach the user via a map_shares grant (sharedWithMe =
+// true), in which case they're a recipient — not the owner — and must not see
+// the share controls. Governs BOTH the public share-link and the per-entity
+// share-grant sections, exactly as requireShareAdmin gates both server-side.
 function canShareThisMap(
-  user: { role?: string } | null | undefined,
+  user: { role?: Role } | null | undefined,
   isCorpMap: boolean,
+  isAllianceMap: boolean,
   isMapOwner: boolean,
 ): boolean {
   if (!user) return false;
-  if (isCorpMap) return user.role === "admin";
+  const role = user.role ?? 'readonly';
+  if (isAllianceMap) return isAllianceAdminRole(role);
+  if (isCorpMap) return isAdminRole(role);
   return isMapOwner;
 }
 
@@ -349,18 +360,15 @@ function ShareSection() {
           <label className="map-sidebar__label" htmlFor="share-expiry">
             {t("mapSidebar.linkExpiresAfter")}
           </label>
-          <select
+          <Select
             id="share-expiry"
-            className="map-sidebar__select"
-            value={expiryHours}
-            onChange={(e) => setExpiryHours(parseInt(e.target.value, 10))}
-          >
-            {SHARE_EXPIRY_OPTIONS.map((o) => (
-              <option key={o.hours} value={o.hours}>
-                {o.label(t)}
-              </option>
-            ))}
-          </select>
+            value={String(expiryHours)}
+            onChange={(v) => setExpiryHours(parseInt(v, 10))}
+            options={SHARE_EXPIRY_OPTIONS.map((o) => ({
+              value: String(o.hours),
+              label: o.label(t),
+            }))}
+          />
         </div>
       )}
 
@@ -446,29 +454,41 @@ function ShareSection() {
 // lets that corp map be used as a merge source by the corp.
 // Per-map opt-in for the server-side lazy WH-removal sweep. Mirrors the merge
 // flags' optimistic-PATCH-with-revert pattern. Any editor can toggle it.
+// Grace-period presets (hours) offered for how long an expired hole lingers
+// before it's collapsed. 0.5 (30 min) is the default.
+const COLLAPSE_GRACE_OPTIONS: Array<{ h: number; label: (t: TFunction) => string }> = [
+  { h: 0,    label: (t) => t("mapSidebar.collapseGraceImmediate") },
+  { h: 0.25, label: (t) => t("units.minutes", { count: 15 }) },
+  { h: 0.5,  label: (t) => t("units.minutes", { count: 30 }) },
+  { h: 1,    label: (t) => t("units.hours", { count: 1 }) },
+  { h: 2,    label: (t) => t("units.hours", { count: 2 }) },
+  { h: 4,    label: (t) => t("units.hours", { count: 4 }) },
+];
+
 function LazyWhSweepToggle() {
   const { t } = useTranslation();
   const map = useMapStore((s) => s.map);
   const enabled = !!map.lazyRemoveWormholes;
+  const grace = map.collapseGraceHours ?? 0.5;
   const [saving, setSaving] = useState(false);
 
-  function setInStore(value: boolean) {
+  function setInStore(patch: { lazyRemoveWormholes?: boolean; collapseGraceHours?: number }) {
     useMapStore.setState((s) => ({
-      map: { ...s.map, lazyRemoveWormholes: value },
-      maps: s.maps.map((m) => (m.id === map.id ? { ...m, lazyRemoveWormholes: value } : m)),
+      map: { ...s.map, ...patch },
+      maps: s.maps.map((m) => (m.id === map.id ? { ...m, ...patch } : m)),
     }));
   }
 
-  async function toggle(next: boolean) {
+  async function persist(
+    patch: { lazyRemoveWormholes?: boolean; collapseGraceHours?: number },
+    revert: { lazyRemoveWormholes?: boolean; collapseGraceHours?: number },
+  ) {
     setSaving(true);
-    setInStore(next);
+    setInStore(patch);
     try {
-      await api(`/api/maps/${map.id}`, {
-        method: "PATCH",
-        body: JSON.stringify({ lazyRemoveWormholes: next }),
-      });
+      await api(`/api/maps/${map.id}`, { method: "PATCH", body: JSON.stringify(patch) });
     } catch (e) {
-      setInStore(!next);
+      setInStore(revert);
       toast.error(e instanceof Error ? e.message : t("mapSidebar.updateSettingFailed"));
     } finally {
       setSaving(false);
@@ -484,45 +504,60 @@ function LazyWhSweepToggle() {
           className="map-sidebar__toggle-input"
           checked={enabled}
           disabled={saving}
-          onChange={(e) => toggle(e.target.checked)}
+          onChange={(e) => persist({ lazyRemoveWormholes: e.target.checked }, { lazyRemoveWormholes: enabled })}
         />
       </label>
       <div className="map-sidebar__hint">{t("mapSidebar.lazyRemoveWhHint")}</div>
+      {/* Always shown for discoverability; only editable once auto-removal is on,
+          since the grace period has no effect otherwise. */}
+      <div className="map-sidebar__row">
+        <label className="map-sidebar__label" htmlFor="collapse-grace">{t("mapSidebar.collapseGrace")}</label>
+        <Select
+          id="collapse-grace"
+          value={String(grace)}
+          disabled={!enabled || saving}
+          onChange={(v) => persist({ collapseGraceHours: parseFloat(v) }, { collapseGraceHours: grace })}
+          options={COLLAPSE_GRACE_OPTIONS.map((o) => ({
+            value: String(o.h),
+            label: o.label(t),
+          }))}
+        />
+      </div>
+      <div className="map-sidebar__hint">{t("mapSidebar.collapseGraceHint")}</div>
     </>
   );
 }
 
-// Per-map bookmark-name format. When set it overrides every user's own global
-// format for holes on this map, so a group's bookmarks stay consistent. Blank
-// clears the override (fall back to each user's global). Any editor can set it;
-// commits on blur with the same optimistic-PATCH-with-revert pattern as the
-// lazy-sweep toggle. Live-synced to other viewers via map.meta.
-function MapBookmarkFormat() {
+// Corp/alliance map-level "Don't track K-space" policy. When on, no one on this
+// map records K-space jumps, overriding each member's personal
+// nexum.tracking.skipKspace while they're on the map. Only owner/admins may
+// change it (alliance maps need the alliance admin role, corp maps an admin) —
+// everyone else sees the current state read-only. Same optimistic
+// PATCH-with-revert pattern as the lazy-sweep toggle.
+function CorpKspaceToggle() {
   const { t } = useTranslation();
   const map = useMapStore((s) => s.map);
-  const canEdit = useCanEditContent();
-  const [value, setValue] = useResettableState(map.bookmarkFormat ?? "");
+  const { user } = useAuth();
+  const enabled = !!map.skipKspace;
   const [saving, setSaving] = useState(false);
 
-  function setInStore(v: string | null) {
+  const role = user?.role ?? "readonly";
+  const canEdit = map.isAllianceMap ? isAllianceAdminRole(role) : isAdminRole(role);
+
+  function setInStore(skip: boolean) {
     useMapStore.setState((s) => ({
-      map: { ...s.map, bookmarkFormat: v },
-      maps: s.maps.map((m) => (m.id === map.id ? { ...m, bookmarkFormat: v } : m)),
+      map: { ...s.map, skipKspace: skip },
+      maps: s.maps.map((m) => (m.id === map.id ? { ...m, skipKspace: skip } : m)),
     }));
   }
 
-  async function commit() {
-    const trimmed = value.trim();
-    const next = trimmed === "" ? null : trimmed;
-    const prev = map.bookmarkFormat ?? null;
-    if (next === prev) return;
+  async function persist(next: boolean) {
     setSaving(true);
     setInStore(next);
     try {
-      await api(`/api/maps/${map.id}`, { method: "PATCH", body: JSON.stringify({ bookmarkFormat: next }) });
+      await api(`/api/maps/${map.id}`, { method: "PATCH", body: JSON.stringify({ skipKspace: next }) });
     } catch (e) {
-      setInStore(prev);
-      setValue(prev ?? "");
+      setInStore(!next);
       toast.error(e instanceof Error ? e.message : t("mapSidebar.updateSettingFailed"));
     } finally {
       setSaving(false);
@@ -530,22 +565,181 @@ function MapBookmarkFormat() {
   }
 
   return (
+    <>
+      <label className="map-sidebar__row map-sidebar__toggle-row">
+        <span className="map-sidebar__label">{t("mapSidebar.corpSkipKspace")}</span>
+        <input
+          type="checkbox"
+          className="map-sidebar__toggle-input"
+          checked={enabled}
+          disabled={saving || !canEdit}
+          onChange={(e) => persist(e.target.checked)}
+        />
+      </label>
+      <div className="map-sidebar__hint">{t("mapSidebar.corpSkipKspaceHint")}</div>
+    </>
+  );
+}
+
+// Per-map bookmark-name format. When set it overrides every user's own global
+// format for holes on this map, so a group's bookmarks stay consistent. Blank
+// clears the override (fall back to each user's global). Owner/admin-only (see
+// the gate below); live-synced to other viewers via map.meta.
+//
+// In the sidebar this is just a trigger — the actual editor + token reference
+// opens in its own modal (below), since the sidebar is too tight for both.
+// True when the current user may manage this map's shared bookmark formats: the
+// owner, or (on a shared corp/alliance map) a 'full'-control user or an admin —
+// alliance-admin for alliance maps, admin for corp maps. 'full' and up can edit;
+// shared personal maps stay owner-only. Mirrors the server gate on PATCH /maps.
+function canEditMapBookmark(
+  map: { isCorpMap?: boolean; isAllianceMap?: boolean },
+  role: Role,
+  isMapOwner: boolean,
+): boolean {
+  if (isMapOwner) return true;
+  if (map.isAllianceMap) return role === "full" || isAllianceAdminRole(role);
+  if (map.isCorpMap) return role === "full" || isAdminRole(role);
+  return false;
+}
+
+// The shared bookmark section: only rendered for users who can edit it (so
+// non-editors don't get an empty collapsible). Wraps the format trigger + modal.
+function MapBookmarkSection({ sectionProps }: { sectionProps: { isOpen: boolean; onToggle: () => void } }) {
+  const { t } = useTranslation();
+  const map = useMapStore((s) => s.map);
+  const { user } = useAuth();
+  const isMapOwner = useIsMapOwner();
+  if (!canEditMapBookmark(map, user?.role ?? "readonly", isMapOwner)) return null;
+  return (
+    <CollapsibleSection title={t("mapSidebar.sections.bookmarks")} {...sectionProps}>
+      <MapBookmarkFormat />
+    </CollapsibleSection>
+  );
+}
+
+function MapBookmarkFormat() {
+  const { t } = useTranslation();
+  const map = useMapStore((s) => s.map);
+  const [open, setOpen] = useState(false);
+
+  const current = map.bookmarkFormat?.trim();
+  return (
     <div className="map-sidebar__field">
-      <label className="map-sidebar__label" htmlFor="map-bookmark-fmt">{t("mapSidebar.mapBookmark")}</label>
-      <input
-        id="map-bookmark-fmt"
-        className="map-sidebar__select map-sidebar__select--full"
-        type="text"
-        spellCheck={false}
-        value={value}
-        disabled={saving || !canEdit}
-        placeholder={t("mapSidebar.mapBookmarkPlaceholder")}
-        onChange={(e) => setValue(e.target.value)}
-        onBlur={commit}
-        onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
-      />
-      <p className="map-sidebar__help">{t("mapSidebar.mapBookmarkHelp")}</p>
+      <label className="map-sidebar__label">{t("mapSidebar.mapBookmark")}</label>
+      <button
+        type="button"
+        className="map-sidebar__select map-sidebar__select--full map-sidebar__bookmark-trigger"
+        onClick={() => setOpen(true)}
+      >
+        <span className={current ? undefined : "map-sidebar__bookmark-trigger--empty"}>
+          {current || t("mapSidebar.mapBookmarkPlaceholder")}
+        </span>
+      </button>
+      {open && <MapBookmarkFormatModal onClose={() => setOpen(false)} />}
     </div>
+  );
+}
+
+// The format editor + token reference, in its own modal so the sidebar stays
+// compact. Same optimistic-PATCH-with-revert as before; commits on blur and on
+// close (idempotent — a no-op when unchanged).
+function MapBookmarkFormatModal({ onClose }: { onClose: () => void }) {
+  const { t } = useTranslation();
+  const map = useMapStore((s) => s.map);
+  const [value, setValue] = useResettableState(map.bookmarkFormat ?? "");
+  const [siteValue, setSiteValue] = useResettableState(map.siteBookmarkFormat ?? "");
+  const [saving, setSaving] = useState(false);
+
+  // One PATCH field per format; the store keeps both keys in sync. `field` is the
+  // API/store key, `col` selects which map property to read the previous value.
+  function setInStore(field: "bookmarkFormat" | "siteBookmarkFormat", v: string | null) {
+    useMapStore.setState((s) => ({
+      map: { ...s.map, [field]: v },
+      maps: s.maps.map((m) => (m.id === map.id ? { ...m, [field]: v } : m)),
+    }));
+  }
+
+  async function commitField(
+    field: "bookmarkFormat" | "siteBookmarkFormat",
+    raw: string,
+    setLocal: (v: string) => void,
+  ) {
+    const trimmed = raw.trim();
+    const next = trimmed === "" ? null : trimmed;
+    const prev = (map[field] ?? null) as string | null;
+    if (next === prev) return;
+    setSaving(true);
+    setInStore(field, next);
+    try {
+      await api(`/api/maps/${map.id}`, { method: "PATCH", body: JSON.stringify({ [field]: next }) });
+    } catch (e) {
+      setInStore(field, prev);
+      setLocal(prev ?? "");
+      toast.error(e instanceof Error ? e.message : t("mapSidebar.updateSettingFailed"));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const commitWh   = () => commitField("bookmarkFormat", value, setValue);
+  const commitSite = () => commitField("siteBookmarkFormat", siteValue, setSiteValue);
+
+  // Save both (optimistically) then close; each commit is a no-op when unchanged.
+  function close() { void commitWh(); void commitSite(); onClose(); }
+
+  // Portal to <body> so the fixed overlay isn't trapped by the sidebar's
+  // transform/stacking context (which would pin it inside the sidebar).
+  return createPortal(
+    <div className="modal-overlay" onClick={close}>
+      <div className="modal bookmark-fmt-modal" onClick={(e) => e.stopPropagation()}>
+        <div className="modal__header">
+          <h2 className="modal__title">{t("mapSidebar.mapBookmark")}</h2>
+          <button type="button" className="icon-btn" onClick={close} aria-label={t("actions.close")}>✕</button>
+        </div>
+        <div className="modal__body">
+          <p className="map-sidebar__help">{t("mapSidebar.mapBookmarkHelp")}</p>
+
+          <label className="map-sidebar__label">{t("mapSidebar.mapBookmarkWh")}</label>
+          <input
+            className="map-sidebar__select map-sidebar__select--full"
+            type="text"
+            spellCheck={false}
+            autoFocus
+            value={value}
+            disabled={saving}
+            placeholder={t("mapSidebar.mapBookmarkPlaceholder")}
+            onChange={(e) => setValue(e.target.value)}
+            onBlur={commitWh}
+            onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+          />
+          <ul className="map-sidebar__tokens">
+            {BOOKMARK_TOKENS.map((b) => (
+              <li key={b.token}><code>{b.token}</code> - {b.desc}</li>
+            ))}
+          </ul>
+
+          <label className="map-sidebar__label">{t("mapSidebar.mapBookmarkSite")}</label>
+          <input
+            className="map-sidebar__select map-sidebar__select--full"
+            type="text"
+            spellCheck={false}
+            value={siteValue}
+            disabled={saving}
+            placeholder={t("mapSidebar.mapBookmarkPlaceholder")}
+            onChange={(e) => setSiteValue(e.target.value)}
+            onBlur={commitSite}
+            onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+          />
+          <ul className="map-sidebar__tokens">
+            {SITE_BOOKMARK_TOKENS.map((b) => (
+              <li key={b.token}><code>{b.token}</code> - {b.desc}</li>
+            ))}
+          </ul>
+        </div>
+      </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -556,7 +750,7 @@ function MergeSection() {
   const { user } = useAuth();
   const role = user?.role ?? "readonly";
   const isCorpMap = !!map.isCorpMap;
-  const canToggleSource = isCorpMap && (role === "full" || role === "admin");
+  const canToggleSource = isCorpMap && (role === "full" || isAdminRole(role));
 
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -637,6 +831,7 @@ function MergeSection() {
 export function MapSidebar() {
   const { t } = useTranslation();
   const importInputRef = useRef<HTMLInputElement>(null);
+  const wandererInputRef = useRef<HTMLInputElement>(null);
   const [threshold, setThreshold] = useProximityThreshold();
   const [staleHours, setStaleHours] = useStaleThreshold();
   // Single source of truth for which section is expanded. Defaults to
@@ -653,14 +848,17 @@ export function MapSidebar() {
   // the sidebar; the sidebar keeps only the live mapping tools.
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsTab, setSettingsTab] = useState<"display" | "signatures" | "shortcuts">("display");
+  const [patchNotesOpen, setPatchNotesOpen] = useState(false);
   const notifPermission = useNotificationPermission();
   const { user } = useAuth();
   const isCorpMap = useMapStore((s) => !!s.map.isCorpMap);
+  const isAllianceMap = useMapStore((s) => !!s.map.isAllianceMap);
   const isMapOwner = useIsMapOwner();
-  // Per-character / per-corp share grants are personal-map only and
-  // owner-only. Hide the section anywhere else so it doesn't suggest
-  // an action that would fail at the server.
-  const canManageShareGrants = isMapOwner && !isCorpMap;
+  // Per-entity share grants work on any map scope now; who may manage them
+  // mirrors the server's requireShareAdmin (owner for personal, corp/alliance
+  // admin for org maps). Hide the section for anyone else so it never suggests
+  // an action the server would reject.
+  const canManageShareGrants = canShareThisMap(user, isCorpMap, isAllianceMap, isMapOwner);
   // The map-management buttons (optimize / spread / JSON / PNG / stale fade)
   // are hidden only when a readonly user is looking at a corp map. On their
   // own personal map a readonly user still owns the layout and can use the
@@ -715,6 +913,9 @@ export function MapSidebar() {
   const snapToGrid = useMapStore((s) => s.snapToGrid);
   const setSnapToGrid = useMapStore((s) => s.setSnapToGrid);
   const compactMode = useMapStore((s) => s.compactMode);
+  const panelSideBySide = useMapStore((s) => s.panelSideBySide);
+  const [exitsMinSec, setExitsMinSec] = useUserSetting<number>(EXITS_MIN_SECURITY_KEY, EXITS_MIN_SECURITY_DEFAULT);
+  const setPanelSideBySide = useMapStore((s) => s.setPanelSideBySide);
   const setCompactMode = useMapStore((s) => s.setCompactMode);
   const showMinimap = useMapStore((s) => s.showMinimap);
   const setShowMinimap = useMapStore((s) => s.setShowMinimap);
@@ -722,10 +923,12 @@ export function MapSidebar() {
   const [placement, setPlacement] = useUserSetting<string>("nexum.map.placement", "east");
   const [colorVision, setColorVision] = useUserSetting<string>("nexum.a11y.colorVision", "off");
   const [sigBookmarkFmt, setSigBookmarkFmt] = useUserSetting<string>("nexum.sig.bookmarkFormat", DEFAULT_BOOKMARK_FORMAT);
+  const [siteBookmarkFmt, setSiteBookmarkFmt] = useUserSetting<string>("nexum.sig.siteBookmarkFormat", DEFAULT_SITE_BOOKMARK_FORMAT);
   const uniformSize = useMapStore((s) => s.uniformSize);
   const setUniformSize = useMapStore((s) => s.setUniformSize);
   const showStatics = useMapStore((s) => s.showStatics);
   const setShowStatics = useMapStore((s) => s.setShowStatics);
+  const [showUndivedWh, setShowUndivedWh] = useUserSetting<boolean>('nexum.map.showUndivedWh', true);
   const easyConnect = useMapStore((s) => s.easyConnect);
   const setEasyConnect = useMapStore((s) => s.setEasyConnect);
   const mapOptionsOpen = useMapStore((s) => s.mapOptionsOpen);
@@ -743,7 +946,70 @@ export function MapSidebar() {
   const connectionCount = useMapStore((s) => s.map.connections.length);
   const systemCount = useMapStore((s) => s.map.systems.length);
 
-  const atMapLimit = maps.length >= maxMaps;
+  // One-shot repair: retype wormhole connections that are really stargates (both
+  // ends gate-adjacent per the SDE) to gates. The server applies + broadcasts the
+  // retypes, so open clients update live.
+  const [reclassifying, setReclassifying] = useState(false);
+  const reclassifyGates = async () => {
+    const mapId = useMapStore.getState().activeMapId;
+    if (!mapId) return;
+    setReclassifying(true);
+    try {
+      const r = await api<{ reclassified: number }>(
+        `/api/maps/${mapId}/reclassify-gates`, { method: "POST" });
+      toast.success(t("mapSidebar.reclassifyGatesDone", { n: r.reclassified }));
+    } catch {
+      toast.error(t("mapSidebar.reclassifyGatesFailed"));
+    } finally {
+      // Hold the overlay a beat past the response so it covers the live
+      // re-render as the broadcast updates stream in and apply.
+      setTimeout(() => setReclassifying(false), 450);
+    }
+  };
+
+  // "Tidy layout" — snap resolved K-space systems back to their true New Eden
+  // positions (SDE pos2d). The server repositions + broadcasts, so open clients
+  // move live; wormhole/unresolved/locked nodes are left untouched.
+  const [tidyingLayout, setTidyingLayout] = useState(false);
+  const tidyLayout = async () => {
+    const mapId = useMapStore.getState().activeMapId;
+    if (!mapId) return;
+    setTidyingLayout(true);
+    try {
+      const r = await api<{ repositioned: number }>(
+        `/api/maps/${mapId}/geographic-layout`, { method: "POST" });
+      toast.success(t("mapSidebar.tidyLayoutDone", { n: r.repositioned }));
+    } catch {
+      toast.error(t("mapSidebar.tidyLayoutFailed"));
+    } finally {
+      setTimeout(() => setTidyingLayout(false), 450);
+    }
+  };
+
+  // "Untangle" — force-directed layout. Ignores geography and instead pulls
+  // connected systems together / pushes everything apart, so long crossing
+  // wormhole lines collapse. The server repositions + broadcasts live.
+  const [untangling, setUntangling] = useState(false);
+  const untangleLayout = async () => {
+    const mapId = useMapStore.getState().activeMapId;
+    if (!mapId) return;
+    setUntangling(true);
+    try {
+      const r = await api<{ repositioned: number }>(
+        `/api/maps/${mapId}/untangle-layout`, { method: "POST" });
+      toast.success(t("mapSidebar.untangleLayoutDone", { n: r.repositioned }));
+    } catch {
+      toast.error(t("mapSidebar.untangleLayoutFailed"));
+    } finally {
+      setTimeout(() => setUntangling(false), 450);
+    }
+  };
+
+  // Import creates a PERSONAL map, so the cap is the personal-map limit — count
+  // only maps the user owns (not corp/alliance maps or ones merely shared with
+  // them). Matches the server's quota (owner_id, corp/alliance NULL). Counting
+  // every visible map wrongly disabled Import for corp/alliance members/admins.
+  const atMapLimit = maps.filter((m) => !m.isCorpMap && !m.isAllianceMap && !m.sharedWithMe).length >= maxMaps;
 
 
   function handleExport() {
@@ -781,6 +1047,59 @@ export function MapSidebar() {
       });
       await useMapStore.getState().loadMaps();
       await useMapStore.getState().switchMap(id);
+      // Tidy connection handles to the imported layout + fit it in view, deferred
+      // so the canvas has mounted the new nodes first (matches the region seed).
+      setTimeout(() => {
+        useMapStore.getState().optimizeConnections();
+        useMapStore.getState().requestFitView();
+      }, 500);
+    } catch (err) {
+      toast.error(
+        t("mapSidebar.importFailed", { error: err instanceof Error ? err.message : String(err) }),
+      );
+    }
+  }
+
+  // Import a map exported from Wanderer. Its shape differs from a Nexum export
+  // (systems carry only an EVE id + layout; connections use source/target + numeric
+  // codes), so it goes to a dedicated endpoint that enriches from the SDE and
+  // classifies gate vs wormhole. Creates a new personal map.
+  async function handleImportWanderer(file: File) {
+    let parsed: { systems?: unknown; connections?: unknown };
+    try {
+      parsed = JSON.parse(await file.text()) as { systems?: unknown; connections?: unknown };
+    } catch {
+      toast.error(t("mapSidebar.invalidJson"));
+      return;
+    }
+    if (!Array.isArray(parsed.systems)) {
+      toast.error(t("mapSidebar.notWandererMap"));
+      return;
+    }
+    const name = file.name.replace(/\.json$/i, "") || "Imported from Wanderer";
+    try {
+      const { id, imported } = await api<{ id: string; imported: { systems: number; connections: number; skipped: number } }>(
+        "/api/maps/import/wanderer",
+        {
+          method: "POST",
+          body: JSON.stringify({ name, systems: parsed.systems, connections: parsed.connections ?? [] }),
+        },
+      );
+      await useMapStore.getState().loadMaps();
+      await useMapStore.getState().switchMap(id);
+      // Re-route connection handles to the imported layout + fit it in view,
+      // deferred so the canvas has mounted the new nodes first (matches the
+      // region seed). Wanderer connections arrive without handles, so this
+      // tidies every edge onto the nearest sides.
+      setTimeout(() => {
+        useMapStore.getState().optimizeConnections();
+        useMapStore.getState().requestFitView();
+      }, 500);
+      toast.success(
+        t("mapSidebar.wandererImported", {
+          systems: imported.systems, connections: imported.connections, skipped: imported.skipped,
+        }),
+      );
     } catch (err) {
       toast.error(
         t("mapSidebar.importFailed", { error: err instanceof Error ? err.message : String(err) }),
@@ -790,6 +1109,19 @@ export function MapSidebar() {
 
   return (
     <div className={`map-sidebar${mapOptionsOpen ? " map-sidebar--open" : ""}`}>
+      {(reclassifying || tidyingLayout || untangling) && createPortal(
+        <div className="layout-busy" role="status" aria-live="polite">
+          <div className="layout-busy__spinner" />
+          <div className="layout-busy__label">
+            {reclassifying
+              ? t("mapSidebar.reclassifyGatesBusy")
+              : tidyingLayout
+                ? t("mapSidebar.tidyLayoutBusy")
+                : t("mapSidebar.untangleLayoutBusy")}
+          </div>
+        </div>,
+        document.body,
+      )}
       <button
         className="map-sidebar__tab"
         onClick={() => setMapOptionsOpen(!mapOptionsOpen)}
@@ -803,6 +1135,35 @@ export function MapSidebar() {
       </button>
 
       <div className="map-sidebar__content">
+        <div className="map-sidebar__brand">
+          <div className="map-sidebar__brand-top">
+            <img src="/screen.png" alt="" className="map-sidebar__brand-logo" />
+            <div className="map-sidebar__brand-text">
+              <div className="map-sidebar__brand-name">Eve Nexum</div>
+              <div className="map-sidebar__brand-by">
+                {t("mapSidebar.poweredBy")}{" "}
+                <a href="https://evewho.com/character/1841929906" target="_blank" rel="noopener noreferrer">Addelee</a>
+              </div>
+            </div>
+          </div>
+          <div className="map-sidebar__brand-version">
+            <span>{t("mapSidebar.version")}: {__APP_VERSION__}</span>
+            <button type="button" className="map-sidebar__patchnotes-btn" onClick={() => setPatchNotesOpen(true)}>
+              {t("mapSidebar.showPatchNotes")}
+            </button>
+          </div>
+        </div>
+
+        <a
+          className="map-sidebar__settings-btn map-sidebar__discord-btn"
+          href={DISCORD_INVITE_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          <DiscordLogoIcon size={14} weight="fill" color="#5865F2" />
+          {t("actions.joinDiscord")}
+        </a>
+
         <button
           type="button"
           className="map-sidebar__settings-btn"
@@ -840,6 +1201,20 @@ export function MapSidebar() {
           title={t("mapSidebar.sections.systemOptions")}
           {...sectionProps("systemOptions")}
         >
+          {/* Where the docked panel sits: beneath the map (default) or beside
+              it. The workspace sidebar has its own left/right control and is
+              unaffected. */}
+          <div className="map-sidebar__row">
+            <label className="map-sidebar__label">{t("mapSidebar.panelLayout")}</label>
+            <button
+              className={`toolbar__toggle${panelSideBySide ? " toolbar__toggle--on" : ""}`}
+              onClick={() => setPanelSideBySide(!panelSideBySide)}
+              aria-pressed={panelSideBySide}
+            >
+              {panelSideBySide ? t("mapSidebar.panelBeside") : t("mapSidebar.panelBelow")}
+            </button>
+          </div>
+
           <div className="map-sidebar__row">
             <label className="map-sidebar__label">{t("mapSidebar.compact")}</label>
             <button
@@ -870,6 +1245,17 @@ export function MapSidebar() {
               aria-pressed={showStatics}
             >
               {showStatics ? t("actions.on") : t("actions.off")}
+            </button>
+          </div>
+
+          <div className="map-sidebar__row">
+            <label className="map-sidebar__label">{t("mapSidebar.showUndivedWhs")}</label>
+            <button
+              className={`toolbar__toggle${showUndivedWh ? " toolbar__toggle--on" : ""}`}
+              onClick={() => setShowUndivedWh(!showUndivedWh)}
+              aria-pressed={showUndivedWh}
+            >
+              {showUndivedWh ? t("actions.on") : t("actions.off")}
             </button>
           </div>
 
@@ -924,21 +1310,21 @@ export function MapSidebar() {
             >
               {t("mapSidebar.connectionThickness")}
             </label>
-            <select
+            <Select
               id="connection-thickness"
-              className="map-sidebar__select"
               value={connectionThickness}
-              onChange={(e) =>
+              onChange={(v) =>
                 setConnectionThickness(
-                  e.target.value as "thin" | "standard" | "thick" | "extra",
+                  v as "thin" | "standard" | "thick" | "extra",
                 )
               }
-            >
-              <option value="thin">{t("mapSidebar.thickness.thin")}</option>
-              <option value="standard">{t("mapSidebar.thickness.standard")}</option>
-              <option value="thick">{t("mapSidebar.thickness.thick")}</option>
-              <option value="extra">{t("mapSidebar.thickness.extra")}</option>
-            </select>
+              options={[
+                { value: "thin", label: t("mapSidebar.thickness.thin") },
+                { value: "standard", label: t("mapSidebar.thickness.standard") },
+                { value: "thick", label: t("mapSidebar.thickness.thick") },
+                { value: "extra", label: t("mapSidebar.thickness.extra") },
+              ]}
+            />
           </div>
 
           {!hideTopologyTools && (
@@ -958,9 +1344,66 @@ export function MapSidebar() {
               >
                 {t("mapSidebar.spreadNodes")}
               </button>
+              <button
+                className="map-sidebar__action"
+                onClick={reclassifyGates}
+                disabled={connectionCount === 0 || reclassifying}
+                data-tooltip={t("mapSidebar.reclassifyGatesTooltip")}
+              >
+                {reclassifying ? t("mapSidebar.reclassifyGatesBusy") : t("mapSidebar.reclassifyGates")}
+              </button>
+              <button
+                className="map-sidebar__action"
+                onClick={tidyLayout}
+                disabled={systemCount < 2 || tidyingLayout}
+                data-tooltip={t("mapSidebar.tidyLayoutTooltip")}
+              >
+                {tidyingLayout ? t("mapSidebar.tidyLayoutBusy") : t("mapSidebar.tidyLayout")}
+              </button>
+              <button
+                className="map-sidebar__action"
+                onClick={untangleLayout}
+                disabled={systemCount < 2 || untangling}
+                data-tooltip={t("mapSidebar.untangleLayoutTooltip")}
+              >
+                {untangling ? t("mapSidebar.untangleLayoutBusy") : t("mapSidebar.untangleLayout")}
+              </button>
               <LazyWhSweepToggle />
             </>
           )}
+        </CollapsibleSection>
+
+        {/* Shared bookmark formats (wormhole + relic/data/gas) for this map.
+            Its own section since it's no longer wormhole-only; renders nothing
+            for users who can't manage the shared policy. */}
+        <MapBookmarkSection sectionProps={sectionProps("bookmarks")} />
+
+        <CollapsibleSection title={t("mapSidebar.sections.tracking")} {...sectionProps("tracking")}>
+          {isCorpMap || isAllianceMap ? (
+            // Corp/alliance maps use a map-level policy that overrides everyone's
+            // personal K-space setting while they're on this map.
+            <CorpKspaceToggle />
+          ) : (
+            <>
+              <SettingToggle
+                settingKey="nexum.tracking.skipKspace"
+                label={t("mapSidebar.skipKspace")}
+                defaultOn={false}
+              />
+              <div className="map-sidebar__hint">{t("mapSidebar.skipKspaceHint")}</div>
+            </>
+          )}
+          {/* Separate from "track jumps": that one decides whether the map GROWS
+              as you fly, this one decides whether other people looking at the map
+              can see where you are. Someone who turns tracking off to stop
+              cluttering a map hasn't asked to disappear from their corp, so the
+              two stay independent. Your own you-are-here dot is unaffected. */}
+          <SettingToggle
+            settingKey="nexum.presence.hidden"
+            label={t("mapSidebar.hidePresence")}
+            defaultOn={false}
+          />
+          <div className="map-sidebar__hint">{t("mapSidebar.hidePresenceHint")}</div>
         </CollapsibleSection>
 
         <CollapsibleSection title={t("mapSidebar.sections.route")} {...sectionProps("route")}>
@@ -968,17 +1411,15 @@ export function MapSidebar() {
             <label className="map-sidebar__label" htmlFor="route-mode">
               {t("mapSidebar.routePreference")}
             </label>
-            <select
+            <Select
               id="route-mode"
-              className="map-sidebar__select"
               value={routeMode}
-              onChange={(e) =>
-                setRouteMode(e.target.value as "shortest" | "secure")
-              }
-            >
-              <option value="shortest">{t("mapSidebar.routeShortest")}</option>
-              <option value="secure">{t("mapSidebar.routeSecure")}</option>
-            </select>
+              onChange={(v) => setRouteMode(v as "shortest" | "secure")}
+              options={[
+                { value: "shortest", label: t("mapSidebar.routeShortest") },
+                { value: "secure", label: t("mapSidebar.routeSecure") },
+              ]}
+            />
           </div>
           <p className="map-sidebar__hint">
             {t("mapSidebar.routeHint")}
@@ -1015,6 +1456,10 @@ export function MapSidebar() {
           <ChainExitsSection />
         </CollapsibleSection>
 
+        <CollapsibleSection title={t("mapSidebar.sections.jumpRange")} {...sectionProps("jumpRange")}>
+          <JumpRangePane />
+        </CollapsibleSection>
+
         <CollapsibleSection
           title={t("mapSidebar.sections.proximityAlerts")}
           {...sectionProps("proximityAlerts")}
@@ -1026,19 +1471,19 @@ export function MapSidebar() {
             <label className="map-sidebar__label" htmlFor="proximity-threshold">
               {t("mapSidebar.threshold")}
             </label>
-            <select
+            <Select
               id="proximity-threshold"
-              className="map-sidebar__select"
-              value={threshold}
-              onChange={(e) => setThreshold(parseInt(e.target.value, 10))}
-            >
-              <option value={0}>{t("mapSidebar.proximityInSystem")}</option>
-              <option value={1}>{t("mapSidebar.proximityLe", { count: 1 })}</option>
-              <option value={2}>{t("mapSidebar.proximityLe", { count: 2 })}</option>
-              <option value={3}>{t("mapSidebar.proximityLe", { count: 3 })}</option>
-              <option value={4}>{t("mapSidebar.proximityLe", { count: 4 })}</option>
-              <option value={5}>{t("mapSidebar.proximityLe", { count: 5 })}</option>
-            </select>
+              value={String(threshold)}
+              onChange={(v) => setThreshold(parseInt(v, 10))}
+              options={[
+                { value: "0", label: t("mapSidebar.proximityInSystem") },
+                { value: "1", label: t("mapSidebar.proximityLe", { count: 1 }) },
+                { value: "2", label: t("mapSidebar.proximityLe", { count: 2 }) },
+                { value: "3", label: t("mapSidebar.proximityLe", { count: 3 }) },
+                { value: "4", label: t("mapSidebar.proximityLe", { count: 4 }) },
+                { value: "5", label: t("mapSidebar.proximityLe", { count: 5 }) },
+              ]}
+            />
           </div>
           <div className="map-sidebar__hint">
             {t("mapSidebar.proximityNotifyHint")}
@@ -1098,9 +1543,32 @@ export function MapSidebar() {
               label={t("mapSidebar.notifWatchlist")}
               desktopKey={NOTIFY.watchlistDesktop}
               soundKey={NOTIFY.watchlistSound}
-              desktopDefault={false}
+            />
+            <NotifRow
+              label={t("mapSidebar.notifExits")}
+              desktopKey={NOTIFY.exitsDesktop}
+              soundKey={NOTIFY.exitsSound}
             />
           </div>
+          {/* Which exits count. Only meaningful with the row above switched on,
+              so it sits under the grid rather than in it. */}
+          <label className="map-sidebar__field">
+            <span>{t("mapSidebar.notifExitsMinSec")}</span>
+            <Select
+              value={String(exitsMinSec)}
+              onChange={(v) => setExitsMinSec(Number(v))}
+              options={[
+                { value: "0.45", label: t("mapSidebar.notifExitsHiSec") },
+                { value: "0.05", label: t("mapSidebar.notifExitsLowSec") },
+                { value: "-1",   label: t("mapSidebar.notifExitsAny") },
+              ]}
+            />
+          </label>
+          <div className="map-sidebar__hint">{t("mapSidebar.notifExitsHint")}</div>
+        </CollapsibleSection>
+
+        <CollapsibleSection title={t("mapSidebar.sections.announcer")} {...sectionProps("announcer")}>
+          <AnnouncerSection />
         </CollapsibleSection>
 
         <CollapsibleSection title={t("mapSidebar.sections.activity")} {...sectionProps("activity")}>
@@ -1152,21 +1620,21 @@ export function MapSidebar() {
               <label className="map-sidebar__label" htmlFor="stale-threshold">
                 {t("mapSidebar.threshold")}
               </label>
-              <select
+              <Select
                 id="stale-threshold"
-                className="map-sidebar__select"
-                value={staleHours}
-                onChange={(e) => setStaleHours(parseInt(e.target.value, 10))}
-              >
-                <option value={1}>{t("units.hours", { count: 1 })}</option>
-                <option value={4}>{t("units.hours", { count: 4 })}</option>
-                <option value={12}>{t("units.hours", { count: 12 })}</option>
-                <option value={24}>{t("units.hours", { count: 24 })}</option>
-                <option value={48}>{t("units.hours", { count: 48 })}</option>
-                <option value={168}>{t("units.weeks", { count: 1 })}</option>
-                <option value={720}>{t("units.months", { count: 1 })}</option>
-                <option value={0}>{t("mapSidebar.staleNever")}</option>
-              </select>
+                value={String(staleHours)}
+                onChange={(v) => setStaleHours(parseInt(v, 10))}
+                options={[
+                  { value: "1", label: t("units.hours", { count: 1 }) },
+                  { value: "4", label: t("units.hours", { count: 4 }) },
+                  { value: "12", label: t("units.hours", { count: 12 }) },
+                  { value: "24", label: t("units.hours", { count: 24 }) },
+                  { value: "48", label: t("units.hours", { count: 48 }) },
+                  { value: "168", label: t("units.weeks", { count: 1 }) },
+                  { value: "720", label: t("units.months", { count: 1 }) },
+                  { value: "0", label: t("mapSidebar.staleNever") },
+                ]}
+              />
             </div>
           </CollapsibleSection>
         )}
@@ -1174,10 +1642,6 @@ export function MapSidebar() {
         {!hideTopologyTools && (
           <CollapsibleSection title={t("mapSidebar.sections.importExport")} {...sectionProps("export")}>
             <div className="map-sidebar__section">
-              <button className="map-sidebar__action" onClick={handleExport}>
-                {t("mapSidebar.exportJson")}
-              </button>
-
               <div
                 className={`map-sidebar__import-wrap${atMapLimit ? " map-sidebar__import-wrap--disabled" : ""}`}
               >
@@ -1189,6 +1653,22 @@ export function MapSidebar() {
                   {t("mapSidebar.importJson")}
                 </button>
               </div>
+              <div
+                className={`map-sidebar__import-wrap${atMapLimit ? " map-sidebar__import-wrap--disabled" : ""}`}
+              >
+                <button
+                  className="map-sidebar__action"
+                  onClick={() => wandererInputRef.current?.click()}
+                  disabled={atMapLimit}
+                  title={t("mapSidebar.importWandererTitle")}
+                >
+                  {t("mapSidebar.importWanderer")}
+                </button>
+              </div>
+
+              <button className="map-sidebar__action" onClick={handleExport}>
+                {t("mapSidebar.exportJson")}
+              </button>
               <button
                 type="button"
                 className="map-sidebar__action"
@@ -1205,7 +1685,7 @@ export function MapSidebar() {
           <MergeSection />
         </CollapsibleSection>
 
-        {canShareThisMap(user, isCorpMap, isMapOwner) && (
+        {canShareThisMap(user, isCorpMap, isAllianceMap, isMapOwner) && (
           <CollapsibleSection
             title={t("mapSidebar.sections.liveSharing")}
             {...sectionProps("share")}
@@ -1236,6 +1716,20 @@ export function MapSidebar() {
           e.target.value = "";
         }}
       />
+
+      <input
+        ref={wandererInputRef}
+        type="file"
+        accept=".json,application/json"
+        style={{ display: "none" }}
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file) handleImportWanderer(file);
+          e.target.value = "";
+        }}
+      />
+
+      {patchNotesOpen && <PatchNotesModal onClose={() => setPatchNotesOpen(false)} />}
 
       {settingsOpen && createPortal(
         <div className="settings-modal__overlay" onClick={() => setSettingsOpen(false)}>
@@ -1275,12 +1769,12 @@ export function MapSidebar() {
                   {showMinimap && (
                     <div className="map-sidebar__row">
                       <label className="map-sidebar__label" htmlFor="minimap-position">{t("mapSidebar.position")}</label>
-                      <select id="minimap-position" className="map-sidebar__select" value={minimapPosition} onChange={(e) => setMinimapPosition(e.target.value as MinimapPosition)}>
-                        <option value="bottom-right">{t("mapSidebar.minimapPos.bottomRight")}</option>
-                        <option value="bottom-left">{t("mapSidebar.minimapPos.bottomLeft")}</option>
-                        <option value="top-right">{t("mapSidebar.minimapPos.topRight")}</option>
-                        <option value="top-left">{t("mapSidebar.minimapPos.topLeft")}</option>
-                      </select>
+                      <Select id="minimap-position" value={minimapPosition} onChange={(v) => setMinimapPosition(v as MinimapPosition)} options={[
+                        { value: "bottom-right", label: t("mapSidebar.minimapPos.bottomRight") },
+                        { value: "bottom-left", label: t("mapSidebar.minimapPos.bottomLeft") },
+                        { value: "top-right", label: t("mapSidebar.minimapPos.topRight") },
+                        { value: "top-left", label: t("mapSidebar.minimapPos.topLeft") },
+                      ]} />
                     </div>
                   )}
                   <div className="map-sidebar__row">
@@ -1294,28 +1788,27 @@ export function MapSidebar() {
                   </div>
                   <div className="map-sidebar__row">
                     <label className="map-sidebar__label" htmlFor="placement-dir">{t("mapSidebar.placement")}</label>
-                    <select id="placement-dir" className="map-sidebar__select" value={normalizePlacement(placement)} onChange={(e) => setPlacement(e.target.value)}>
-                      <option value="east">{t("mapSidebar.placementOptions.east")}</option>
-                      <option value="south">{t("mapSidebar.placementOptions.south")}</option>
-                      <option value="west">{t("mapSidebar.placementOptions.west")}</option>
-                      <option value="north">{t("mapSidebar.placementOptions.north")}</option>
-                    </select>
+                    <Select id="placement-dir" value={normalizePlacement(placement)} onChange={(v) => setPlacement(v)} options={[
+                      { value: "east", label: t("mapSidebar.placementOptions.east") },
+                      { value: "south", label: t("mapSidebar.placementOptions.south") },
+                      { value: "west", label: t("mapSidebar.placementOptions.west") },
+                      { value: "north", label: t("mapSidebar.placementOptions.north") },
+                    ]} />
                   </div>
                   <div className="map-sidebar__row">
                     <label className="map-sidebar__label" htmlFor="color-vision">{t("mapSidebar.colorVision")}</label>
-                    <select id="color-vision" className="map-sidebar__select" value={colorVision} onChange={(e) => setColorVision(e.target.value)}>
-                      <option value="off">{t("mapSidebar.colorVisionOptions.off")}</option>
-                      <option value="deuteranopia">{t("mapSidebar.colorVisionOptions.deuteranopia")}</option>
-                      <option value="protanopia">{t("mapSidebar.colorVisionOptions.protanopia")}</option>
-                      <option value="tritanopia">{t("mapSidebar.colorVisionOptions.tritanopia")}</option>
-                    </select>
+                    <Select id="color-vision" value={colorVision} onChange={(v) => setColorVision(v)} options={[
+                      { value: "off", label: t("mapSidebar.colorVisionOptions.off") },
+                      { value: "deuteranopia", label: t("mapSidebar.colorVisionOptions.deuteranopia") },
+                      { value: "protanopia", label: t("mapSidebar.colorVisionOptions.protanopia") },
+                      { value: "tritanopia", label: t("mapSidebar.colorVisionOptions.tritanopia") },
+                    ]} />
                   </div>
                 </>
               )}
 
               {settingsTab === "signatures" && (
                 <>
-                  <MapBookmarkFormat />
                   <div className="map-sidebar__field">
                     <label className="map-sidebar__label" htmlFor="sig-bookmark-fmt">{t("mapSidebar.sigBookmark")}</label>
                     <input id="sig-bookmark-fmt" className="map-sidebar__select map-sidebar__select--full" type="text" spellCheck={false} value={sigBookmarkFmt} onChange={(e) => setSigBookmarkFmt(e.target.value)} placeholder={DEFAULT_BOOKMARK_FORMAT} />
@@ -1323,6 +1816,16 @@ export function MapSidebar() {
                   <p className="map-sidebar__help">{t("mapSidebar.bookmarkHelp")}</p>
                   <ul className="map-sidebar__tokens">
                     {BOOKMARK_TOKENS.map((b) => (
+                      <li key={b.token}><code>{b.token}</code> - {b.desc}</li>
+                    ))}
+                  </ul>
+                  <div className="map-sidebar__field">
+                    <label className="map-sidebar__label" htmlFor="site-bookmark-fmt">{t("mapSidebar.siteBookmark")}</label>
+                    <input id="site-bookmark-fmt" className="map-sidebar__select map-sidebar__select--full" type="text" spellCheck={false} value={siteBookmarkFmt} onChange={(e) => setSiteBookmarkFmt(e.target.value)} placeholder={DEFAULT_SITE_BOOKMARK_FORMAT} />
+                  </div>
+                  <p className="map-sidebar__help">{t("mapSidebar.siteBookmarkHelp")}</p>
+                  <ul className="map-sidebar__tokens">
+                    {SITE_BOOKMARK_TOKENS.map((b) => (
                       <li key={b.token}><code>{b.token}</code> - {b.desc}</li>
                     ))}
                   </ul>
@@ -1335,7 +1838,7 @@ export function MapSidebar() {
                   <div className="map-sidebar__shortcut"><kbd>H</kbd><span>{t("mapSidebar.shortcut.centreHome")}</span></div>
                   <div className="map-sidebar__shortcut"><kbd>Del</kbd><span>{t("mapSidebar.shortcut.removeSelected")}</span></div>
                   <div className="map-sidebar__shortcut"><kbd>⌘/Ctrl + Z</kbd><span>{t("mapSidebar.shortcut.undo")}</span></div>
-                  <div className="map-sidebar__shortcut"><kbd>Shift + click</kbd><span>{t("mapSidebar.shortcut.multiSelect")}</span></div>
+                  <div className="map-sidebar__shortcut"><kbd>Shift or ⌘/Ctrl + click</kbd><span>{t("mapSidebar.shortcut.multiSelect")}</span></div>
                   <div className="map-sidebar__shortcut"><kbd>Shift + drag</kbd><span>{t("mapSidebar.shortcut.rubberBand")}</span></div>
                   <div className="map-sidebar__shortcut"><kbd>Shift + ⌘/Ctrl + V</kbd><span>{t("mapSidebar.shortcut.overwriteSigs")}</span></div>
                   <p className="map-sidebar__shortcut-note">{t("mapSidebar.shortcut.vivaldiNote")}</p>

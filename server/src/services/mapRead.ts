@@ -8,6 +8,24 @@ import { config } from '../config.js';
 
 const UUID_RE = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
 
+// The full MapConnection column projection, single-sourced so every shape that
+// reaches a client — the full map load, the share view, and the connection.add
+// broadcast re-read — stays identical (they used to be three hand-copied lists
+// that could drift, notably the "type" vs "whType" alias). A fixed constant,
+// never interpolated with user input.
+export const CONNECTION_COLS = `
+  id, source_id AS "sourceId", target_id AS "targetId",
+  source_handle AS "sourceHandle", target_handle AS "targetHandle",
+  connection_type AS "connectionType", mass_status AS "massStatus",
+  time_status AS "timeStatus", size, wh_type AS "type",
+  COALESCE(mass_used, 0)::float8 AS "massUsed",
+  eol_at AS "eolAt", lifetime_expires_at AS "lifetimeExpiresAt", broken,
+  flag_icon AS "flagIcon", flag_note AS "flagNote", flag_blink AS "flagBlink", flag_color AS "flagColor",
+  source_signature_id AS "sourceSignatureId",
+  target_signature_id AS "targetSignatureId",
+  created_at AS "createdAt"
+`;
+
 export interface VisibleMapsParams {
   userId:         number;
   ownerId:        number | null;
@@ -18,8 +36,8 @@ export interface VisibleMapsParams {
 
 // The list of maps visible to an account: personal (owner) maps, corp maps in
 // the configured corp set, alliance maps in the configured alliance set, and
-// personal maps explicitly shared with the character or their corp. Identical
-// query to GET /api/maps.
+// any map (personal, corp, OR alliance) explicitly shared with the character,
+// their corp, or their alliance. Identical query to GET /api/maps.
 export async function listVisibleMaps(p: VisibleMapsParams) {
   // Corp maps the caller can see. Explicit corp deployment: the configured
   // corps (or just the caller's, unless CORP_MAP_SHARED). Alliance deployment
@@ -46,11 +64,19 @@ export async function listVisibleMaps(p: VisibleMapsParams) {
               AND (m.corp_id IS NULL OR NOT m.corp_id = ANY($2::int[]))
               AND (m.alliance_id IS NULL OR NOT m.alliance_id = ANY($6::int[]))
             ) AS "sharedWithMe",
+            -- True iff the caller has an explicit CHARACTER-scoped grant (not a
+            -- corp/alliance one, which belongs to the whole org). Only these can
+            -- be self-removed via DELETE /:mapId/shares/mine.
+            EXISTS (
+              SELECT 1 FROM map_shares ms
+               WHERE ms.map_id = m.id AND ms.target_character_id = $3
+            ) AS "canLeaveShare",
             m.locked,
             ou.character_name             AS "ownerName",
             m.allow_as_merge_source       AS "allowAsMergeSource",
             m.allow_as_merge_destination  AS "allowAsMergeDestination",
             m.lazy_remove_wormholes       AS "lazyRemoveWormholes",
+            m.collapse_grace_hours        AS "collapseGraceHours",
             m.last_active_at AS "lastActiveAt",
             m.created_at     AS "createdAt",
             m.updated_at     AS "updatedAt"
@@ -58,13 +84,14 @@ export async function listVisibleMaps(p: VisibleMapsParams) {
        JOIN users ou ON ou.id = m.user_id
        LEFT JOIN map_shares s ON s.map_id = m.id
             AND ( s.target_character_id = $3
-               OR ($4::int IS NOT NULL AND s.target_corp_id = $4) )
+               OR ($4::int IS NOT NULL AND s.target_corp_id = $4)
+               OR ($7::int IS NOT NULL AND s.target_alliance_id = $7) )
       WHERE ((m.owner_id = $5::int OR m.user_id = $1) AND m.corp_id IS NULL AND m.alliance_id IS NULL)
          OR m.corp_id = ANY($2::int[])
          OR m.alliance_id = ANY($6::int[])
-         OR (s.id IS NOT NULL AND m.corp_id IS NULL AND m.alliance_id IS NULL)
+         OR s.id IS NOT NULL   -- any map (incl. corp/alliance) shared with me/my corp/my alliance
       ORDER BY "sharedWithMe", "isAllianceMap", "isCorpMap", m.name`,
-    [p.userId, visibleCorpIds, p.callerChar, p.userCorpId, ownerId, visibleAllianceIds],
+    [p.userId, visibleCorpIds, p.callerChar, p.userCorpId, ownerId, visibleAllianceIds, p.userAllianceId],
   );
   return rows;
 }
@@ -79,7 +106,10 @@ export async function loadFullMap(mapId: string) {
               allow_as_merge_source       AS "allowAsMergeSource",
               allow_as_merge_destination  AS "allowAsMergeDestination",
               lazy_remove_wormholes       AS "lazyRemoveWormholes",
+              skip_kspace                 AS "skipKspace",
+              collapse_grace_hours        AS "collapseGraceHours",
               bookmark_format             AS "bookmarkFormat",
+              site_bookmark_format        AS "siteBookmarkFormat",
               share_token              AS "shareToken",
               share_expires_at         AS "shareExpiresAt",
               share_include_sigs       AS "shareIncludeSigs",
@@ -91,27 +121,20 @@ export async function loadFullMap(mapId: string) {
       [mapId],
     ),
     db.query(
-      `SELECT id, eve_system_id AS "eveSystemId", name, system_class AS "systemClass",
-              effect, statics, region_name AS "regionName", npc_type AS "npcType",
-              position_x AS x, position_y AS y,
-              status, intel, is_home AS "isHome", locked, notes,
-              labels, custom_labels AS "customLabels", tag,
-              (SELECT ss.security::float8 FROM solar_systems ss WHERE ss.id = map_systems.eve_system_id) AS "security",
-              last_activity_at AS "lastActivityAt"
-       FROM map_systems WHERE map_id = $1`,
+      `SELECT ms.id, ms.eve_system_id AS "eveSystemId", ms.name, ms.system_class AS "systemClass",
+              ms.effect, ms.statics, ms.region_name AS "regionName", ms.npc_type AS "npcType",
+              ms.position_x AS x, ms.position_y AS y,
+              ms.status, ms.intel, ms.is_home AS "isHome", ms.locked, ms.notes,
+              ms.labels, ms.custom_labels AS "customLabels", ms.tag, ms.alias,
+              ss.security::float8 AS "security",
+              ms.last_activity_at AS "lastActivityAt"
+       FROM map_systems ms
+       LEFT JOIN solar_systems ss ON ss.id = ms.eve_system_id
+       WHERE ms.map_id = $1`,
       [mapId],
     ),
     db.query(
-      `SELECT id, source_id AS "sourceId", target_id AS "targetId",
-              source_handle AS "sourceHandle", target_handle AS "targetHandle",
-              connection_type AS "connectionType", mass_status AS "massStatus",
-              time_status AS "timeStatus", size, wh_type AS "type",
-              COALESCE(mass_used, 0)::float8 AS "massUsed",
-              eol_at AS "eolAt", broken,
-              source_signature_id AS "sourceSignatureId",
-              target_signature_id AS "targetSignatureId",
-              created_at AS "createdAt"
-       FROM map_connections WHERE map_id = $1`,
+      `SELECT ${CONNECTION_COLS} FROM map_connections WHERE map_id = $1`,
       [mapId],
     ),
     db.query(
@@ -145,7 +168,8 @@ export async function isSystemInMap(systemId: string, mapId: string): Promise<bo
 export async function loadSystemSignatures(systemId: string) {
   const { rows } = await db.query(
     `SELECT id, sig_id AS "sigId", sig_type AS "sigType", name, notes,
-            wh_type AS "whType", wh_leads_to AS "whLeadsTo", created_at AS "createdAt"
+            wh_type AS "whType", wh_leads_to AS "whLeadsTo", ghost_type AS "ghostType",
+            created_at AS "createdAt", updated_at AS "updatedAt"
        FROM map_signatures WHERE system_id = $1 ORDER BY created_at`,
     [systemId],
   );

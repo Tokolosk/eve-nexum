@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Trans, useTranslation } from 'react-i18next';
 import { notifyPermissionChanged } from '../../hooks/useNotificationPermission';
+import styles from './ProximityOptInModal.module.css';
 
 const ASKED_KEY = 'nexum.proximityOptInAsked';
 
@@ -22,6 +23,8 @@ export function ProximityOptInModal() {
     if (typeof Notification === 'undefined') return;
     if (Notification.permission !== 'default')  return;
     if (localStorage.getItem(ASKED_KEY))         return;
+    // Deliberate: one-shot gate, evaluated once on mount.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setShow(true);
   }, []);
 
@@ -60,9 +63,9 @@ export function ProximityOptInModal() {
           <h2 className="modal__title">{t('proximityOptIn.title')}</h2>
         </div>
 
-        <div className="modal__body proximity-optin__body">
+        <div className={`modal__body ${styles.body}`}>
           <p><Trans i18nKey="proximityOptIn.body" /></p>
-          <p className="proximity-optin__sub"><Trans i18nKey="proximityOptIn.sub" /></p>
+          <p className={styles.sub}><Trans i18nKey="proximityOptIn.sub" /></p>
 
           <div className="modal__actions">
             <button type="button" className="btn btn--ghost" onClick={dismiss}>
