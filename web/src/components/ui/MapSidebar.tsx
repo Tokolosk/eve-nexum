@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Trans, useTranslation } from "react-i18next";
+import { TripwireImportModal } from "./TripwireImportModal";
 import type { TFunction } from "i18next";
 import {
   useNotificationPermission,
@@ -20,11 +21,11 @@ import {
 } from "../../hooks/useMinimapPosition";
 import { useUserSetting } from "../../hooks/useUserSetting";
 import { normalizePlacement } from "../../hooks/useLocationTracking";
-import { NOTIFY, notifyDefault, EXITS_MIN_SECURITY_KEY, EXITS_MIN_SECURITY_DEFAULT } from "../../utils/notificationPrefs";
+import { NOTIFY, notifyDefault, previewAlertVolume, ALERT_VOLUME_KEY, ALERT_VOLUME_DEFAULT, EXITS_MIN_SECURITY_KEY, EXITS_MIN_SECURITY_DEFAULT, EXITS_MIN_SECURITY_OFF } from "../../utils/notificationPrefs";
 import { useResettableState } from "../../hooks/useResettableState";
 import { DEFAULT_BOOKMARK_FORMAT, BOOKMARK_TOKENS, DEFAULT_SITE_BOOKMARK_FORMAT, SITE_BOOKMARK_TOKENS } from "../../utils/signatureBookmark";
 import { toPng } from "html-to-image";
-import { CaretLeftIcon, CaretRightIcon, GearIcon, DiscordLogoIcon } from "@phosphor-icons/react";
+import { CaretLeftIcon, CaretRightIcon, DiscordLogoIcon } from "@phosphor-icons/react";
 import { DISCORD_INVITE_URL } from "../../data/links";
 import { ChainExitsSection } from "./ChainExitsSection";
 import { JumpRangePane } from "./JumpRangePane";
@@ -832,6 +833,7 @@ export function MapSidebar() {
   const { t } = useTranslation();
   const importInputRef = useRef<HTMLInputElement>(null);
   const wandererInputRef = useRef<HTMLInputElement>(null);
+  const pathfinderInputRef = useRef<HTMLInputElement>(null);
   const [threshold, setThreshold] = useProximityThreshold();
   const [staleHours, setStaleHours] = useStaleThreshold();
   // Single source of truth for which section is expanded. Defaults to
@@ -846,7 +848,10 @@ export function MapSidebar() {
   });
   // Preferences live in a Settings dialog (gear button) rather than crowding
   // the sidebar; the sidebar keeps only the live mapping tools.
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  // Open state lives in the store: the button that opens this now sits in the
+  // toolbar, with the rest of the pilot's controls.
+  const settingsOpen = useMapStore((s) => s.mapSettingsOpen);
+  const setSettingsOpen = useMapStore((s) => s.setMapSettingsOpen);
   const [settingsTab, setSettingsTab] = useState<"display" | "signatures" | "shortcuts">("display");
   const [patchNotesOpen, setPatchNotesOpen] = useState(false);
   const notifPermission = useNotificationPermission();
@@ -915,6 +920,7 @@ export function MapSidebar() {
   const compactMode = useMapStore((s) => s.compactMode);
   const panelSideBySide = useMapStore((s) => s.panelSideBySide);
   const [exitsMinSec, setExitsMinSec] = useUserSetting<number>(EXITS_MIN_SECURITY_KEY, EXITS_MIN_SECURITY_DEFAULT);
+  const [alertVolume, setAlertVolume] = useUserSetting<number>(ALERT_VOLUME_KEY, ALERT_VOLUME_DEFAULT);
   const setPanelSideBySide = useMapStore((s) => s.setPanelSideBySide);
   const setCompactMode = useMapStore((s) => s.setCompactMode);
   const showMinimap = useMapStore((s) => s.showMinimap);
@@ -1060,6 +1066,51 @@ export function MapSidebar() {
     }
   }
 
+  // Import a Tripwire chain from the JSON its own client fetches. Unlike the
+  // Wanderer export this carries signatures and each hole's mass/life, so a
+  // chain arrives with its scan data rather than just its shape.
+  const [tripwireOpen, setTripwireOpen] = useState(false);
+  async function handleImportTripwire(raw: string) {
+    let parsed: { signatures?: unknown; wormholes?: unknown; notes?: unknown; origin?: unknown };
+    try {
+      parsed = JSON.parse(raw) as { signatures?: unknown; wormholes?: unknown; notes?: unknown; origin?: unknown };
+    } catch {
+      toast.error(t("mapSidebar.invalidJson"));
+      return;
+    }
+    if (!parsed.signatures) {
+      toast.error(t("tripwire.notTripwireData"));
+      return;
+    }
+    try {
+      const { id, imported } = await api<{ id: string; imported: { systems: number; connections: number; signatures: number; notes: number; skipped: number } }>(
+        "/api/maps/import/tripwire",
+        { method: "POST", body: JSON.stringify({
+          signatures: parsed.signatures,
+          wormholes:  parsed.wormholes ?? {},
+          // Both absent from a paste made before the snippet collected notes.
+          notes:      parsed.notes ?? {},
+          origin:     parsed.origin ?? null,
+        }) },
+      );
+      await useMapStore.getState().loadMaps();
+      await useMapStore.getState().switchMap(id);
+      setTripwireOpen(false);
+      // Same deferral as the Wanderer import: the canvas needs the new nodes
+      // mounted before handles can be routed to them.
+      setTimeout(() => {
+        useMapStore.getState().optimizeConnections();
+        useMapStore.getState().requestFitView();
+      }, 500);
+      toast.success(t(imported.notes > 0 ? "tripwire.importedWithNotes" : "tripwire.imported", {
+        systems: imported.systems, connections: imported.connections,
+        signatures: imported.signatures, notes: imported.notes,
+      }));
+    } catch (err) {
+      toast.error(t("mapSidebar.importFailed", { error: err instanceof Error ? err.message : String(err) }));
+    }
+  }
+
   // Import a map exported from Wanderer. Its shape differs from a Nexum export
   // (systems carry only an EVE id + layout; connections use source/target + numeric
   // codes), so it goes to a dedicated endpoint that enriches from the SDE and
@@ -1104,6 +1155,49 @@ export function MapSidebar() {
       toast.error(
         t("mapSidebar.importFailed", { error: err instanceof Error ? err.message : String(err) }),
       );
+    }
+  }
+
+  // Import a map exported from Pathfinder (Map settings -> Export). Unlike
+  // Tripwire it writes a real .json file, so this is a plain file pick. Its
+  // systems carry two ids — the EVE one and Pathfinder's own, which the
+  // connections reference — and the server keeps those apart. Creates a new
+  // personal map.
+  async function handleImportPathfinder(file: File) {
+    let parsed: { config?: { name?: unknown }; data?: { systems?: unknown; connections?: unknown } };
+    try {
+      parsed = JSON.parse(await file.text()) as typeof parsed;
+    } catch {
+      toast.error(t("mapSidebar.invalidJson"));
+      return;
+    }
+    if (!Array.isArray(parsed.data?.systems)) {
+      toast.error(t("mapSidebar.notPathfinderMap"));
+      return;
+    }
+    // The map's own name is in the file; the filename is whatever they saved
+    // it as, so it only stands in when the export has no name of its own.
+    const name = (typeof parsed.config?.name === "string" && parsed.config.name.trim())
+      ? parsed.config.name
+      : file.name.replace(/\.json$/i, "") || "Imported from Pathfinder";
+    try {
+      const { id, imported } = await api<{ id: string; imported: { systems: number; connections: number; intel: number; skipped: number } }>(
+        "/api/maps/import/pathfinder",
+        { method: "POST", body: JSON.stringify({ name, data: parsed.data }) },
+      );
+      await useMapStore.getState().loadMaps();
+      await useMapStore.getState().switchMap(id);
+      // Same deferral as the other imports: the canvas needs the new nodes
+      // mounted before handles can be routed to them.
+      setTimeout(() => {
+        useMapStore.getState().optimizeConnections();
+        useMapStore.getState().requestFitView();
+      }, 500);
+      toast.success(t("mapSidebar.pathfinderImported", {
+        systems: imported.systems, connections: imported.connections, skipped: imported.skipped,
+      }));
+    } catch (err) {
+      toast.error(t("mapSidebar.importFailed", { error: err instanceof Error ? err.message : String(err) }));
     }
   }
 
@@ -1163,15 +1257,6 @@ export function MapSidebar() {
           <DiscordLogoIcon size={14} weight="fill" color="#5865F2" />
           {t("actions.joinDiscord")}
         </a>
-
-        <button
-          type="button"
-          className="map-sidebar__settings-btn"
-          onClick={() => setSettingsOpen(true)}
-        >
-          <GearIcon size={14} weight="bold" />
-          {t("mapSidebar.settings")}
-        </button>
 
         <CollapsibleSection title={t("mapSidebar.sections.mapControls")} {...sectionProps("mapControls")}>
           <SettingToggle
@@ -1558,6 +1643,7 @@ export function MapSidebar() {
               value={String(exitsMinSec)}
               onChange={(v) => setExitsMinSec(Number(v))}
               options={[
+                { value: String(EXITS_MIN_SECURITY_OFF), label: t("mapSidebar.notifExitsOff") },
                 { value: "0.45", label: t("mapSidebar.notifExitsHiSec") },
                 { value: "0.05", label: t("mapSidebar.notifExitsLowSec") },
                 { value: "-1",   label: t("mapSidebar.notifExitsAny") },
@@ -1565,6 +1651,28 @@ export function MapSidebar() {
             />
           </label>
           <div className="map-sidebar__hint">{t("mapSidebar.notifExitsHint")}</div>
+
+          {/* Volume for everything the app makes a sound with: the generated
+              chimes AND the spoken announcer in the section below. The chimes
+              come from code rather than a file, so this scales their gain — and
+              macOS has no per-app volume to fall back on. Releasing the slider
+              plays a sample, since a number alone tells you nothing about how
+              loud it actually is. The sample is a chime; the announcer would
+              need the model loaded to preview. */}
+          <label className="map-sidebar__field">
+            <span>{t("mapSidebar.notifVolume", { pct: alertVolume })}</span>
+            <input
+              type="range"
+              min={0}
+              max={100}
+              step={5}
+              value={alertVolume}
+              onChange={(e) => setAlertVolume(Number(e.target.value))}
+              onMouseUp={() => previewAlertVolume()}
+              onKeyUp={() => previewAlertVolume()}
+              aria-label={t("mapSidebar.notifVolume", { pct: alertVolume })}
+            />
+          </label>
         </CollapsibleSection>
 
         <CollapsibleSection title={t("mapSidebar.sections.announcer")} {...sectionProps("announcer")}>
@@ -1664,6 +1772,22 @@ export function MapSidebar() {
                 >
                   {t("mapSidebar.importWanderer")}
                 </button>
+                <button
+                  className="map-sidebar__action"
+                  onClick={() => pathfinderInputRef.current?.click()}
+                  disabled={atMapLimit}
+                  title={t("mapSidebar.importPathfinderTitle")}
+                >
+                  {t("mapSidebar.importPathfinder")}
+                </button>
+                <button
+                  className="map-sidebar__action"
+                  onClick={() => setTripwireOpen(true)}
+                  disabled={atMapLimit}
+                  title={t("tripwire.buttonTitle")}
+                >
+                  {t("tripwire.button")}
+                </button>
               </div>
 
               <button className="map-sidebar__action" onClick={handleExport}>
@@ -1729,7 +1853,23 @@ export function MapSidebar() {
         }}
       />
 
+      <input
+        ref={pathfinderInputRef}
+        type="file"
+        accept=".json,application/json"
+        style={{ display: "none" }}
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file) handleImportPathfinder(file);
+          e.target.value = "";
+        }}
+      />
+
       {patchNotesOpen && <PatchNotesModal onClose={() => setPatchNotesOpen(false)} />}
+
+      {tripwireOpen && (
+        <TripwireImportModal onImport={handleImportTripwire} onClose={() => setTripwireOpen(false)} />
+      )}
 
       {settingsOpen && createPortal(
         <div className="settings-modal__overlay" onClick={() => setSettingsOpen(false)}>

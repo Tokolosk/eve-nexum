@@ -59,7 +59,9 @@
     "loading": "加载中…",
     "add": "添加星系",
     "onMap": "已在地图上",
-    "unknownOption": "未知（未探明的虫洞）"
+    "unknownOption": "未知（未探明的虫洞）",
+    "addHere": "添加 {{system}}",
+    "hereOnMap": "{{system}} 已在此地图上"
   },
   "admin": {
     "back": "返回地图",
@@ -683,6 +685,9 @@
     "lockSystem": "锁定星系",
     "unlockSystem": "解锁星系",
     "removeSystem": "移除星系",
+    "connectTo": "连接到星系…",
+    "connectToHint": "点击要与 {{system}} 相连的星系 —— 按 Esc 取消",
+    "connectToDone": "已将 {{from}} 连接到 {{to}}",
     "removeSystems": "移除 {{count}} 个星系",
     "addSystem": "添加星系",
     "addAdjacent": "添加相邻星系",
@@ -698,6 +703,8 @@
     "spreadNodes": "散开节点",
     "removeOrphans": "移除孤立星系 ({{count}})",
     "removeOrphansConfirm": "移除 {{count}} 个孤立星系？它们没有有效连接（没有连接，或只有断开的连接）。母星系和锁定星系将保留。此操作可撤销。",
+    "removeStranded": "移除与母星系失联的星系 ({{count}})",
+    "removeStrandedConfirm": "移除 {{count}} 个无法返回 {{home}} 的星系？母星系和已锁定的星系会保留。这是批量删除——撤销会逐个恢复，且仅保留最近 50 次删除。",
     "labels": "标签",
     "customLabel": "自定义标签",
     "clearLabels": "清除",
@@ -1342,7 +1349,7 @@
       "announce": "播报：",
       "evConnect": "角色上线 / 下线",
       "evIncursions": "范围内的入侵",
-      "evLawless": "范围内的无法治系统",
+      "evLawless": "范围内的 Low-sec / Null-sec",
       "evKills": "范围内的最近击杀",
       "evNewChain": "他人新增的虫洞链",
       "threshold": "“范围内”使用接近警报的阈值。",
@@ -1442,6 +1449,10 @@
     },
     "notNexumMap": "该文件看起来不像 Eve-Nexum 地图导出文件。",
     "notWandererMap": "该文件看起来不是 Wanderer 的导出文件。",
+    "importPathfinder": "↑ 从 Pathfinder 导入",
+    "importPathfinderTitle": "导入从 Pathfinder 导出的地图 —— 地图设置的 Export 标签页（会创建一张新的个人地图）",
+    "pathfinderImported": "已从 Pathfinder 导入：{{systems}} 个星系、{{connections}} 条连接（跳过 {{skipped}} 个）。",
+    "notPathfinderMap": "该文件看起来不是 Pathfinder 的导出文件。",
     "notifBlocked": "已阻止",
     "notifBlockedHint": "浏览器正在阻止此站点的通知。点击地址栏中的锁形图标 → 通知 → 允许 → 重新加载页面。",
     "notifBlockedTooltip": "点击地址栏中的锁形/站点信息图标 → 通知 → 允许，然后重新加载。",
@@ -1455,10 +1466,12 @@
     "notifWatchlist": "监视列表匹配",
     "notifExits": "k-space 出口",
     "notifExitsMinSec": "提醒的出口安全等级",
+    "notifExitsOff": "关闭 — 从不提醒",
     "notifExitsHiSec": "仅高安",
     "notifExitsLowSec": "低安及以上",
     "notifExitsAny": "任意 k-space",
     "notifExitsHint": "当链上出现不低于该安全等级的出口时提醒一次。默认关闭。",
+    "notifVolume": "提醒与语音播报音量 — {{pct}}%",
     "openOptions": "地图选项",
     "optimizeConnections": "⟳ 优化连接",
     "panelBelow": "地图下方",
@@ -1691,7 +1704,9 @@
     "inSig": "入口签名",
     "outSig": "出口签名",
     "inSigHint": "{{system}} 中的信号 ID —— 虫洞的另一端",
-    "outSigHint": "{{system}} 中的信号 ID —— 从这里跃迁前往的一端"
+    "outSigHint": "{{system}} 中的信号 ID —— 从这里跃迁前往的一端",
+    "markExpired": "报告该洞已坍塌",
+    "unmarkExpired": "其实没有坍塌"
   },
   "session": {
     "idleLogout": "因长时间未操作已退出登录。",
@@ -1727,7 +1742,11 @@
     "resize": "调整侧栏大小",
     "collapse": "收起侧栏",
     "moveToLeft": "将侧栏移到左侧",
-    "moveToRight": "将侧栏移到右侧"
+    "moveToRight": "将侧栏移到右侧",
+    "panelsTitle": "侧边栏板块",
+    "panelsHint": "选择侧边栏中显示的板块。隐藏的板块会保留位置，重新开启时回到原处。",
+    "panelsAllHidden": "所有板块都已隐藏 — 侧边栏将是空的。",
+    "emptyTitle": "当前没有显示任何板块。在此选择要显示的板块。"
   },
   "sigType": {
     "combat": "战斗",
@@ -1771,6 +1790,10 @@
     "colType": "分组",
     "colWh": "类型",
     "colLeadsTo": "通往",
+    "colWhState": "状态",
+    "colWhStateHint": "虫洞的质量与剩余寿命。二者在太空中看洞即可得知，因此跳跃前就能记录。",
+    "whStateMass": "质量：点击切换 充足 / 低于 50% / 低于 10%",
+    "whStateLife": "寿命：点击切换 未知 / 不足 1 天 / 不足 4 小时 / 不足 1 小时 / 已过期",
     "colName": "名称",
     "colNotes": "笔记",
     "colAge": "存在时长",
@@ -1872,7 +1895,10 @@
     "standingsNotLoaded": "声望尚未加载。如果一直如此，请登出后重新登录以授予 read_contacts 权限。",
     "standingNotInBucket": "{{label}}：你不属于任何一类",
     "standingNotSet": "{{label}}：未设置声望",
-    "standingValue": "{{label}}：{{value}}"
+    "standingValue": "{{label}}：{{value}}",
+    "panesTitle": "面板",
+    "panesHint": "选择下方显示的面板。隐藏的面板会保留位置，重新开启时回到原处。",
+    "openAnoikis": "在 anoik.is 中打开"
   },
   "time": {
     "justNow": "刚刚",
@@ -2053,5 +2079,26 @@
   "exits": {
     "notifTitle": "k-space 出口",
     "appeared": "{{name}}（{{security}}）已出现在链上"
+  },
+  "tripwire": {
+    "title": "从 Tripwire 导入（实验性）",
+    "button": "↑ 从 Tripwire 导入（实验性）",
+    "buttonTitle": "连同信号一起导入 Tripwire 链",
+    "step1": "打开你的 Tripwire 标签页并照常登录。",
+    "step2": "打开浏览器控制台（F12），粘贴下面的脚本并按回车。它会收集你的 Tripwire 地图并复制到剪贴板；链较长时需要几秒。在任意星系运行一次即可。",
+    "step3": "粘贴到这里并导入。全程不会向 Tripwire 索要密码。",
+    "pasteLabel": "链数据",
+    "pastePlaceholder": "在此粘贴复制的 JSON",
+    "extraLabel": "其他星系（可选）",
+    "extraHint": "只有不在链上的星系才需要。Tripwire 无法列出它们，在这里写上名字即可一并检查。",
+    "extraPlaceholder": "J123456, C9N-CC",
+    "extraCount_other": "将额外检查 {{count}} 个星系",
+    "scopeNote": "导入你的链，包含每个星系的信号、虫洞类型、每个洞的质量和剩余寿命，以及写在上面的备注。如果你的 Tripwire 允许，会连整个 mask 一起导入（包括从没有人连接过的星系）；若不允许，控制台会说明。会创建为一张新的个人地图。",
+    "import": "导入",
+    "importing": "正在导入…",
+    "copied": "已复制",
+    "imported": "已从 Tripwire 导入 {{systems}} 个星系、{{connections}} 条连接和 {{signatures}} 个信号",
+    "importedWithNotes": "已从 Tripwire 导入 {{systems}} 个星系、{{connections}} 条连接、{{signatures}} 个信号，以及 {{notes}} 个星系的备注",
+    "notTripwireData": "这看起来不是 Tripwire 的链数据 — 其中没有信号"
   }
 }

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   ReactFlow, Background, Controls, ControlButton, MiniMap,
@@ -30,11 +30,12 @@ import { ContextMenu } from '../ui/ContextMenu';
 import type { ContextMenuItem } from '../ui/ContextMenu';
 import { ConfirmModal } from '../ui/ConfirmModal';
 import { shouldSkipConfirm } from '../../utils/confirmPref';
+import { systemDisplayName } from '../../utils/systemName';
 import {
   PathIcon, MapPinSimpleIcon, HouseIcon, LockIcon, LockOpenIcon,
   XIcon, CheckIcon, PlusIcon, SelectionAllIcon, EyeIcon, CrosshairSimpleIcon,
   LinkSimpleIcon, LinkBreakIcon, ArrowsOutIcon, BookmarkSimpleIcon, TextAaIcon, TrashIcon,
-  HashIcon, ProhibitIcon,
+  HashIcon, ProhibitIcon, BroomIcon,
 } from '../../icons';
 import { PREDEFINED_LABELS } from '../../data/labels';
 
@@ -88,6 +89,10 @@ const MULTI_SELECT_KEYS = ['Shift', IS_MAC ? 'Meta' : 'Control'];
 const NODE_TYPES = { system: SystemNode };
 
 // Zoom bounds — shared by the <ReactFlow> props and the inverted-wheel handler.
+// Frames to hold the viewport after a docked panel opens/closes, covering the
+// 400ms re-fit animation at 60fps with headroom. Short enough that it can't
+// noticeably fight a user pan.
+const VIEWPORT_HOLD_FRAMES = 32;
 const MIN_ZOOM = 0.2;
 const MAX_ZOOM = 2;
 
@@ -166,6 +171,7 @@ export function MapCanvas() {
   const selectedSystemId     = useMapStore((s) => s.selectedSystemId);
   const selectSystem         = useMapStore((s) => s.selectSystem);
   const selectedConnectionId = useMapStore((s) => s.selectedConnectionId);
+  const activeMapId          = useMapStore((s) => s.activeMapId);
   const routeHighlight       = useMapStore((s) => s.routeHighlight);
   const snapToGrid           = useMapStore((s) => s.snapToGrid);
   const showMinimap          = useMapStore((s) => s.showMinimap);
@@ -272,8 +278,12 @@ export function MapCanvas() {
   const [labelDialogFor, setLabelDialogFor] = useState<string | null>(null);
   const [aliasDialogFor, setAliasDialogFor] = useState<string | null>(null);
   const [contextMenu, setContextMenu]         = useState<CtxMenu | null>(null);
+  const connectSourceId  = useMapStore((s) => s.connectSourceId);
+  const setConnectSource = useMapStore((s) => s.setConnectSource);
   // Pending "remove orphan systems" sweep, held while the confirm modal is up.
   const [orphanConfirm, setOrphanConfirm]     = useState<{ ids: string[] } | null>(null);
+  // Pending "remove systems with no route home" sweep, held while its confirm is up.
+  const [strandedConfirm, setStrandedConfirm] = useState<{ ids: string[]; home: string } | null>(null);
   // Gate-adjacent systems per k-space eveSystemId, fetched lazily when a node's
   // context menu opens. 'loading'/'error' are transient states for the submenu.
   const [adjacent, setAdjacent] = useState<Record<number, AdjacentSystem[] | 'loading' | 'error'>>({});
@@ -486,6 +496,13 @@ export function MapCanvas() {
         return;
       }
 
+      // Escape abandons a staged "Connect to system" — the map is otherwise
+      // waiting for a click the user may no longer want to make.
+      if (e.key === 'Escape' && useMapStore.getState().connectSourceId) {
+        useMapStore.getState().setConnectSource(null);
+        return;
+      }
+
       if (e.key === 'Delete' || e.key === 'Backspace') {
         const target = e.target as HTMLElement;
         if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) return;
@@ -693,6 +710,47 @@ export function MapCanvas() {
     });
     return () => { cancelAnimationFrame(raf1); cancelAnimationFrame(raf2); };
   }, [fitViewPending, clearFitView, fitView, getNodes]);
+
+  // Opening a docked panel resizes the canvas, and React Flow re-fits the view
+  // to the new size — which yanks the map out from under you the first time you
+  // click a system ("the whole map zooms out"). It only bites when the panel
+  // OPENS, since clicking a second system while it's already open resizes
+  // nothing, which is why it looked intermittent.
+  //
+  // The zoom the user set is theirs, so hold it across the resize rather than
+  // trying to out-argue React Flow's internal re-fit bookkeeping. Captured in a
+  // layout effect (before the browser paints the new size) and reasserted for
+  // the length of the re-fit animation, so the viewport simply never moves.
+  // Keyed on WHICH panel is showing, not merely whether one is. The connection
+  // panel and the system panel share a slot and are wildly different heights —
+  // a gate's panel is ~44px against a system's ~256px — so swapping between
+  // them resizes the map as much as opening one does. A boolean missed that:
+  // selecting a link and then a system kept it `true` throughout, the hold
+  // never armed, and the map re-fitted to the whole chain. Switching between
+  // two systems can resize too, and is covered by the same key.
+  const panelKey = `${selectedSystemId ?? ''}|${selectedConnectionId ?? ''}`;
+  const prevPanelKey = useRef(panelKey);
+  const heldForMapId = useRef(activeMapId);
+  useLayoutEffect(() => {
+    const mapChanged = heldForMapId.current !== activeMapId;
+    heldForMapId.current = activeMapId;
+    if (panelKey === prevPanelKey.current) return;
+    prevPanelKey.current = panelKey;
+    // Switching maps clears the selection, so the panel closes in the same tick
+    // — but that map genuinely needs fitting to. Hold only when the panel is the
+    // only thing that moved.
+    if (mapChanged) return;
+    // A fit we asked for ourselves (region seed) must still win.
+    if (useMapStore.getState().fitViewPending) return;
+
+    const held = getViewport();
+    let frames = 0;
+    let raf = requestAnimationFrame(function hold() {
+      setViewport(held);
+      if (++frames < VIEWPORT_HOLD_FRAMES) raf = requestAnimationFrame(hold);
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [panelKey, activeMapId, getViewport, setViewport]);
 
   // Sweep expired EOL connections every minute. A connection is considered
   // expired 4 h + 30 min grace after the user marked it EOL. The 30 min grace
@@ -979,7 +1037,33 @@ export function MapCanvas() {
     [selectConnection],
   );
 
-  const onPaneClick = useCallback(() => setContextMenu(null), []);
+  // Second half of "Connect to system": with a source staged, the next node
+  // clicked is the target. Same handle-picking as a dragged connection, so the
+  // two routes produce identical edges. Clicking the source again cancels —
+  // a system can't connect to itself, and that's the nearest gesture to "oops".
+  const onNodeClick = useCallback(
+    (_: React.MouseEvent, node: Node) => {
+      if (!connectSourceId) return;
+      if (node.id === connectSourceId) { setConnectSource(null); return; }
+      const src = systems.find((s) => s.id === connectSourceId);
+      const tgt = systems.find((s) => s.id === node.id);
+      if (src && tgt) {
+        const { sourceHandle, targetHandle } = pickHandles(src.position, tgt.position);
+        addConnection(src.id, tgt.id, sourceHandle, targetHandle);
+        toast.success(i18n.t('ctxMenu.connectToDone', {
+          from: systemDisplayName(src), to: systemDisplayName(tgt),
+        }));
+      }
+      setConnectSource(null);
+    },
+    [connectSourceId, setConnectSource, systems, addConnection],
+  );
+
+  // Clicking empty space abandons a staged connect as well as closing the menu.
+  const onPaneClick = useCallback(() => {
+    setContextMenu(null);
+    setConnectSource(null);
+  }, [setConnectSource]);
 
   const ctxItems = (() => {
     if (!contextMenu) return [];
@@ -1218,6 +1302,21 @@ export function MapCanvas() {
           label: t("ctxMenu.markCleared", { count: selectedNodes.length }),
           icon: <CheckIcon size={16} weight="regular" />,
           action: () => selectedNodes.forEach((n) => updateSystem(n.id, { status: 'cleared' })),
+        },
+      ] : [];
+
+      // Draw a connection by picking two systems instead of dragging between
+      // handles: this stages the source, and the next node clicked becomes the
+      // target. Single selection only — the target is what the next click
+      // means, so a multi-select source has no sensible reading.
+      const connectItem = !multiSelected ? [
+        {
+          label: t('ctxMenu.connectTo'),
+          icon: <LinkSimpleIcon size={16} weight="regular" color="#5a9af8" />,
+          action: () => {
+            setConnectSource(contextMenu.nodeId!);
+            toast.info(t('ctxMenu.connectToHint', { system: sys?.alias || sys?.name || '' }));
+          },
         },
       ] : [];
 
@@ -1464,6 +1563,7 @@ export function MapCanvas() {
             }
           },
         }] : []),
+        ...connectItem,
         ...homeItem,
         ...aliasItem,
         ...tagItem,
@@ -1483,6 +1583,35 @@ export function MapCanvas() {
         !connections.some((c) => !c.broken && (c.sourceId === s.id || c.targetId === s.id)),
       )
       .map((s) => s.id);
+
+    // Systems with no route back to home — a branch left behind when a chain
+    // collapsed, rather than anything still reachable.
+    const homeSystem = systems.find((s) => s.isHome) ?? null;
+    const strandedIds = (() => {
+      if (!homeSystem) return [];
+      // Broken links still count as links here. "Broken" means re-scout, not
+      // gone, and this is a bulk delete — keeping a system that turns out to be
+      // reachable is far cheaper than wiping a live chain over one flagged hop.
+      const adj = new Map<string, string[]>();
+      const link = (a: string, b: string) => {
+        const list = adj.get(a);
+        if (list) list.push(b); else adj.set(a, [b]);
+      };
+      for (const c of connections) { link(c.sourceId, c.targetId); link(c.targetId, c.sourceId); }
+
+      const reached = new Set<string>([homeSystem.id]);
+      const queue = [homeSystem.id];
+      for (let i = 0; i < queue.length; i++) {
+        for (const next of adj.get(queue[i]) ?? []) {
+          if (reached.has(next)) continue;
+          reached.add(next);
+          queue.push(next);
+        }
+      }
+      // Locked systems are protected, same as the orphan sweep — locking one is
+      // how you say "leave this alone".
+      return systems.filter((sys) => !reached.has(sys.id) && !sys.locked).map((sys) => sys.id);
+    })();
 
     return [
       {
@@ -1519,6 +1648,19 @@ export function MapCanvas() {
         },
         disabled: orphanIds.length === 0,
       },
+      {
+        label: t('ctxMenu.removeStranded', { count: strandedIds.length }),
+        icon: <BroomIcon size={15} weight="regular" color="#e25a5a" />,
+        action: () => {
+          if (strandedIds.length === 0 || !homeSystem) return;
+          // Honours the same "don't ask again" preference as the orphan sweep —
+          // the shared confirm offers that checkbox, so ignoring it here would
+          // be a promise the dialog doesn't keep.
+          if (shouldSkipConfirm()) strandedIds.forEach((id) => removeSystem(id));
+          else setStrandedConfirm({ ids: strandedIds, home: systemDisplayName(homeSystem) });
+        },
+        disabled: strandedIds.length === 0,
+      },
     ];
   })();
 
@@ -1543,6 +1685,7 @@ export function MapCanvas() {
         onEdgeClick={onEdgeClick}
         proOptions={{ hideAttribution: true }}
         onSelectionContextMenu={onSelectionContextMenu}
+        onNodeClick={onNodeClick}
         onPaneClick={onPaneClick}
         onSelectionChange={onSelectionChange}
         nodeTypes={NODE_TYPES}
@@ -1655,6 +1798,20 @@ export function MapCanvas() {
           />
         );
       })()}
+
+      {strandedConfirm && (
+        <ConfirmModal
+          message={t('ctxMenu.removeStrandedConfirm', {
+            count: strandedConfirm.ids.length,
+            home:  strandedConfirm.home,
+          })}
+          onConfirm={() => {
+            strandedConfirm.ids.forEach((id) => removeSystem(id));
+            setStrandedConfirm(null);
+          }}
+          onCancel={() => setStrandedConfirm(null)}
+        />
+      )}
 
       {orphanConfirm && (
         <ConfirmModal

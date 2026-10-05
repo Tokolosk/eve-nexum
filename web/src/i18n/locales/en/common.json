@@ -59,7 +59,9 @@
     "loading": "Loading…",
     "add": "Add System",
     "onMap": "on map",
-    "unknownOption": "Unknown (unmapped wormhole)"
+    "unknownOption": "Unknown (unmapped wormhole)",
+    "addHere": "Add {{system}}",
+    "hereOnMap": "{{system}} is already on this map"
   },
   "admin": {
     "back": "Back to maps",
@@ -691,9 +693,14 @@
     "lockSystem": "Lock System",
     "unlockSystem": "Unlock System",
     "removeSystem": "Remove System",
+    "connectTo": "Connect to system…",
+    "connectToHint": "Click the system to connect {{system}} to — Esc to cancel",
+    "connectToDone": "Connected {{from}} to {{to}}",
     "removeSystems": "Remove {{count}} Systems",
     "removeOrphans": "Remove Orphan Systems ({{count}})",
     "removeOrphansConfirm": "Remove {{count}} orphan system(s)? These have no valid connection (none, or only broken ones). Home and locked systems are kept. This can be undone.",
+    "removeStranded": "Remove Systems Cut Off From Home ({{count}})",
+    "removeStrandedConfirm": "Remove {{count}} system(s) with no route back to {{home}}? Home and locked systems are kept. This is a bulk delete — undo restores them one at a time, and only the last 50 removals are kept.",
     "addSystem": "Add System",
     "addAdjacent": "Add Adjacent",
     "addAdjacentLoading": "Loading...",
@@ -1342,7 +1349,7 @@
       "announce": "Announce:",
       "evConnect": "Character connect / disconnect",
       "evIncursions": "Incursions in range",
-      "evLawless": "Lawless systems in range",
+      "evLawless": "Low-sec / null-sec in range",
       "evKills": "Recent kills in range",
       "evNewChain": "New chain added by others",
       "threshold": "\"In range\" uses the Proximity Alerts threshold.",
@@ -1442,6 +1449,10 @@
     },
     "notNexumMap": "File does not look like a Eve-Nexum map export.",
     "notWandererMap": "File does not look like a Wanderer export.",
+    "importPathfinder": "↑ Import from Pathfinder",
+    "importPathfinderTitle": "Import a map exported from Pathfinder — its Map settings, Export tab (creates a new personal map)",
+    "pathfinderImported": "Imported from Pathfinder: {{systems}} systems, {{connections}} connections ({{skipped}} skipped).",
+    "notPathfinderMap": "File does not look like a Pathfinder export.",
     "notifBlocked": "Blocked",
     "notifBlockedHint": "Browser is blocking notifications for this site. Click the lock icon in your address bar → Notifications → Allow → reload the page.",
     "notifBlockedTooltip": "Click the lock / site-info icon in your address bar → Notifications → Allow, then reload.",
@@ -1455,10 +1466,12 @@
     "notifWatchlist": "Watchlist match",
     "notifExits": "K-space exits",
     "notifExitsMinSec": "Alert on exits of",
+    "notifExitsOff": "Off — never alert",
     "notifExitsHiSec": "High-sec only",
     "notifExitsLowSec": "Low-sec and better",
     "notifExitsAny": "Any k-space",
     "notifExitsHint": "Alerts once when an exit of at least this security appears on the chain. Off by default.",
+    "notifVolume": "Alert & announcer volume — {{pct}}%",
     "openOptions": "Map options",
     "optimizeConnections": "⟳ Optimize Connections",
     "panelBelow": "Below map",
@@ -1691,7 +1704,9 @@
     "inSig": "inSig",
     "outSig": "outSig",
     "inSigHint": "Signature ID in {{system}} — the far end of the hole",
-    "outSigHint": "Signature ID in {{system}} — the end you warp to from here"
+    "outSigHint": "Signature ID in {{system}} — the end you warp to from here",
+    "markExpired": "Report this hole collapsed",
+    "unmarkExpired": "Not collapsed after all"
   },
   "session": {
     "idleLogout": "Signed out due to inactivity.",
@@ -1727,7 +1742,11 @@
     "resize": "Resize sidebar",
     "collapse": "Collapse sidebar",
     "moveToLeft": "Move sidebar to left",
-    "moveToRight": "Move sidebar to right"
+    "moveToRight": "Move sidebar to right",
+    "panelsTitle": "Sidebar sections",
+    "panelsHint": "Choose which sections appear in the sidebar. Hidden ones keep their place, so switching one back on returns it to where you had it.",
+    "panelsAllHidden": "Every section is hidden — the sidebar will be empty.",
+    "emptyTitle": "No sections are showing. Choose which ones you want here."
   },
   "sigType": {
     "combat": "Combat",
@@ -1771,6 +1790,10 @@
     "colType": "Group",
     "colWh": "Type",
     "colLeadsTo": "Leads To",
+    "colWhState": "State",
+    "colWhStateHint": "A wormhole's mass and remaining life. You can read both off the hole in space, so they can be set before you jump it.",
+    "whStateMass": "Mass: click to cycle full / under 50% / under 10%",
+    "whStateLife": "Life: click to cycle unknown / under 1 day / under 4 hours / under 1 hour / expired",
     "colName": "Name",
     "colNotes": "Notes",
     "colAge": "Age",
@@ -1872,7 +1895,10 @@
     "standingsNotLoaded": "Standings not loaded yet. If this stays here, log out and back in to grant the read_contacts scopes.",
     "standingNotInBucket": "{{label}}: you are not in one",
     "standingNotSet": "{{label}}: no standing set",
-    "standingValue": "{{label}}: {{value}}"
+    "standingValue": "{{label}}: {{value}}",
+    "panesTitle": "Panels",
+    "panesHint": "Choose which panels appear below. Hidden ones keep their place, so switching one back on returns it to where you had it.",
+    "openAnoikis": "Open in anoik.is"
   },
   "time": {
     "justNow": "just now",
@@ -2053,5 +2079,27 @@
   "exits": {
     "notifTitle": "K-space exit",
     "appeared": "{{name}} ({{security}}) is on the chain"
+  },
+  "tripwire": {
+    "title": "Import from Tripwire (experimental)",
+    "button": "↑ Import from Tripwire (experimental)",
+    "buttonTitle": "Bring a Tripwire chain in, with its signatures",
+    "step1": "Open your Tripwire tab and sign in as usual.",
+    "step2": "Open the browser console (F12), paste the script below and press Enter. It collects your Tripwire map and copies it to the clipboard - a few seconds on a long chain. Run it once, from any system.",
+    "step3": "Paste it here and import. Tripwire is never asked for your password.",
+    "pasteLabel": "Chain data",
+    "pastePlaceholder": "Paste the copied JSON here",
+    "extraLabel": "Other systems (optional)",
+    "extraHint": "Only needed for systems that aren't on your chain. Tripwire can't list those, so name them here and they'll be checked too.",
+    "extraPlaceholder": "J123456, C9N-CC",
+    "extraCount_one": "{{count}} system will be checked as well",
+    "extraCount_other": "{{count}} systems will be checked as well",
+    "scopeNote": "This brings in your chain with every system's signatures, wormhole types, each hole's mass and remaining life, and the notes written on it. Where your Tripwire allows it the whole mask comes across, including systems nobody ever connected; where it doesn't, the console says so. It arrives as a new personal map.",
+    "import": "Import",
+    "importing": "Importing…",
+    "copied": "Copied",
+    "imported": "Imported {{systems}} systems, {{connections}} connections and {{signatures}} signatures from Tripwire",
+    "importedWithNotes": "Imported {{systems}} systems, {{connections}} connections, {{signatures}} signatures and notes on {{notes}} systems from Tripwire",
+    "notTripwireData": "That doesn’t look like Tripwire chain data — no signatures in it"
   }
 }
