@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { api } from '../api/client';
 import { useMapStore } from '../store/mapStore';
 import { useUserSetting } from './useUserSetting';
+import { useScoutFlagRevision } from './useScoutConnections';
 
 // Metadata for a shortcut hop (wormhole chain link / Thera / Turnur scout
 // connection) — mirrors the server EdgeMeta, used to mark the gap between two
@@ -44,18 +45,22 @@ export interface RouteEntry {
  *     Systems pane, a per-user tool where the chain you're actually in should
  *     route regardless of which tab is active.
  *
- * `excludeScout` drops one scout hub's shortcut edges even when the user has
- * that toggle on. The Thera / Turnur panes rank their own exits by distance, so
- * routing *through* the hub they belong to is circular: every exit comes out at
- * (jumps to the hub + 1), identical for the whole list, which flattens the
- * "closest" sort into a no-op. Excluding just that hub keeps the other one (and
- * mapped chains) available as genuine shortcuts.
+ * `viaScout` forces one scout hub's shortcut edges ON regardless of the user's
+ * route settings, for the pane that lists that hub's exits. Reaching a Turnur
+ * exit means going through Turnur, so a route that refuses to use the hole
+ * describes a journey nobody would make — it was sending people the long way
+ * round, or through the *other* hub entirely. The other hub still follows the
+ * user's own setting, as do mapped chains and Ansiblex bridges.
+ *
+ * The trade: most rows become "distance to the hub, plus the hole", so they
+ * bunch together and the shortest-route sort separates them less than it did.
+ * A number that describes the actual trip is worth more than a spread.
  */
 export function useRoute(
   from: number | null,
   targets: number[],
   whScope: 'active' | 'all' = 'active',
-  opts: { excludeScout?: 'thera' | 'turnur' } = {},
+  opts: { viaScout?: 'thera' | 'turnur' } = {},
 ): Record<string, RouteEntry> {
   const [data, setData] = useState<Record<string, RouteEntry>>({});
   const routeMode   = useMapStore((s) => s.routeMode);
@@ -64,11 +69,18 @@ export function useRoute(
   const [inclTurnur]    = useUserSetting<boolean>('nexum.route.includeTurnur', false);
   const [inclWormholes] = useUserSetting<boolean>('nexum.route.includeWormholes', false);
   const [inclAnsiblex]  = useUserSetting<boolean>('nexum.route.includeAnsiblex', false);
+  // Bumped when a scout connection is flagged/unflagged collapsed. The server
+  // reads the flags, but they're invisible to this request's inputs, so without
+  // this the stale route would stand.
+  const flagRevision = useScoutFlagRevision();
 
   const allScope = whScope === 'all';
   const targetsKey = [...targets].sort((a, b) => a - b).join(',');
-  const wantThera  = inclThera  && opts.excludeScout !== 'thera';
-  const wantTurnur = inclTurnur && opts.excludeScout !== 'turnur';
+  // A scout pane's own hub always counts: you're looking at Turnur's holes, so
+  // the trip through one of them is the trip. The OTHER hub follows the user's
+  // route settings, so a route only borrows a shortcut they've opted into.
+  const wantThera  = inclThera  || opts.viaScout === 'thera';
+  const wantTurnur = inclTurnur || opts.viaScout === 'turnur';
   // In 'all' scope the server resolves the map set itself, so no active map is
   // required — the chains still apply when routing from another region's tab.
   const wantWh   = inclWormholes && (allScope || !!activeMapId);
@@ -92,7 +104,7 @@ export function useRoute(
       .then(r => { if (!cancelled) setData(r); })
       .catch(() => { if (!cancelled) setData({}); });
     return () => { cancelled = true; };
-  }, [from, targetsKey, routeMode, wantThera, wantTurnur, wantWh, wantAnsi, allScope, activeMapId]);
+  }, [from, targetsKey, routeMode, wantThera, wantTurnur, wantWh, wantAnsi, allScope, activeMapId, flagRevision]);
 
   return data;
 }

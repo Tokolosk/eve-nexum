@@ -59,7 +59,9 @@
     "loading": "Chargement…",
     "add": "Ajouter le système",
     "onMap": "sur la carte",
-    "unknownOption": "Inconnu (wormhole non cartographié)"
+    "unknownOption": "Inconnu (wormhole non cartographié)",
+    "addHere": "Ajouter {{system}}",
+    "hereOnMap": "{{system}} est déjà sur cette carte"
   },
   "admin": {
     "back": "Retour aux cartes",
@@ -683,6 +685,9 @@
     "lockSystem": "Verrouiller le système",
     "unlockSystem": "Déverrouiller le système",
     "removeSystem": "Retirer le système",
+    "connectTo": "Connecter à un système…",
+    "connectToHint": "Cliquez sur le système auquel connecter {{system}} — Échap pour annuler",
+    "connectToDone": "{{from}} connecté à {{to}}",
     "removeSystems": "Retirer {{count}} systèmes",
     "addSystem": "Ajouter un système",
     "addAdjacent": "Ajouter un système adjacent",
@@ -698,6 +703,8 @@
     "spreadNodes": "Espacer les nœuds",
     "removeOrphans": "Supprimer les systèmes orphelins ({{count}})",
     "removeOrphansConfirm": "Supprimer {{count}} système(s) orphelin(s) ? Ils n'ont aucune connexion valide (aucune, ou uniquement rompues). Les systèmes d'origine et verrouillés sont conservés. Cette action est réversible.",
+    "removeStranded": "Supprimer les systèmes coupés du foyer ({{count}})",
+    "removeStrandedConfirm": "Supprimer {{count}} système(s) sans itinéraire de retour vers {{home}} ? Le système foyer et les systèmes verrouillés sont conservés. Il s’agit d’une suppression en masse : l’annulation les restaure un par un, et seules les 50 dernières suppressions sont conservées.",
     "labels": "Labels",
     "customLabel": "Label personnalisé",
     "clearLabels": "Effacer",
@@ -1342,7 +1349,7 @@
       "announce": "Annoncer :",
       "evConnect": "Connexion / déconnexion d’un personnage",
       "evIncursions": "Incursions à portée",
-      "evLawless": "Systèmes sans loi à portée",
+      "evLawless": "Low-sec / null-sec à portée",
       "evKills": "Vaisseaux détruits récents à portée",
       "evNewChain": "Nouvelle chaîne ajoutée par d’autres",
       "threshold": "« À portée » utilise le seuil des alertes de proximité.",
@@ -1442,6 +1449,10 @@
     },
     "notNexumMap": "Le fichier ne ressemble pas à un export de carte Eve-Nexum.",
     "notWandererMap": "Le fichier ne ressemble pas à un export Wanderer.",
+    "importPathfinder": "↑ Importer depuis Pathfinder",
+    "importPathfinderTitle": "Importer une carte exportée depuis Pathfinder — onglet Export des réglages de carte (crée une nouvelle carte personnelle)",
+    "pathfinderImported": "Importé depuis Pathfinder : {{systems}} systèmes, {{connections}} connexions ({{skipped}} ignorés).",
+    "notPathfinderMap": "Le fichier ne ressemble pas à un export Pathfinder.",
     "notifBlocked": "Bloquées",
     "notifBlockedHint": "Le navigateur bloque les notifications pour ce site. Cliquez sur l'icône de cadenas dans la barre d'adresse → Notifications → Autoriser → rechargez la page.",
     "notifBlockedTooltip": "Cliquez sur l'icône de cadenas / d'infos du site dans la barre d'adresse → Notifications → Autoriser, puis rechargez.",
@@ -1455,10 +1466,12 @@
     "notifWatchlist": "Correspondance de liste de surveillance",
     "notifExits": "Sorties vers le k-space",
     "notifExitsMinSec": "Alerter pour les sorties de",
+    "notifExitsOff": "Désactivé — ne jamais alerter",
     "notifExitsHiSec": "Haute sécurité uniquement",
     "notifExitsLowSec": "Basse sécurité ou mieux",
     "notifExitsAny": "Tout k-space",
     "notifExitsHint": "Alerte une fois lorsqu’une sortie d’au moins cette sécurité apparaît dans la chaîne. Désactivé par défaut.",
+    "notifVolume": "Volume des alertes et des annonces — {{pct}} %",
     "openOptions": "Options de carte",
     "optimizeConnections": "⟳ Optimiser les connexions",
     "panelBelow": "Sous la carte",
@@ -1691,7 +1704,9 @@
     "inSig": "inSig",
     "outSig": "outSig",
     "inSigHint": "Identifiant de signature dans {{system}} — l'autre extrémité du trou",
-    "outSigHint": "Identifiant de signature dans {{system}} — l'extrémité vers laquelle tu warpes d'ici"
+    "outSigHint": "Identifiant de signature dans {{system}} — l'extrémité vers laquelle tu warpes d'ici",
+    "markExpired": "Signaler ce trou comme effondré",
+    "unmarkExpired": "Finalement pas effondré"
   },
   "session": {
     "idleLogout": "Déconnecté pour inactivité.",
@@ -1727,7 +1742,11 @@
     "resize": "Redimensionner la barre latérale",
     "collapse": "Replier la barre latérale",
     "moveToLeft": "Déplacer la barre latérale à gauche",
-    "moveToRight": "Déplacer la barre latérale à droite"
+    "moveToRight": "Déplacer la barre latérale à droite",
+    "panelsTitle": "Sections de la barre latérale",
+    "panelsHint": "Choisissez les sections affichées dans la barre latérale. Celles masquées conservent leur place et y reviennent une fois réactivées.",
+    "panelsAllHidden": "Toutes les sections sont masquées — la barre latérale sera vide.",
+    "emptyTitle": "Aucune section n’est affichée. Choisissez ici celles que vous voulez."
   },
   "sigType": {
     "combat": "Combat",
@@ -1771,6 +1790,10 @@
     "colType": "Groupe",
     "colWh": "Type",
     "colLeadsTo": "Mène à",
+    "colWhState": "État",
+    "colWhStateHint": "Masse et durée de vie restante du trou de ver. Les deux se lisent sur le trou lui-même, donc avant de le franchir.",
+    "whStateMass": "Masse : cliquer pour pleine / moins de 50 % / moins de 10 %",
+    "whStateLife": "Durée de vie : cliquer pour inconnue / moins d’un jour / moins de 4 heures / moins d’une heure / expirée",
     "colName": "Nom",
     "colNotes": "Notes",
     "colAge": "Âge",
@@ -1872,7 +1895,10 @@
     "standingsNotLoaded": "Standings pas encore chargés. Si cela persiste, déconnectez-vous et reconnectez-vous pour accorder les scopes read_contacts.",
     "standingNotInBucket": "{{label}} : vous n'êtes dans aucun",
     "standingNotSet": "{{label}} : aucun standing défini",
-    "standingValue": "{{label}} : {{value}}"
+    "standingValue": "{{label}} : {{value}}",
+    "panesTitle": "Panneaux",
+    "panesHint": "Choisissez les panneaux affichés ci-dessous. Ceux masqués conservent leur place et y reviennent une fois réactivés.",
+    "openAnoikis": "Ouvrir dans anoik.is"
   },
   "time": {
     "justNow": "à l'instant",
@@ -2053,5 +2079,27 @@
   "exits": {
     "notifTitle": "Sortie vers le k-space",
     "appeared": "{{name}} ({{security}}) est dans la chaîne"
+  },
+  "tripwire": {
+    "title": "Importer depuis Tripwire (expérimental)",
+    "button": "↑ Importer depuis Tripwire (expérimental)",
+    "buttonTitle": "Récupérer une chaîne Tripwire avec ses signatures",
+    "step1": "Ouvrez votre onglet Tripwire et connectez-vous comme d’habitude.",
+    "step2": "Ouvrez la console du navigateur (F12), collez le script ci-dessous et appuyez sur Entrée. Il récupère votre carte Tripwire et la copie dans le presse-papiers — quelques secondes sur une longue chaîne. Une seule exécution suffit, depuis n'importe quel système.",
+    "step3": "Collez-la ici et importez. Le mot de passe Tripwire n’est jamais demandé.",
+    "pasteLabel": "Données de la chaîne",
+    "pastePlaceholder": "Collez ici le JSON copié",
+    "extraLabel": "Autres systèmes (facultatif)",
+    "extraHint": "Utile seulement pour les systèmes absents de votre chaîne. Tripwire ne peut pas les lister : nommez-les ici et ils seront vérifiés aussi.",
+    "extraPlaceholder": "J123456, C9N-CC",
+    "extraCount_one": "{{count}} système sera également vérifié",
+    "extraCount_other": "{{count}} systèmes seront également vérifiés",
+    "scopeNote": "Récupère votre chaîne avec les signatures de chaque système, les types de trous, la masse et la durée de vie restante de chacun, et les notes qui s'y trouvent. Là où votre Tripwire le permet, tout le masque est repris — y compris les systèmes que personne n'a reliés ; sinon, la console vous le dit. Elle arrive comme une nouvelle carte personnelle.",
+    "import": "Importer",
+    "importing": "Importation…",
+    "copied": "Copié",
+    "imported": "{{systems}} systèmes, {{connections}} connexions et {{signatures}} signatures importés depuis Tripwire",
+    "importedWithNotes": "{{systems}} systèmes, {{connections}} connexions, {{signatures}} signatures et les notes de {{notes}} systèmes importés depuis Tripwire",
+    "notTripwireData": "Cela ne ressemble pas à des données de chaîne Tripwire — aucune signature"
   }
 }

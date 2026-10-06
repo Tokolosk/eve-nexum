@@ -59,7 +59,9 @@
     "loading": "Lädt…",
     "add": "System hinzufügen",
     "onMap": "auf Karte",
-    "unknownOption": "Unbekannt (unerforschtes Wurmloch)"
+    "unknownOption": "Unbekannt (unerforschtes Wurmloch)",
+    "addHere": "{{system}} hinzufügen",
+    "hereOnMap": "{{system}} ist bereits auf dieser Karte"
   },
   "admin": {
     "back": "Zurück zu den Karten",
@@ -683,6 +685,9 @@
     "lockSystem": "System sperren",
     "unlockSystem": "System entsperren",
     "removeSystem": "System entfernen",
+    "connectTo": "Mit System verbinden …",
+    "connectToHint": "Klicke das System an, mit dem {{system}} verbunden werden soll — Esc bricht ab",
+    "connectToDone": "{{from}} mit {{to}} verbunden",
     "removeSystems": "{{count}} Systeme entfernen",
     "addSystem": "System hinzufügen",
     "addAdjacent": "Nachbarsystem hinzufügen",
@@ -698,6 +703,8 @@
     "spreadNodes": "Knoten verteilen",
     "removeOrphans": "Verwaiste Systeme entfernen ({{count}})",
     "removeOrphansConfirm": "{{count}} verwaiste(s) System(e) entfernen? Diese haben keine gültige Verbindung (keine oder nur unterbrochene). Heimat- und gesperrte Systeme bleiben erhalten. Dies kann rückgängig gemacht werden.",
+    "removeStranded": "Von Heimat getrennte Systeme entfernen ({{count}})",
+    "removeStrandedConfirm": "{{count}} System(e) ohne Weg zurück nach {{home}} entfernen? Heimat- und gesperrte Systeme bleiben erhalten. Dies ist eine Massenlöschung — das Rückgängigmachen stellt sie einzeln wieder her, und nur die letzten 50 Löschungen werden vorgehalten.",
     "labels": "Labels",
     "customLabel": "Eigenes Label",
     "clearLabels": "Löschen",
@@ -1342,7 +1349,7 @@
       "announce": "Ansagen:",
       "evConnect": "Charakter-An-/Abmeldung",
       "evIncursions": "Inkursionen in Reichweite",
-      "evLawless": "Gesetzlose Systeme in Reichweite",
+      "evLawless": "Low-Sec / Null-Sec in Reichweite",
       "evKills": "Aktuelle Abschüsse in Reichweite",
       "evNewChain": "Neue Kette von anderen hinzugefügt",
       "threshold": "„In Reichweite“ nutzt den Schwellenwert der Näherungswarnungen.",
@@ -1442,6 +1449,10 @@
     },
     "notNexumMap": "Die Datei sieht nicht wie ein Eve-Nexum-Kartenexport aus.",
     "notWandererMap": "Die Datei sieht nicht wie ein Wanderer-Export aus.",
+    "importPathfinder": "↑ Aus Pathfinder importieren",
+    "importPathfinderTitle": "Eine aus Pathfinder exportierte Karte importieren — Karteneinstellungen, Reiter Export (erstellt eine neue persönliche Karte)",
+    "pathfinderImported": "Aus Pathfinder importiert: {{systems}} Systeme, {{connections}} Verbindungen ({{skipped}} übersprungen).",
+    "notPathfinderMap": "Die Datei sieht nicht nach einem Pathfinder-Export aus.",
     "notifBlocked": "Blockiert",
     "notifBlockedHint": "Der Browser blockiert Benachrichtigungen für diese Seite. Klicke auf das Schloss-Symbol in der Adressleiste → Benachrichtigungen → Zulassen → Seite neu laden.",
     "notifBlockedTooltip": "Klicke auf das Schloss-/Info-Symbol in der Adressleiste → Benachrichtigungen → Zulassen, dann neu laden.",
@@ -1455,10 +1466,12 @@
     "notifWatchlist": "Beobachtungslisten-Treffer",
     "notifExits": "K-Space-Ausgänge",
     "notifExitsMinSec": "Melden bei Ausgängen ab",
+    "notifExitsOff": "Aus — nie melden",
     "notifExitsHiSec": "Nur Hi-Sec",
     "notifExitsLowSec": "Low-Sec und besser",
     "notifExitsAny": "Jeder K-Space",
     "notifExitsHint": "Meldet einmalig, wenn ein Ausgang mit mindestens dieser Sicherheit in der Kette auftaucht. Standardmäßig aus.",
+    "notifVolume": "Lautstärke für Warnungen & Ansagen — {{pct}} %",
     "openOptions": "Kartenoptionen",
     "optimizeConnections": "⟳ Verbindungen optimieren",
     "panelBelow": "Unter Karte",
@@ -1691,7 +1704,9 @@
     "inSig": "inSig",
     "outSig": "outSig",
     "inSigHint": "Signatur-ID in {{system}} — das andere Ende des Lochs",
-    "outSigHint": "Signatur-ID in {{system}} — das Ende, das du von hier aus anwarpst"
+    "outSigHint": "Signatur-ID in {{system}} — das Ende, das du von hier aus anwarpst",
+    "markExpired": "Dieses Loch als kollabiert melden",
+    "unmarkExpired": "Doch nicht kollabiert"
   },
   "session": {
     "idleLogout": "Wegen Inaktivität abgemeldet.",
@@ -1727,7 +1742,11 @@
     "resize": "Seitenleiste anpassen",
     "collapse": "Seitenleiste einklappen",
     "moveToLeft": "Seitenleiste nach links verschieben",
-    "moveToRight": "Seitenleiste nach rechts verschieben"
+    "moveToRight": "Seitenleiste nach rechts verschieben",
+    "panelsTitle": "Seitenleisten-Abschnitte",
+    "panelsHint": "Wähle, welche Abschnitte in der Seitenleiste erscheinen. Ausgeblendete behalten ihren Platz und kehren beim Wiedereinschalten dorthin zurück.",
+    "panelsAllHidden": "Alle Abschnitte sind ausgeblendet — die Seitenleiste bleibt leer.",
+    "emptyTitle": "Es werden keine Abschnitte angezeigt. Wähle hier aus, welche du möchtest."
   },
   "sigType": {
     "combat": "Kampf",
@@ -1771,6 +1790,10 @@
     "colType": "Gruppe",
     "colWh": "Typ",
     "colLeadsTo": "Führt zu",
+    "colWhState": "Status",
+    "colWhStateHint": "Masse und Restlebensdauer eines Wurmlochs. Beides lässt sich im All am Loch ablesen, also schon vor dem Sprung eintragbar.",
+    "whStateMass": "Masse: klicken für voll / unter 50 % / unter 10 %",
+    "whStateLife": "Lebensdauer: klicken für unbekannt / unter 1 Tag / unter 4 Stunden / unter 1 Stunde / abgelaufen",
     "colName": "Name",
     "colNotes": "Notizen",
     "colAge": "Alter",
@@ -1872,7 +1895,10 @@
     "standingsNotLoaded": "Standings noch nicht geladen. Wenn dies bestehen bleibt, melde dich ab und wieder an, um die read_contacts-Scopes zu gewähren.",
     "standingNotInBucket": "{{label}}: du bist in keiner",
     "standingNotSet": "{{label}}: kein Standing gesetzt",
-    "standingValue": "{{label}}: {{value}}"
+    "standingValue": "{{label}}: {{value}}",
+    "panesTitle": "Bereiche",
+    "panesHint": "Wähle, welche Bereiche unten erscheinen. Ausgeblendete behalten ihren Platz und kehren beim Wiedereinschalten dorthin zurück.",
+    "openAnoikis": "In anoik.is öffnen"
   },
   "time": {
     "justNow": "gerade eben",
@@ -2053,5 +2079,27 @@
   "exits": {
     "notifTitle": "K-Space-Ausgang",
     "appeared": "{{name}} ({{security}}) ist in der Kette"
+  },
+  "tripwire": {
+    "title": "Aus Tripwire importieren (experimentell)",
+    "button": "↑ Aus Tripwire importieren (experimentell)",
+    "buttonTitle": "Eine Tripwire-Kette samt Signaturen übernehmen",
+    "step1": "Öffne deinen Tripwire-Tab und melde dich wie gewohnt an.",
+    "step2": "Öffne die Browser-Konsole (F12), füge das Skript unten ein und drücke Enter. Es sammelt deine Tripwire-Karte und kopiert sie in die Zwischenablage — bei einer langen Kette dauert das ein paar Sekunden. Einmal ausführen reicht, von jedem System aus.",
+    "step3": "Hier einfügen und importieren. Tripwire wird nie nach deinem Passwort gefragt.",
+    "pasteLabel": "Kettendaten",
+    "pastePlaceholder": "Kopiertes JSON hier einfügen",
+    "extraLabel": "Weitere Systeme (optional)",
+    "extraHint": "Nur nötig für Systeme, die nicht an deiner Kette hängen. Tripwire kann diese nicht auflisten — nenne sie hier, dann werden sie mitgeprüft.",
+    "extraPlaceholder": "J123456, C9N-CC",
+    "extraCount_one": "{{count}} System wird zusätzlich geprüft",
+    "extraCount_other": "{{count}} Systeme werden zusätzlich geprüft",
+    "scopeNote": "Übernommen wird deine Kette mit den Signaturen jedes Systems, Wurmlochtypen, Masse und Restlebensdauer jedes Lochs sowie den Notizen. Wo dein Tripwire es zulässt, kommt die ganze Maske mit — auch nie verbundene Systeme; andernfalls sagt es die Konsole. Sie erscheint als neue persönliche Karte.",
+    "import": "Importieren",
+    "importing": "Importiere…",
+    "copied": "Kopiert",
+    "imported": "{{systems}} Systeme, {{connections}} Verbindungen und {{signatures}} Signaturen aus Tripwire importiert",
+    "importedWithNotes": "{{systems}} Systeme, {{connections}} Verbindungen, {{signatures}} Signaturen und Notizen zu {{notes}} Systemen aus Tripwire importiert",
+    "notTripwireData": "Das sehen nicht nach Tripwire-Kettendaten aus — keine Signaturen enthalten"
   }
 }

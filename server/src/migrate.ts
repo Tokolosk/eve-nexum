@@ -1127,6 +1127,52 @@ export async function migrate() {
     ALTER TABLE corp_discord_settings     ADD COLUMN IF NOT EXISTS notify_exits BOOLEAN NOT NULL DEFAULT FALSE;
     ALTER TABLE alliance_discord_settings ADD COLUMN IF NOT EXISTS notify_k162  BOOLEAN NOT NULL DEFAULT FALSE;
     ALTER TABLE alliance_discord_settings ADD COLUMN IF NOT EXISTS notify_exits BOOLEAN NOT NULL DEFAULT FALSE;
+
+    -- When a connection was quarantined. The lazy-removal sweep greys a dead
+    -- hole's line out first and deletes it once it has stayed broken this long,
+    -- so a wrongly-severed link can still be restored in between.
+    --
+    -- Existing broken rows are stamped NOW() rather than back-dated, so the
+    -- first sweep after an upgrade doesn't wipe every line a map has been
+    -- carrying for weeks — they each get a full grace period instead.
+    -- A hole's mass/life as observed at the signature, BEFORE it has been
+    -- jumped and a connection exists to hold them. You can read both off a
+    -- wormhole in space without going through it, so a scout can record them at
+    -- scan time; these are staging only. Once a connection backs the sig the
+    -- connection owns the state (one hole, two sigs, one connection — the
+    -- connection is the single copy both sides read), and these are cleared.
+    ALTER TABLE map_signatures ADD COLUMN IF NOT EXISTS mass_status TEXT NOT NULL DEFAULT '';
+    ALTER TABLE map_signatures ADD COLUMN IF NOT EXISTS time_status TEXT NOT NULL DEFAULT '';
+
+    ALTER TABLE map_connections ADD COLUMN IF NOT EXISTS broken_at TIMESTAMPTZ;
+    UPDATE map_connections SET broken_at = NOW() WHERE broken = TRUE AND broken_at IS NULL;
+    CREATE INDEX IF NOT EXISTS idx_map_connections_broken_at
+      ON map_connections (broken_at) WHERE broken = TRUE;
+
+    -- Thera/Turnur holes a scout has found already collapsed. eve-scout keeps
+    -- listing them until someone reports it, and routing through a dead hole
+    -- sends people on a wasted trip, so a flag here drops the connection from
+    -- the route graph.
+    --
+    -- Scoped, never deployment-wide: on a corp/alliance install the flag is
+    -- shared so one scout spares everyone the trip, otherwise it's the user's
+    -- own. A stranger on a public instance can't affect anyone else's routing.
+    -- The key is eve-scout's own signature id, which is unique per hole, so a
+    -- new hole can never inherit a flag.
+    CREATE TABLE IF NOT EXISTS scout_expired (
+      connection_id TEXT        NOT NULL,
+      scope_kind    TEXT        NOT NULL CHECK (scope_kind IN ('user', 'corp', 'alliance')),
+      scope_id      INTEGER     NOT NULL,
+      flagged_by    INTEGER     REFERENCES users(id) ON DELETE SET NULL,
+      created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (connection_id, scope_kind, scope_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_scout_expired_scope
+      ON scout_expired (scope_kind, scope_id);
+    -- Prune key: rows outlive the hole they describe, and nothing reads one
+    -- once it's gone from the feed.
+    CREATE INDEX IF NOT EXISTS idx_scout_expired_created
+      ON scout_expired (created_at);
   `);
 
   await encryptLegacyTokens();

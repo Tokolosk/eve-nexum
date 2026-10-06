@@ -15,6 +15,8 @@ import { whDestClass } from '../../utils/whDest';
 import { DraggableCard } from './DraggableCard';
 import { FloatingPanel, type PanelGeometry } from './FloatingPanel';
 import { useUserSetting } from '../../hooks/useUserSetting';
+import { SquaresFourIcon } from '../../icons';
+import { PanelVisibilityModal } from './PanelVisibilityModal';
 import { SignaturePane } from './SignaturePane';
 import { AnomalyPane } from './AnomalyPane';
 import { StructuresPane } from './StructuresPane';
@@ -177,6 +179,10 @@ function clampWidth(v: number) {
 // Classes for which a Dotlan #npc_delta map is meaningful. Wormhole and
 // Drifter systems get no link — dotlan has those pages but no NPC data.
 const DOTLAN_CLASSES = new Set(['HS', 'LS', 'NS', 'Thera', 'Pochven']);
+// anoik.is covers J-space only: the numbered classes, the shattered C13s,
+// Thera and the Drifter systems (which carry J-codes too). Pochven is
+// Triglavian rather than wormhole space, so it has no page there.
+const ANOIKIS_CLASSES = new Set(['C1', 'C2', 'C3', 'C4', 'C5', 'C6', 'C13', 'Thera', 'Drifter']);
 
 function clamp(v: number) {
   return Math.min(Math.floor(window.innerHeight * 0.85), Math.max(MIN_H, v));
@@ -199,6 +205,19 @@ export function SystemPanel() {
   const connections      = useMapStore((s) => s.map.connections);
   const selectedSystemId = useMapStore((s) => s.selectedSystemId);
   const panelOrder       = useMapStore((s) => s.panelOrder);
+  // Which panes are switched off. Stored as the HIDDEN set so a pane added in a
+  // later release shows up for everyone rather than being silently missing.
+  const [hiddenPanesRaw, setHiddenPanes] = useUserSetting<string[]>('nexum.systemPanel.hidden', []);
+  const hiddenPanes = useMemo(
+    () => new Set(Array.isArray(hiddenPanesRaw) ? hiddenPanesRaw : []),
+    [hiddenPanesRaw],
+  );
+  const togglePane = (id: string) =>
+    setHiddenPanes((prev) => {
+      const list = Array.isArray(prev) ? prev : [];
+      return list.includes(id) ? list.filter((x) => x !== id) : [...list, id];
+    });
+  const [panesOpen, setPanesOpen] = useState(false);
   const updateSystem     = useMapStore((s) => s.updateSystem);
   const selectSystem     = useMapStore((s) => s.selectSystem);
   const setPanelOrder    = useMapStore((s) => s.setPanelOrder);
@@ -438,9 +457,15 @@ export function SystemPanel() {
   };
 
   // Docked (stacked) panes = order minus anything floating, minus share-hidden.
-  const dockedIds = panelOrder.filter((id) => !floatingPanels[id]).filter(shareVisible);
+  const dockedIds = panelOrder
+    .filter((id) => !floatingPanels[id])
+    .filter(shareVisible)
+    .filter((id) => !hiddenPanes.has(id));
   // Floating panes that are still valid ids and share-visible.
-  const floatingIds = Object.keys(floatingPanels).filter((id) => cards[id] && shareVisible(id));
+  // Hidden also means hidden when popped out — otherwise switching a pane off
+  // would leave its floating window on screen with no way to reach it.
+  const floatingIds = Object.keys(floatingPanels)
+    .filter((id) => cards[id] && shareVisible(id) && !hiddenPanes.has(id));
 
   return (
     <>
@@ -792,6 +817,18 @@ export function SystemPanel() {
                       </a>
                     </Tooltip>
                   )}
+                  {sys.name && ANOIKIS_CLASSES.has(sys.systemClass) && (
+                    <Tooltip label={t('systemPanel.openAnoikis')} placement="right">
+                      <a
+                        href={`https://anoik.is/systems/${encodeURIComponent(sys.name)}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className={styles.extLink}
+                      >
+                        <img src="/vendor/anoikis.png" alt="Anoikis" className={styles.extIcon} loading="lazy" />
+                      </a>
+                    </Tooltip>
+                  )}
                   {sys.eveSystemId && (
                     <Tooltip label={t('systemPanel.openZkb')} placement="right">
                       <a
@@ -822,9 +859,26 @@ export function SystemPanel() {
         </>
         )}
 
-        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+        {/* Deliberately NOT in the system-info header: that block collapses, and a
+          control people need in order to find their panels must not be able to
+          disappear. This bar sits with the stack it configures. */}
+      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
           <SortableContext items={dockedIds} strategy={verticalListSortingStrategy}>
             <div className="panel-stack">
+              {/* Deliberately NOT in the system-info header: that block
+                  collapses, and the control people need in order to find their
+                  panels must not be able to disappear with it. */}
+              <div className="system-panel__stack-bar">
+                <button
+                  type="button"
+                  className="icon-btn"
+                  onClick={() => setPanesOpen(true)}
+                  data-tooltip={t('systemPanel.panesTitle')}
+                  aria-label={t('systemPanel.panesTitle')}
+                >
+                  <SquaresFourIcon size={14} weight="bold" />
+                </button>
+              </div>
               {dockedIds.map((id) => (
                 <DraggableCard
                   key={id}
@@ -844,6 +898,17 @@ export function SystemPanel() {
   </DndContext>
       </div>
     </aside>
+
+    {panesOpen && (
+      <PanelVisibilityModal
+        title={t('systemPanel.panesTitle')}
+        hint={t('systemPanel.panesHint')}
+        panels={panelOrder.filter(shareVisible).map((id) => ({ id, title: panelTitle[id] ?? id }))}
+        isVisible={(id) => !hiddenPanes.has(id)}
+        onToggle={togglePane}
+        onClose={() => setPanesOpen(false)}
+      />
+    )}
 
     {/* Undocked panes — portaled floating windows that follow the selection. */}
     {floatingIds.map((id) => (
