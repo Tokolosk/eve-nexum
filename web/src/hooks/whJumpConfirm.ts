@@ -5,6 +5,34 @@ import { isUnresolvedLeadsTo } from '../utils/whDest';
 import { useMapStore, awaitConnectionType } from '../store/mapStore';
 import i18n from '../i18n';
 import type { Signature } from '../types';
+import { readUserSetting } from './useUserSetting';
+import { wormholeTypesSnapshot } from './useWormholeTypes';
+import {
+  formatBookmarkName, DEFAULT_BOOKMARK_FORMAT, K162_BOOKMARK_FORMAT_KEY, wormholeBookmarkFormat,
+} from '../utils/signatureBookmark';
+import { copyWhenFocused } from '../utils/copyWhenFocused';
+
+export const COPY_BOOKMARK_ON_JUMP = 'nexum.sig.copyBookmarkOnJump';
+
+// The jumped hole's bookmark name, now that it leads somewhere known, onto the
+// clipboard -- the same name its row's copy button gives (map format over the
+// pilot's own), so they can rename the in-game bookmark without opening the
+// pane.
+function copyJumpedBookmark(sig: Signature): void {
+  if (!readUserSetting<boolean>(COPY_BOOKMARK_ON_JUMP, true)) return;
+  const map = useMapStore.getState().map;
+  const format = wormholeBookmarkFormat(sig, map.bookmarkFormat,
+    readUserSetting<string>('nexum.sig.bookmarkFormat', DEFAULT_BOOKMARK_FORMAT),
+    readUserSetting<string>(K162_BOOKMARK_FORMAT_KEY, ''));
+  const byName = (n: string) => map.systems.find((s) => s.name?.trim().toUpperCase() === n.trim().toUpperCase());
+  const name = formatBookmarkName(format, sig, wormholeTypesSnapshot(), Date.now(),
+    (n) => { const c = byName(n)?.systemClass; return c && c !== 'unknown' ? c : null; },
+    (n) => byName(n)?.alias?.trim() || null);
+  if (!name) return;
+  void copyWhenFocused(name).then((ok) => {
+    if (ok) toast.success(i18n.t('signatures.bookmarkCopied', { name }));
+  });
+}
 
 // After a tracked wormhole jump, record which wormhole signature in the source
 // system was jumped — pinning its leads-to to the SPECIFIC arrival system. A
@@ -83,13 +111,16 @@ export async function maybeConfirmWhJump(ctx: WhJumpContext): Promise<void> {
   // Write a hole's leads-to and re-run the same connection auto-detect the sig
   // pane uses on edit, so the map edge picks up the WH type. `oldSig` is the
   // pre-write state — it lets the auto-detect follow/clear the right link.
+  // `s` is the hole the pilot picked (or the only candidate), so pass it as the
+  // preferred backing signature -- otherwise the auto-detect's K162 tie-break
+  // can attribute the jump to the other hole leading to the same system.
   const writeLeadsTo = (s: Signature, value: string, oldSig: Signature): void => {
     api(`/api/maps/${mapId}/systems/${fromMapSystemId}/signatures/${s.id}`, {
       method: 'PATCH',
       body:   JSON.stringify({ whLeadsTo: value }),
     }).catch(() => { /* best-effort; the user can still set it by hand */ });
     const updated = sigs.map((x) => (x.id === s.id ? { ...x, whLeadsTo: value } : x));
-    reevaluateConnectionsForSystem(fromMapSystemId, updated, oldSig);
+    reevaluateConnectionsForSystem(fromMapSystemId, updated, oldSig, false, undefined, s.id);
   };
 
   // One plausible hole → fill it directly (no prompt), with an undo. Several →
@@ -98,6 +129,7 @@ export async function maybeConfirmWhJump(ctx: WhJumpContext): Promise<void> {
     const sole = candidates[0];
     const prev = sole.whLeadsTo;
     writeLeadsTo(sole, toName, sole);
+    copyJumpedBookmark({ ...sole, whLeadsTo: toName });
     toast.show(t('whJump.filled', { sig: label(sole), system: toName }), {
       kind: 'success', dedupeKey, ttlMs: 8000,
       actions: [
@@ -110,7 +142,10 @@ export async function maybeConfirmWhJump(ctx: WhJumpContext): Promise<void> {
   toast.show(t('whJump.confirmMany', { system: toName }), {
     kind: 'info', sticky: true, dedupeKey,
     actions: [
-      ...candidates.map((s) => ({ label: label(s), onClick: () => writeLeadsTo(s, toName, s) })),
+      ...candidates.map((s) => ({ label: label(s), onClick: () => {
+        writeLeadsTo(s, toName, s);
+        copyJumpedBookmark({ ...s, whLeadsTo: toName });
+      } })),
       { label: t('whJump.unmapped'), onClick: () => { /* skip */ } },
     ],
   });

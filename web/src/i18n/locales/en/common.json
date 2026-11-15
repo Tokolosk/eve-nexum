@@ -12,6 +12,11 @@
   "account": {
     "switchCharacter": "Switch character",
     "addCharacter": "Add character",
+    "shareSettings": "Share settings across characters",
+    "shareSettingsHint": "When on, every character on this account uses the same settings, except jump skills. Turning it on copies the most recently changed character's settings to the others.",
+    "shareSettingsFailed": "Couldn't change setting sharing",
+    "installApp": "Install as app",
+    "installAppHint": "Open Nexum in its own window, with its own icon in your dock or taskbar.",
     "blocked": "blocked",
     "characterAdded": "Added {{name}}",
     "switchTo": "Switch to {{name}}",
@@ -45,6 +50,28 @@
     "allHidden": "All charts hidden. Toggle them on in Map Options → Activity.",
     "loading": "Loading activity…",
     "peak": "peak {{value}}"
+  },
+  "pvp": {
+    "loading": "Loading PvP activity…",
+    "loadFailed": "Couldn't load PvP activity.",
+    "noHistory": "No PvP history yet. Player kills here are recorded from now on.",
+    "noneInDays_one": "No kills here in the last day.",
+    "noneInDays_other": "No kills here in the last {{count}} days.",
+    "busiestNow": "Busiest now ({{time}})",
+    "busiestNext": "Busiest at {{time}}, in {{n}}h",
+    "quietAhead": "Quiet for the next 24 hours",
+    "killsInDays": "{{n}} in {{days}}d",
+    "recent": "Live feed: {{n}} in the last 24h",
+    "chartLabel": "Player kills by hour of day for the next 24 hours",
+    "barTitle": "{{day}} {{time}}: {{n}}",
+    "now": "now",
+    "noteZkill": "Kills by weekday and hour over zKillboard's last 90 days, shown in {{zone}}. Hotter bars are usually busier.",
+    "noteLive": "zKillboard is unreachable, so this uses the kills recorded here so far.",
+    "timesIn": "Times in",
+    "zoneAuto": "Local ({{zone}})",
+    "zoneUtc": "EVE time (UTC)",
+    "zoneSearch": "Search timezones",
+    "zoneNoMatches": "No matching timezone"
   },
   "addSystem": {
     "title": "Add System",
@@ -237,11 +264,16 @@
         "24h": "Past 24 hours",
         "week": "Past week",
         "month": "Past month",
+        "quarter": "Past quarter",
         "year": "Past year"
       },
       "userFilters": {
         "all": "All users",
-        "logins": "Logins",
+        "active": "Active",
+        "inactive": "Inactive",
+        "new": "New users",
+        "systemsAdded": "Systems added",
+        "systemsDeleted": "Systems deleted",
         "signatures": "Signatures",
         "structures": "Structures"
       },
@@ -282,6 +314,7 @@
           "hour24": "Signatures per hour (past 24 hours)",
           "dayWeek": "Signatures per day (past week)",
           "dayMonth": "Signatures per day (past month)",
+          "weekQuarter": "Signatures per week (past quarter)",
           "monthYear": "Signatures per month (past year)",
           "monthAll": "Signatures per month (all time)"
         },
@@ -329,6 +362,10 @@
       "broadcastK162Hint": "When on, a signature identified as a K162 posts to Discord once its destination is known. Off by default.",
       "broadcastExits": "Broadcast k-space exits",
       "broadcastExitsHint": "When on, a connection revealing a k-space exit at or above the security below posts a routing summary — the exit, the path to it and the nearest trade hub. Off by default; the connection itself is still announced either way.",
+      "broadcastEol": "Broadcast end-of-life holes",
+      "broadcastEolHint": "When on, a pilot marking a wormhole end of life (under 4 hours, or under 1 hour) posts to the connections webhook. Off by default.",
+      "broadcastThera": "Broadcast Thera and Turnur holes",
+      "broadcastTheraHint": "When on, a new hole into Thera or Turnur posts to the connections webhook as a Thera/Turnur alert, even if the wormhole filters above would leave it out. Off by default.",
       "webhooks": "Webhooks",
       "webhooksHint": "Where notifications are posted. Paste a Discord webhook URL for each channel; leave a field empty to turn that type off.",
       "connectionsWebhook": "Connections (K162 + new connections)",
@@ -349,7 +386,13 @@
       "colMap": "Map",
       "colExclude": "Exclude",
       "killWebhook": "Kill webhook",
-      "killMinIsk": "Minimum ISK"
+      "killMinIsk": "Minimum ISK",
+      "specialWebhook": "Special kills webhook",
+      "specialWebhookHint": "Kills worth a ping, posted whatever their value — e.g. to a channel with alerts on. Choose which count:",
+      "specialCapital": "Capitals",
+      "specialBillion": "1B+ ISK",
+      "specialDictor": "Dictor / HIC",
+      "specialSmartbomb": "Smartbomb"
     },
     "iskMaps": {
       "title": "ISK for extra maps",
@@ -474,10 +517,141 @@
     "revokeFailed": "Couldn't revoke the key. Please try again.",
     "disabled": "API keys disabled"
   },
+  "audit": {
+    "title": "Audit log",
+    "titleFor": "Audit log — {{name}}",
+    "hint": "Changes from the last {{days}} days. Moving systems around and automatic cleanup aren't recorded.",
+    "sidebarHint": "Who added, removed or changed what on this map.",
+    "open": "Open audit log",
+    "filter": "Show",
+    "empty": "Nothing recorded yet.",
+    "loading": "Loading…",
+    "loadMore": "Load older",
+    "unknownPilot": "Unknown pilot",
+    "viaApi": "API",
+    "on": "on",
+    "off": "off",
+    "cleared": "cleared",
+    "kind": {
+      "all": "All changes",
+      "system": "Systems",
+      "connection": "Connections",
+      "signature": "Signatures",
+      "anomaly": "Anomalies",
+      "structure": "Structures",
+      "chain": "Chains",
+      "map": "Map settings",
+      "share": "Sharing"
+    },
+    "action": {
+      "system": {
+        "add": "added {{subject}}",
+        "update": "changed {{subject}}",
+        "remove": "removed {{subject}}"
+      },
+      "connection": {
+        "add": "connected {{subject}}",
+        "update": "changed {{subject}}",
+        "remove": "disconnected {{subject}}"
+      },
+      "signature": {
+        "add": "added signature {{subject}}",
+        "update": "changed signature {{subject}}",
+        "remove": "removed signature {{subject}}"
+      },
+      "anomaly": {
+        "add": "added anomaly {{subject}}",
+        "update": "changed anomaly {{subject}}",
+        "remove": "removed anomaly {{subject}}"
+      },
+      "structure": {
+        "add": "added structure {{subject}}",
+        "update": "changed structure {{subject}}",
+        "remove": "removed structure {{subject}}"
+      },
+      "chain": {
+        "add": "saved chain {{subject}}",
+        "update": "changed chain {{subject}}",
+        "remove": "removed chain {{subject}}"
+      },
+      "map": {
+        "update": "changed the map settings",
+        "merge": "merged in {{subject}}",
+        "scoutCleanup": "cleaned up {{subject}} holes"
+      },
+      "share": {
+        "add": "shared the map with {{subject}}",
+        "remove": "stopped sharing with {{subject}}",
+        "link": {
+          "create": "created a broadcast link",
+          "update": "changed the broadcast link",
+          "revoke": "revoked the broadcast link"
+        }
+      }
+    },
+    "field": {
+      "name": "Name",
+      "alias": "Alias",
+      "notes": "Notes",
+      "status": "Status",
+      "isHome": "Home",
+      "locked": "Locked",
+      "intel": "Intel",
+      "tag": "Tag",
+      "labels": "Labels",
+      "customLabels": "Custom labels",
+      "connectionType": "Jump type",
+      "massStatus": "Mass",
+      "timeStatus": "Lifetime",
+      "size": "Size",
+      "type": "Wormhole type",
+      "massUsed": "Mass used",
+      "eolAt": "EOL time",
+      "lifetimeExpiresAt": "Expiry",
+      "broken": "Broken",
+      "flagIcon": "Flag icon",
+      "flagNote": "Flag note",
+      "flagBlink": "Flag blink",
+      "flagColor": "Flag colour",
+      "sourceSignatureId": "Source signature",
+      "targetSignatureId": "Target signature",
+      "sigId": "Signature ID",
+      "sigType": "Group",
+      "whType": "Wormhole type",
+      "whLeadsTo": "Leads to",
+      "ghostType": "Ghost site",
+      "anomId": "Anomaly ID",
+      "anomType": "Type",
+      "structureType": "Structure type",
+      "ownerCorp": "Owner",
+      "eveId": "EVE ID",
+      "systemIds": "Systems",
+      "connectionIds": "Connections",
+      "allowAsMergeSource": "Merge source",
+      "allowAsMergeDestination": "Merge destination",
+      "lazyRemoveWormholes": "Lazy wormhole removal",
+      "collapseGraceHours": "Collapse grace (hours)",
+      "bookmarkFormat": "Bookmark format",
+      "siteBookmarkFormat": "Site bookmark format",
+      "skipKspace": "Skip k-space",
+      "crossMapSync": "Cross-map sync",
+      "expiryHours": "Expiry (hours)",
+      "includeSigs": "Signatures",
+      "includeBridges": "Bridges",
+      "includeNotes": "Notes",
+      "includeStructures": "Structures",
+      "kind": "Shared with",
+      "canWrite": "Can edit",
+      "systems": "Systems",
+      "connections": "Connections",
+      "signatures": "Signatures",
+      "structures": "Structures"
+    }
+  },
   "chainExits": {
     "title": "Chain exits",
     "noExits": "No K-space exits in this chain.",
-    "hint": "K-space systems currently on the map, by security class. Jita route is gates-only — wormhole shortcuts not counted.",
+    "hint": "K-space systems with a wormhole on the map, by security class. Jita route is gates-only — wormhole shortcuts not counted.",
     "allExits": "All K-space exits",
     "noFavourites": "No favourite systems yet — add some in the Closest Systems panel.",
     "noRoute": "no route",
@@ -530,7 +704,9 @@
     "signIn": "Sign in and dock in K-space to see jumps to hubs, or enable the route shortcut options to route from a wormhole or Thera.",
     "searchPlaceholder": "Search system name…",
     "onList": "on list",
-    "noMatch": "No systems match \"{{query}}\""
+    "noMatch": "No systems match \"{{query}}\"",
+    "allMaps": "Route across all my maps",
+    "allMapsHint": "Distances may use the wormhole chains of every map you can see, not just the open one. Turn this off to route only through the map on screen."
   },
   "commandPalette": {
     "placeholder": "Search systems and maps…",
@@ -548,6 +724,7 @@
   },
   "connPanel": {
     "brokenNotice": "Connection broken — the backing wormhole sig was deleted. Kept on the map but quarantined from routing.",
+    "brokenNoticeRolled": "Connection collapsed — the rolling calculator logged enough mass to close it. Kept on the map but quarantined from routing. Undo the last pass if that was a mistake.",
     "flagLabel": "Flag",
     "flagAdd": "Add flag",
     "flagNotePlaceholder": "e.g. DO NOT ROLL - fleet inbound",
@@ -628,7 +805,8 @@
     "collapseConfirmStrand": " Your roller would be stranded on the Far side.",
     "collapseConfirmHome": " Your roller ends on the Home side.",
     "rollIt": "Roll it",
-    "removeConnection": "Remove Connection"
+    "removeConnection": "Remove connection only",
+    "removeConnectionAndSigs": "Remove connection and signatures"
   },
   "contentFilter": {
     "hint": "Spotlight systems by their scanned content. Pick signature or anomaly types, or search a site name; matching systems stay lit and the rest fade out.",
@@ -636,6 +814,8 @@
     "anoms": "Anomalies",
     "holes": "Wormholes",
     "undivedWh": "Unexplored",
+    "wormholeTip": "Systems with any wormhole signature, scanned or not, jumped or not",
+    "undivedWhTip": "Systems with a hole nobody has gone through yet",
     "namePlaceholder": "Site name contains…",
     "matchCount_one": "{{count}} system matches",
     "matchCount_other": "{{count}} systems match",
@@ -736,8 +916,11 @@
     "connectToDone": "Connected {{from}} to {{to}}",
     "removeSystems": "Remove {{count}} Systems",
     "removeOrphans": "Remove Orphan Systems ({{count}})",
-    "removeOrphansConfirm": "Remove {{count}} orphan system(s)? These have no valid connection (none, or only broken ones). Home and locked systems are kept. This can be undone.",
+    "removeOrphansConfirm": "Remove {{count}} orphan system(s)? These have no valid connection (none, or only broken ones), or are cut off from home by a broken link. Home and locked systems are kept. This can be undone.",
+    "keyDeleteConfirmOne": "Delete {{name}}? This can be undone.",
+    "keyDeleteConfirmMany": "Delete {{count}} systems? This can be undone.",
     "removeStranded": "Remove Systems Cut Off From Home ({{count}})",
+    "removeStrandedNoHome": "Remove Systems Cut Off From Home (set a home first)",
     "removeStrandedConfirm": "Remove {{count}} system(s) with no route back to {{home}}? Home and locked systems are kept. This is a bulk delete — undo restores them one at a time, and only the last 50 removals are kept.",
     "addSystem": "Add System",
     "addAdjacent": "Add Adjacent",
@@ -772,6 +955,65 @@
     "signInMore": "Sign in to view kills, signatures, structures, activity, sovereignty, and more.",
     "addSystemHere": "Add System here",
     "addSystemLimit": "Add System (limit {{max}} reached)"
+  },
+  "dscan": {
+    "title": "D-scan analyser",
+    "landingLink": "D-scan analyser",
+    "intro": "Paste a directional scan or a list of pilots from local chat. You get a breakdown and a link anyone can open for the next 24 hours.",
+    "placeholder": "Paste d-scan or local here",
+    "analyse": "Analyse",
+    "analysing": "Analysing...",
+    "attachTo": "Attach to {{system}}",
+    "newScan": "New scan",
+    "loading": "Loading scan...",
+    "backToMap": "Back to map",
+    "home": "Home",
+    "shareLink": "Link to this scan",
+    "copyLink": "Copy link",
+    "linkCopied": "Link copied",
+    "copyFailed": "Couldn't copy the link",
+    "openInNewTab": "Open in new tab",
+    "kindDscan": "Directional scan",
+    "kindLocal": "Local",
+    "scanned": "Scanned {{ago}}",
+    "filterLabel": "Show",
+    "filterAll": "All",
+    "filterOnGrid": "On grid",
+    "filterOffGrid": "Off grid",
+    "onGridHint": "On grid means within {{km}} km.",
+    "hullMass": "Hull mass",
+    "noMassData": "No mass data: {{n}}",
+    "total": "Total",
+    "nothingInRange": "Nothing in this range.",
+    "unknownGroup": "Unknown",
+    "pilots": "Pilots",
+    "alliances": "Alliances",
+    "corps": "Corporations",
+    "notFound": "Not found",
+    "notFoundHint": "Names not found",
+    "noAlliance": "No alliance",
+    "systemSection": "D-scans",
+    "systemNone": "No scans in the last 24 hours.",
+    "summaryDscan": "Ships: {{ships}} / objects: {{total}}",
+    "summaryLocal": "Local: {{n}} pilots",
+    "sections": {
+      "ships": "Ships",
+      "structures": "Structures",
+      "deployables": "Deployables",
+      "drones": "Drones and fighters",
+      "other": "Other"
+    },
+    "errors": {
+      "empty": "Nothing to analyse. Paste a d-scan or a local list first.",
+      "unrecognised": "That doesn't look like a d-scan or a local list.",
+      "tooMany": "That paste is too long.",
+      "lookupFailed": "Couldn't look up those pilots right now. Try again in a minute.",
+      "rateLimited": "Too many scans. Wait a moment and try again.",
+      "failed": "Couldn't analyse that paste.",
+      "notFound": "This scan doesn't exist.",
+      "expired": "This scan has expired. Scans are kept for 24 hours.",
+      "loadFailed": "Couldn't load this scan."
+    }
   },
   "duration": {
     "seconds": "{{value}}s",
@@ -916,7 +1158,39 @@
     "noKillsOnRecord": "No kills on record.",
     "noKillsNpc": "No kills in the last 24h — {{count}} NPC-only hidden.",
     "showThem": "Show them",
-    "loadMore": "Load more ({{count}} remaining)"
+    "loadMore": "Load more ({{count}} remaining)",
+    "scopeLabel": "Show kills for",
+    "scopeSystem": "This system",
+    "scopeMap": "Whole map",
+    "windowLabel": "Time window",
+    "window": {
+      "1h": "1h",
+      "24h": "24h",
+      "7d": "7d"
+    },
+    "showingOf": "{{shown}} of {{total}} kills",
+    "tags": {
+      "gate": "Gate",
+      "hic": "HIC",
+      "dic": "Dictor",
+      "sb": "SB",
+      "npc": "NPC",
+      "solo": "Solo",
+      "ganked": "Ganked",
+      "awox": "Awox",
+      "padding": "Padding"
+    },
+    "tagTips": {
+      "gate": "Killed on a stargate",
+      "hic": "A heavy interdictor was on the killmail",
+      "dic": "An interdictor was on the killmail",
+      "sb": "Killed by a smartbomb",
+      "npc": "Only NPCs on the killmail",
+      "solo": "One attacker",
+      "ganked": "Killed by a gank: CONCORD was on the killmail",
+      "awox": "Killed by its own corp or alliance",
+      "padding": "zKillboard marks this as padding: a worthless kill to pump up stats"
+    }
   },
   "labelsDialog": {
     "title": "Custom labels",
@@ -983,7 +1257,7 @@
       },
       "multiSelect": {
         "title": "Multi-select bulk operations",
-        "desc": "Shift-click to select multiple systems or signatures, then bulk-assign type, delete, or rename in a single action."
+        "desc": "Shift or Cmd / Ctrl-click to select multiple systems or signatures, then bulk-assign type, delete, or rename in a single action."
       },
       "pngExport": {
         "title": "PNG export",
@@ -1023,7 +1297,7 @@
       },
       "crossMapSync": {
         "title": "Cross-map sync",
-        "desc": "Have the same system on several maps? Opt in and scanning it on one map copies its signatures and anomalies to the same system on your others — personal maps sync with your other personal maps, corp maps with the corp's. Non-destructive: it only adds missing entries and fills blanks, never overwriting what you've already entered or deleting anything."
+        "desc": "Have the same system on several maps? Opt in and scanning it on one map copies its signatures and anomalies to the same system on your others. Personal maps sync with your other personal maps (your alts' included), and corp or alliance maps with others of the same kind that have sync switched on. It only adds missing entries and fills blanks, never overwriting or deleting anything."
       },
       "realtime": {
         "title": "Real-time collaboration",
@@ -1035,15 +1309,15 @@
       },
       "rbac": {
         "title": "Role-based access",
-        "desc": "Four tiers — readonly, edit, full, admin — gating corp-map actions. Personal maps stay yours regardless of role."
+        "desc": "Read only, contributor, edit, full and admin, plus alliance admin on alliance installs. A contributor keeps signatures, anomalies and structures up to date and maps the chain by flying it, but can't reshape it by hand. Personal maps stay yours regardless of role."
       },
       "systemPanel": {
         "title": "System panel",
-        "desc": "Per-system cards for signatures, structures, NPC stations, notes, killboard, and activity charts. Cards are reorderable via drag-and-drop and persist per-user."
+        "desc": "Per-system cards for signatures, anomalies, structures, NPC stations, notes, killboard, PvP activity, d-scans and activity charts, with Dotlan, zKillboard and anoik.is links. Cards are reorderable via drag-and-drop and persist per-user."
       },
       "sigMgmt": {
         "title": "Signature management",
-        "desc": "Paste straight from the probe scanner. Tracks created / updated age per signature, auto-deletes sigs missing from a re-paste, and supports bulk type assignment for multi-select."
+        "desc": "Paste straight from the probe scanner. Shows who scanned each signature and how old it is, can remove sigs missing from a re-paste after a grace period, and never duplicates a signature when two pilots paste at once. Copy a paste-ready bookmark name from any row, in your own format or the map's."
       },
       "structImport": {
         "title": "Structure import",
@@ -1055,15 +1329,15 @@
       },
       "activityCharts": {
         "title": "Activity charts",
-        "desc": "24-hour rolling history of jumps, ship / pod kills, and NPC kills per system, polled from ESI hourly. The poller persists data for every k-space system — not just ones someone has opened — so charts populate the moment you view a new system."
+        "desc": "24-hour rolling history of jumps, ship / pod kills, and NPC kills per system, polled from ESI hourly for every k-space system. Show them stacked in your own order, or combined on one set of axes with exact values on hover."
       },
       "sovStation": {
         "title": "Sovereignty & station data",
-        "desc": "Live alliance / corp / faction sov info and NPC station services, with in-game waypoint and destination actions."
+        "desc": "Live alliance / corp / faction sov with the hub's ADM and its next vulnerability window, plus NPC station services, with in-game waypoint and destination actions."
       },
       "killboard": {
         "title": "Killboard pane",
-        "desc": "Recent zKillboard activity per system, with NPC-only kills hidden by default (toggle to include). Rows tint red when a hostile actor is in the chain or a blue gets killed; blue when a friendly scores or a hostile dies. Recent kills also bubble up as highlights on the map."
+        "desc": "Recent zKillboard and live-feed kills for a system or your whole map, over the last hour, day or week. Each kill is tagged when it happened on a gate or involved a HIC, dictor or smartbomb. NPC kills are hidden by default. Rows tint red when a hostile is involved or a blue dies, and blue when a friendly scores."
       },
       "effectDigest": {
         "title": "Chain-wide effect digest",
@@ -1074,8 +1348,8 @@
         "desc": "Your EVE contact list (personal, corp, and alliance — fetched via ESI on login and re-pullable on demand) drives a chain-wide visual layer. Sov holders show inline P/C/A standing pills; structures resolved via their EVE structure ID tint by owner-corp standing; sov-holder system nodes get a coloured halo so hostile territory stands out on the map."
       },
       "scout": {
-        "title": "Scout connections",
-        "desc": "Thera and Turnur public Eve-Scout connections surfaced into the sidebar so you can jump straight to known holes."
+        "title": "Thera & Turnur connections",
+        "desc": "Eve-Scout's public Thera and Turnur connections with both signature IDs and the route through the hub. Copy them onto your map in one click (holes eve-scout stops listing are tidied away), and report one as collapsed so routing stops using it."
       },
       "a0": {
         "title": "A0 sun detection",
@@ -1099,11 +1373,11 @@
       },
       "discordNotif": {
         "title": "Discord notifications",
-        "desc": "Push corp chain intel to a Discord channel so alerts land even when nobody's watching the tab. Fires server-side on an inbound K162 or a new wormhole connection, scoped to corp maps. Admins filter which regions and maps notify from the admin panel. Best-effort and rate-limit-aware; bulk operations like region seeding never spam the channel."
+        "desc": "Push chain intel to a Discord channel so alerts land even when nobody's watching the tab: new connections and K162s, new k-space exits with their route, kills on the chain and special kills, holes going end-of-life, and new Thera and Turnur holes. Admins choose which maps and regions post."
       },
       "routePlanner": {
         "title": "Route planner",
-        "desc": "Server-side BFS over stargates plus your live chain, so a route through a wormhole hop is a single click."
+        "desc": "Pick any two systems and get a route over stargates, your wormhole chains, Thera, Turnur and Ansiblex bridges. Find systems by the alias you gave them, and save the routes you fly often."
       },
       "locationTracking": {
         "title": "Location tracking",
@@ -1127,7 +1401,7 @@
       },
       "killHighlights": {
         "title": "Recent-kill highlights",
-        "desc": "Systems with kills in the last hour get a coloured halo so you can see fresh activity at a glance across the chain."
+        "desc": "Systems with kills get a sword on the map with their 24-hour kill count, bright when there's been fighting this hour, and a coloured halo for fresh activity across the chain."
       },
       "userStats": {
         "title": "User stats modal",
@@ -1142,8 +1416,8 @@
         "desc": "The landing page mounts a non-editable demo map so visitors can see what the tool does before logging in."
       },
       "sidebar": {
-        "title": "Collapsible sidebar",
-        "desc": "Map Options, Connections, Proximity Alerts, Stale System Fade, and Shortcuts each expand or collapse independently. Per-section state persists per browser via localStorage."
+        "title": "Choose your panels",
+        "desc": "Every sidebar section and system panel can be collapsed, reordered or switched off entirely. Your choices are saved to your account and follow you to another machine."
       },
       "colorVision": {
         "title": "Colour-blind modes",
@@ -1167,7 +1441,91 @@
       },
       "jumpPlanner": {
         "title": "Jump planner",
-        "desc": "Plot a multi-hop capital jump route between any two low/null systems. Pick a ship class and your skills, choose fewest jumps or least fuel, and see the route mapped with per-hop light-years and an isotope estimate. Save and reload your routes."
+        "desc": "Plot a multi-hop capital jump route between any two low/null systems. Pick a ship class and your skills, choose fewest jumps or least fuel, and see the route with per-hop light-years, an isotope estimate, jump fatigue and the reactivation timer. Avoid systems, add waypoints, use regional gates, and save your routes."
+      },
+      "addConnect": {
+        "title": "Add and connect in one step",
+        "desc": "Right-click a system to add a connected system in one go, or pick Connect to system and click the other end. The system you're standing in is offered first when you add one, and an Unknown placeholder marks a hole you haven't identified yet."
+      },
+      "mapGlance": {
+        "title": "Map at a glance",
+        "desc": "Connections show their state on the line itself: frigate holes are dashed, reduced and critical holes carry a coloured core, and the ship size sits beside the type. Each system shows how much of it has been scanned, statics show even in compact mode, and hovering a k-space system shows how many gate jumps it is from you."
+      },
+      "regionBorders": {
+        "title": "Region borders",
+        "desc": "Systems with a stargate into another region get a small tag naming it, so you can see where a chain lets you cross into Providence or Curse without adding the neighbouring system. Off by default; switch it on in System Options."
+      },
+      "layoutTools": {
+        "title": "Layout tools",
+        "desc": "Tidy layout arranges systems in the shape of their real regions. Untangle pulls linked systems together into tidy rows and columns. Reclassify gates turns wormhole lines that are really stargates into gate connections. Locked systems stay where you put them."
+      },
+      "flagPresets": {
+        "title": "Connection flag presets",
+        "desc": "Save an icon, colour and name as a preset and apply it to a connection in one click. Corps and alliances can publish a standard set for everyone."
+      },
+      "mapBackup": {
+        "title": "Import and full backups",
+        "desc": "Bring a map over from Pathfinder (aliases, intel markers, mass and end-of-life come with it) or from Tripwire (experimental, with signatures and system notes). Export a full JSON backup with signatures, anomalies, structures and every hole's mass and life, and import it back as an exact copy you own."
+      },
+      "jumpConfirm": {
+        "title": "Jumps fill in the hole",
+        "desc": "When you jump, nexum works out which signature you went through and sets where it leads, asking only when more than one could fit. The hole's updated bookmark name lands on your clipboard ready to paste in game. Clone jumps and pod deaths don't draw fake connections."
+      },
+      "sharing": {
+        "title": "Map sharing",
+        "desc": "Share a map with other characters, your corp or your alliance, or create a read-only link anyone can open without an account, with an expiry and a choice of what guests see. Shared maps show who owns them, and you can leave or hide one you don't use."
+      },
+      "mapHistory": {
+        "title": "Map history",
+        "desc": "Every change to a map's layout is recorded with who made it: systems, connections, signatures, chains, settings, sharing and merges. Kept for 30 days, and readable by the map's owner and admins from the map sidebar."
+      },
+      "dscan": {
+        "title": "D-scan and local analyser",
+        "desc": "Paste a directional scan for ships grouped by class and hull, an on-grid / off-grid filter, structures with their distance and the total mass on scan. Paste local chat for pilots grouped by alliance and corp. Every scan gets a link anyone can open for 24 hours, and scans attached to a system show in its panel. No login needed."
+      },
+      "pvpForecast": {
+        "title": "PvP activity forecast",
+        "desc": "For any system, 24 bars showing how busy each coming hour usually is on that day of the week, from zKillboard's last 90 days, with the busiest hour named and a live count of the last 24 hours. Times show in your own timezone. Works in wormhole space too."
+      },
+      "holeState": {
+        "title": "Mass and life while scanning",
+        "desc": "Record a hole's mass (full, under 50%, under 10%) and life (down to expired) straight from the signature list, before anyone has jumped it. Set it on either end and the other end and the line on the map match."
+      },
+      "siteDetails": {
+        "title": "Site details at a glance",
+        "desc": "Relic and data rows show whether the site spawns combat, event data sites show a safe-to-warp tick, ghost sites are their own type with their tier read from the scan, and Drifter holes fill in their own destination."
+      },
+      "chainExits": {
+        "title": "Chain exits",
+        "desc": "A toolbar list of every k-space system with an open wormhole on your chain, with the route to each and to your favourite systems through the exit you'd leave by. Get an alert in the app or in Discord when a new exit appears: high-sec only, low-sec and better, or any k-space."
+      },
+      "closestSystems": {
+        "title": "Closest systems",
+        "desc": "A side panel with how far trade hubs and your own list of systems are, counting gates, your wormhole chains, Thera and Turnur. It can use every map you can see or just the open one, and each wormhole hop names the map it came from."
+      },
+      "clones": {
+        "title": "Clones panel",
+        "desc": "Your medical clone and jump clones with the system each one is in, their implants, and set-destination and waypoint buttons. Needs the clones scope."
+      },
+      "pilotsOnline": {
+        "title": "Pilots online",
+        "desc": "On corp and alliance installs, see who in your organisation has been active in the last few minutes, what they're flying and where. Anyone can hide their own presence."
+      },
+      "announcer": {
+        "title": "Voice announcer",
+        "desc": "Spoken alerts while you fly, from a voice that runs on your own device: low-sec and null-sec coming into range, incursions, recent kills nearby, characters connecting, and new chains added by others. Experimental, English only."
+      },
+      "desktopAlerts": {
+        "title": "Desktop and sound alerts",
+        "desc": "Desktop notifications and sounds for kills on your chain, holes going end-of-life, new k-space exits, watchlist matches and nearby threats, each switched on separately with one volume control. Only new things alert, never the same item twice."
+      },
+      "multiDestination": {
+        "title": "Destination for all your characters",
+        "desc": "Set a destination or add a waypoint for every online character on your account at once. Each one plots its own route from wherever it is, and you see what happened for each character."
+      },
+      "panelLayout": {
+        "title": "Panel layouts",
+        "desc": "Put the panels under the map or beside it, split them into up to three resizable columns, and pick Comfortable, Compact or Dense spacing. Hide the panels you don't use, pop them out as windows, and your layout follows your account to any device."
       }
     },
     "corpFeatures": {
@@ -1185,7 +1543,7 @@
       },
       "adminDash": {
         "title": "Admin dashboard",
-        "desc": "A dedicated /admin page with four tabs: Users, Maps, Reports, and Audit log. Admins reach it from the toolbar's Admin button."
+        "desc": "A dedicated /admin page with tabs for Users, Access, Maps, Reports, Audit log, Discord, Flag presets and Default layout. Admins reach it from the toolbar's Admin button."
       },
       "userMgmt": {
         "title": "User management",
@@ -1222,11 +1580,27 @@
       "accessControl": {
         "title": "User access control",
         "desc": "Decide who can sign in beyond your .env core: a DB allow-list (seeded from CORP_ID/ALLIANCE_ID) managed in the admin area, optional auto-admit of friendly corps/alliances by in-game standing (+5/+10), and a standings viewer that groups your contacts by band. Sessions are re-checked live, so revoking access — or a pilot leaving an admitted corp — logs them out."
+      },
+      "invites": {
+        "title": "Invites with a role",
+        "desc": "Allow-list a pilot before they've ever signed in and choose the role they arrive with. A Mail invite button opens a ready-written EVE mail in your own client. DEFAULT_USER_ROLE sets the role everyone else starts with."
+      },
+      "orgDefaults": {
+        "title": "Org defaults",
+        "desc": "Capture your own panel arrangement as the starting layout new members inherit, and publish a standard set of connection flag presets for everyone."
+      },
+      "orgBranding": {
+        "title": "Your logo",
+        "desc": "An instance run for a corp or alliance shows its logo above the login button on the front page, and next to the nexum logo in the toolbar."
+      },
+      "prebuiltImages": {
+        "title": "Pre-built images",
+        "desc": "Every release is published as ready-to-run images on GitHub Container Registry, so updating is a docker compose pull. Backup and restore scripts handle several instances on one host."
       }
     },
     "forCorpsBody": "Run Nexum as a shared deployment for your corp or alliance. Members get visible-to-the-corp chain maps and private personal maps in one tool, with role-based permissions, admin tooling, and per-character activity reporting.",
     "compareBody": "See how Nexum stacks up against Pathfinder, Tripwire and Wanderer — features, hosting and cost, side by side.",
-    "languagesBody": "Nexum is fully translated into nine languages — and it auto-detects yours from your browser the first time you visit. Prefer a different one? Switch any time from the language picker in the toolbar.",
+    "languagesBody": "Nexum is fully translated into ten languages — and it auto-detects yours from your browser the first time you visit. Prefer a different one? Switch any time from the language picker in the toolbar.",
     "compareLink": "Compare Nexum vs Pathfinder, Tripwire & Wanderer →",
     "helpLink": "New here? Read the how-to guide →",
     "guidesLink": "Wormhole guides & tutorials →",
@@ -1290,6 +1664,33 @@
     "lessThan1h": "< 1 hr",
     "broken": "Connection broken — the wormhole sig was deleted (hole collapsed)"
   },
+  "mapKey": {
+    "title": "Map key",
+    "close": "Close map key",
+    "lifetime": "Lifetime",
+    "fresh": "Wormhole with more than a day left, or whose lifetime isn't known.",
+    "lessThan24h": "Less than a day left.",
+    "lessThan4h": "Less than 4 hours left, counting down.",
+    "lessThan1h": "Less than an hour left, counting down.",
+    "expired": "Its time is up by nexum's clock. The clock starts when the hole is mapped and assumes the type's full lifetime, so a hole found late can die sooner than shown.",
+    "expiredKept": "On this map it stays until someone removes its signature (Auto-remove aged wormholes is off).",
+    "expiredCutNow": "On this map it's severed straight away and its signatures removed.",
+    "expiredCutAfter": "On this map it's severed {{time}} later and its signatures removed (Collapse grace).",
+    "broken": "Severed: its signature was removed, or the hole ran out of time. Kept so the chain stays traceable, but left out of routes. It comes back if a signature backs it again or someone jumps it. Remove Orphan Systems clears systems left with only these.",
+    "massSize": "Type, size and mass",
+    "type": "Wormhole type and the largest ship it takes. S and M are highlighted, since they limit what you can bring.",
+    "frigate": "Short dashes: frigate-only hole.",
+    "massStable": "Mass reported above half.",
+    "massHalf": "Under half mass left (orange core).",
+    "massCritical": "Under 10% mass left (red core).",
+    "other": "Other links",
+    "gate": "Stargate.",
+    "jumpgate": "Ansiblex jump bridge.",
+    "cyno": "Cyno jump route, with its distance. The dots show which ship classes can make it at your Jump Drive Calibration.",
+    "watch": "Glow: matches your watchlist.",
+    "flag": "Flagged by your corp or alliance. Hover for the note.",
+    "highlight": "Links of the system you're hovering over or have selected."
+  },
   "mapNode": {
     "a0Sun": "A0 sun",
     "altLastKnown": "(last known)",
@@ -1307,7 +1708,9 @@
     "jumps_one": "{{count}} jump",
     "jumps_other": "{{count}} jumps",
     "killsTooltip": "{{ships}} ship · {{pods}} pod kills this hour",
-    "killsTooltipHint": "CCP hourly count · killmail may not be on zKillboard yet",
+    "kills24h_one": "{{count}} player kill in the last 24h",
+    "kills24h_other": "{{count}} player kills in the last 24h",
+    "killsTooltipHint": "From the live kill feed and CCP's hourly counts",
     "recentKill": "Kill {{ago}}m ago ({{value}} ISK)",
     "scanned": "{{scanned}} of {{total}} signatures scanned",
     "scoutConnectionsMulti": "{{names}} connections",
@@ -1322,6 +1725,7 @@
     "suppressed": "Suppressed",
     "undivedUnknown": "unknown",
     "undivedWhTitle": "Unexplored Wormhole",
+    "regionBorderTitle": "Stargate to another region: {{regions}}",
     "unknown": "Unknown"
   },
   "mapShares": {
@@ -1365,7 +1769,8 @@
     "shareCount": "Share with {{count}}",
     "batchShared": "Shared the map with {{count}}.",
     "batchPartial": "Shared with {{shared}}; {{skipped}} skipped.",
-    "batchNone": "Couldn't share — {{count}} skipped."
+    "batchNone": "Couldn't share — {{count}} skipped.",
+    "optedOut": "{{count}} hid this map from their own list. They still have access — a corp or alliance share cannot be left individually."
   },
   "mapSidebar": {
     "activityHint": "Show graphs for the following:",
@@ -1416,6 +1821,8 @@
     "compact": "Compact",
     "connectionStyle": "Connection Style",
     "connectionThickness": "Connection Thickness",
+    "linkSigIds": "Sig IDs on links",
+    "confirmKeyDelete": "Confirm Delete/Backspace deletes",
     "copyFailed": "Copy failed — select and copy manually",
     "copyLink": "Copy link",
     "corpSkipKspace": "Don't track K-space (corp/alliance)",
@@ -1423,7 +1830,10 @@
     "createShareFailed": "Failed to create share link",
     "createShareLink": "Create share link",
     "crossMapSync": "Sync system data across my maps",
-    "crossMapSyncHelp": "When you add or edit signatures and anomalies on a system, copy them to the same system on your other maps (personal maps sync with your other personal maps; corp maps with the corp's other maps). Non-destructive: it only fills in missing or blank entries — it never overwrites data you've already entered or deletes anything.",
+    "crossMapSyncHelp": "When you add or edit signatures and anomalies on a system, copy them to the same system on your other personal maps, including your other characters' maps. Corp and alliance maps have their own switch. Non-destructive: it only fills in missing or blank entries — it never overwrites data you've already entered or deletes anything.",
+    "crossMapSyncOrg": "Sync system data with other maps",
+    "crossMapSyncCorpHelp": "Signatures and anomalies added or edited here are copied to the same system on the corp's other maps that also have this on. Non-destructive: it only fills in missing or blank entries. Only owner/admins can change this.",
+    "crossMapSyncAllianceHelp": "Signatures and anomalies added or edited here are copied to the same system on the alliance's other maps that also have this on. Non-destructive: it only fills in missing or blank entries. Only alliance admins can change this.",
     "easyConnect": "Easy Connect",
     "edgeStyle": {
       "bezier": "Standard",
@@ -1513,12 +1923,19 @@
     "notifProximity": "Proximity threats",
     "notifWatchlist": "Watchlist match",
     "notifExits": "K-space exits",
+    "notifKills": "Kills on the map",
+    "notifEol": "End-of-life holes",
     "notifExitsMinSec": "Alert on exits of",
     "notifExitsOff": "Off — never alert",
     "notifExitsHiSec": "High-sec only",
     "notifExitsLowSec": "Low-sec and better",
     "notifExitsAny": "Any k-space",
     "notifExitsHint": "Alerts once when an exit of at least this security appears on the chain. Off by default.",
+    "notifKillsWhich": "Which kills",
+    "notifKillsSpecial": "Special kills only",
+    "notifKillsBillion": "1B+ ISK",
+    "notifKillsAll": "Every kill flagged on the map",
+    "notifKillsHint": "Special means a capital lost, 1B+ ISK, or a dictor, HIC or smartbomb on the mail. End-of-life alerts fire when someone else marks a hole on this map under 4 hours or under 1 hour.",
     "notifVolume": "Alert & announcer volume — {{pct}}%",
     "openOptions": "Map options",
     "optimizeConnections": "⟳ Optimize Connections",
@@ -1563,6 +1980,14 @@
     "routePreference": "Route Preference",
     "routeSecure": "Secure",
     "routeShortcutNote": "Routes using a wormhole, Thera, Turnur, or jump gate can't be set as an in-game destination or waypoint — right-click a k-space system in the route to set one to it instead.",
+    "routeAvoid": "Avoid systems",
+    "routeAvoidAdd": "Add a system to avoid",
+    "routeAvoidRemove": "Remove {{name}}",
+    "routeAvoidHint": "Routes in nexum (closest systems, route planner, jump counts) never pass through these. EVE's autopilot keeps its own avoid list in game.",
+    "waypointSendTo": "Destination goes to",
+    "waypointSendToMe": "This character",
+    "waypointSendToAllOnline": "All online characters",
+    "waypointSendToHint": "Applies to Set Destination and Add Waypoint everywhere. Each character plots its own route from where it is; characters that aren't logged in are skipped.",
     "routeShortest": "Shortest",
     "sections": {
       "mapOptions": "Map Options",
@@ -1585,6 +2010,7 @@
       "mergeMaps": "Merge Maps",
       "liveSharing": "Live Map Broadcast",
       "shareMap": "Share Map",
+      "auditLog": "Audit Log",
       "shortcuts": "Shortcuts",
       "announcer": "Announcer",
       "jumpRange": "Jump Range",
@@ -1609,12 +2035,22 @@
     "showPatchNotes": "Show patch notes",
     "showStaticWhs": "Show Static WHs",
     "showUndivedWhs": "Show Undived WHs",
+    "showRegionBorders": "Show Region Borders",
+    "showRegionBordersTooltip": "Label systems whose stargates lead into another region, naming the region. The neighbouring system isn't added to the map.",
     "sigBookmark": "Wormhole bookmark",
+    "k162Bookmark": "Outbound bookmark (K162 only)",
+    "k162BookmarkPlaceholder": "Empty: uses the wormhole bookmark format",
+    "k162BookmarkHelp": "Used instead of the wormhole format above, but only for K162s, whenever a bookmark name is copied (by the copy icon or after a jump). It takes the same tokens. Leave it empty and K162s use the wormhole bookmark format. If the map has its own wormhole format, that one is used for every hole, K162s included.",
     "siteBookmark": "Site bookmark (relic / data / gas)",
     "siteBookmarkHelp": "On a relic, data, or gas signature row, click the copy icon for a paste-ready bookmark name. Build it with these tokens:",
+    "copyBookmarkOnJump": "Copy bookmark name after a jump",
+    "copyBookmarkOnJumpHelp": "When a jump fills in where a hole leads, its bookmark name (in the format above) goes on your clipboard. If you're in game at the time, it's copied as soon as you click back into nexum.",
     "skipKspace": "Don't track K-space",
     "skipKspaceHint": "When on, only records the K-space system you first jump into from J-space and the last one before you jump back into J-space — skipping everything you gate through in between. HS/LS/NS only; Pochven is always tracked.",
     "snapToGrid": "Snap to Grid",
+    "gridStyle": "Grid style",
+    "gridStyleLines": "Lines",
+    "gridStyleDots": "Dots",
     "spreadNodes": "⊞ Spread Nodes",
     "spreadNodesTooltip": "Adjust system nodes to stop overlapping",
     "staleHint": "Visually dim systems that haven't been updated for the chosen interval, so old chain residue is easy to spot at a glance.",
@@ -1643,7 +2079,17 @@
     "wandererImported": "Imported from Wanderer: {{systems}} systems, {{connections}} connections ({{skipped}} skipped).",
     "working": "Working…",
     "panelColumns": "Panel columns",
-    "panelColumnsTooltip": "Splits the panel's panes into side-by-side columns, so notes or the killboard can sit beside signatures instead of below them."
+    "panelColumnsTooltip": "Splits the panel's panes into side-by-side columns, so notes or the killboard can sit beside signatures instead of below them.",
+    "homeColor": "Home system colour",
+    "hereColor": "You-are-here colour",
+    "herePulse": "You-are-here pulse",
+    "herePulseOptions": {
+      "off": "Off (still ring)",
+      "subtle": "Subtle",
+      "normal": "Normal",
+      "strong": "Strong"
+    },
+    "resetColor": "Reset"
   },
   "mass": {
     "billionKg": "{{value}} B kg",
@@ -1707,7 +2153,8 @@
     "killboard": "zKillboard",
     "activity": "Activity",
     "undock": "Undock to a floating window",
-    "redock": "Dock back"
+    "redock": "Dock back",
+    "pvp": "PvP activity"
   },
   "panes": {
     "noEveSystem": "No EVE system linked",
@@ -1738,12 +2185,25 @@
     "riskEol": "EOL",
     "riskCritical": "Critical mass",
     "riskFrig": "Frigate hole",
-    "jspaceNoWaypoint": "Wormhole systems can't be set as an autopilot destination."
+    "jspaceNoWaypoint": "Wormhole systems can't be set as an autopilot destination.",
+    "viaMap": "on {{map}}"
   },
   "routeToast": {
     "destinationSet": "Destination set to {{system}}",
     "waypointAdded": "{{system}} successfully added to waypoints.",
-    "failed": "Failed to set waypoint — is your character online?"
+    "failed": "Failed to set waypoint — is your character online?",
+    "destinationSetFor_one": "Destination set to {{system}} for {{count}} character",
+    "destinationSetFor_other": "Destination set to {{system}} for {{count}} characters",
+    "waypointAddedFor_one": "{{system}} added to waypoints for {{count}} character",
+    "waypointAddedFor_other": "{{system}} added to waypoints for {{count}} characters",
+    "notSentTo": "Not sent to: {{list}}",
+    "noneSent": "Couldn't set it for any character: {{list}}",
+    "reason": {
+      "offline": "not logged in",
+      "no_scope": "log in again to allow waypoints",
+      "token_expired": "log in again",
+      "esi_error": "EVE didn't respond"
+    }
   },
   "scout": {
     "noConnections": "No {{system}} connections.",
@@ -1757,11 +2217,21 @@
     "inSigHint": "Signature ID in {{system}} — the far end of the hole",
     "outSigHint": "Signature ID in {{system}} — the end you warp to from here",
     "markExpired": "Report this hole collapsed",
-    "unmarkExpired": "Not collapsed after all"
+    "unmarkExpired": "Not collapsed after all",
+    "copyAll": "Copy {{count}} to map",
+    "copyAllHint": "Add the signatures for every {{system}} connection whose system is on the map",
+    "copyOne": "Copy this connection's signatures to the map",
+    "copyNothing": "Nothing to copy — those signatures are already on the map",
+    "copyDone": "Signatures: {{added}} added, {{updated}} updated",
+    "copyPartial": "Added {{added}}, {{failed}} failed",
+    "copyFailed": "Could not copy the signatures",
+    "copyDoneLinks": "Signatures: {{added}} added, {{updated}} updated · {{links}} connection(s) drawn",
+    "copyDoneSwept": "Signatures: {{added}} added, {{updated}} updated · {{removed}} collapsed hole(s) cleared"
   },
   "session": {
     "idleLogout": "Signed out due to inactivity.",
     "ended": "Your session ended — please log in again.",
+    "reconnecting": "Can't reach nexum right now — still trying. Your login is fine.",
     "lockedTitle": "Paused",
     "lockedHint": "You were idle, so mapping was paused. Your login is still active.",
     "resumeAs": "Continue as {{name}}",
@@ -1815,6 +2285,7 @@
     "pasteDifferentSystem": "Your character is currently in {{current}}, but you are pasting signatures into {{selected}}. Continue?",
     "loadFailed": "Failed to load signatures",
     "saveFailed": "Failed to save signature",
+    "duplicateId": "Signature {{id}} already exists in this system",
     "deleteFailed": "Failed to delete signature",
     "deleteSelectedConfirm_one": "Delete {{count}} selected signature?",
     "deleteSelectedConfirm_other": "Delete {{count}} selected signatures?",
@@ -1828,6 +2299,9 @@
     "removeDelayInstant": "Instant",
     "filterLabel": "Filter by type",
     "filterClear": "Clear",
+    "drifterHole": "Drifter",
+    "drifterHoles": "Drifter",
+    "drifterChipHint": "Drifter holes (the scanner's \"Unidentified Wormhole\")",
     "noMatchFilter": "No signatures match the filter",
     "setTypeAria": "Set type for selected signatures",
     "setType": "Set type ({{count}})…",
@@ -1851,6 +2325,7 @@
     "colAge": "Age",
     "colUpdated": "Updated",
     "columns": "Columns",
+    "groupIcons": "Group as icons",
     "namePlaceholder": "Site name",
     "colSafe": "Safe",
     "safeYes": "Safe — no combat",
@@ -1944,6 +2419,11 @@
     "alliance": "Alliance",
     "corp": "Corp",
     "faction": "Faction",
+    "sovAdm": "ADM",
+    "sovAdmTip": "Activity Defense Multiplier (1–6): the higher it is, the longer an attacker has to spend capturing the sov hub.",
+    "sovVulnerability": "Vulnerable",
+    "sovVulnerableNow": "Now, until {{end}} EVE",
+    "sovVulnerableNext": "{{start}}–{{end}} EVE (in {{in}})",
     "personal": "Personal",
     "refreshStandings": "Refresh standings from ESI now (bypasses the 6h TTL)",
     "standingsRefreshed": "Standings refreshed — {{personal}} personal · {{corp}} corp · {{alliance}} alliance contacts",
@@ -1985,6 +2465,9 @@
     "discord": "Discord",
     "esiOffline": "ESI: Offline",
     "esiOnline": "ESI: Online",
+    "latency": "{{ms}} ms",
+    "nexumOffline": "Nexum: Unreachable",
+    "nexumOnline": "Nexum: Online",
     "getMoreMaps": "+ Get more maps",
     "help": "Help & how-to",
     "lastKnownSystem": "Last known system",
@@ -2031,7 +2514,12 @@
     "trackJumpsTooltipOn": "Tracking jumps — new systems are added as you move",
     "updateAvailable": "Update available",
     "updateAvailableVersion": "Update available: v{{version}}",
-    "userStats": "User stats"
+    "userStats": "User stats",
+    "hideThisMap": "Hide from my list",
+    "hideThisMapHint": "Removes this map from your switcher only. It was shared with your corp or alliance, so there is no personal grant to give up — everyone else keeps it. You can restore it here.",
+    "hiddenMaps": "Hidden maps ({{count}})",
+    "unhideMap": "restore",
+    "unhideMapHint": "Show this map in your list again"
   },
   "units": {
     "jumps_one": "{{count}} jump",
@@ -2098,7 +2586,13 @@
   },
   "waypoint": {
     "setDestination": "Set Destination",
-    "addWaypoint": "Add Waypoint"
+    "addWaypoint": "Add Waypoint",
+    "sendTo": "Send to characters…",
+    "sendToTitle": "Send {{system}} to…",
+    "sendToHint": "Each character plots its own route from where it is. Only logged-in characters can receive it.",
+    "you": "you",
+    "offline": "offline",
+    "noneOnline": "None of your characters are logged in."
   },
   "whChart": {
     "open": "⊟ Wormhole reference",
@@ -2139,7 +2633,24 @@
   },
   "exits": {
     "notifTitle": "K-space exit",
-    "appeared": "{{name}} ({{security}}) is on the chain"
+    "appeared": "{{name}} ({{security}}) is on the chain",
+    "appearedMany_one": "{{count}} new k-space exit on the chain",
+    "appearedMany_other": "{{count}} new k-space exits on the chain"
+  },
+  "alerts": {
+    "killTitle": "Kill in {{system}}",
+    "killBody": "{{victim}} lost a {{ship}} ({{value}} ISK)",
+    "someone": "Someone",
+    "aShip": "ship",
+    "special": {
+      "capital": "Capital",
+      "billion": "1B+ ISK",
+      "dictor": "Dictor/HIC",
+      "smartbomb": "Smartbomb"
+    },
+    "eolTitle": "Wormhole end of life",
+    "eolBody4h": "{{a}} ↔ {{b}} is end of life (under 4 hours)",
+    "eolBody1h": "{{a}} ↔ {{b}} has under 1 hour left"
   },
   "tripwire": {
     "title": "Import from Tripwire (experimental)",
@@ -2192,5 +2703,13 @@
     "max": "Up to {{count}} presets",
     "orgGroup": "Org",
     "mineGroup": "Mine"
+  },
+  "orgLogos": {
+    "alliance": "Alliance logo",
+    "corp": "Corporation logo"
+  },
+  "update": {
+    "available": "A new version of Nexum is available.",
+    "reload": "Reload"
   }
 }

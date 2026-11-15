@@ -3,6 +3,7 @@ import { esiFetch } from '../utils/esi.js';
 import { db } from '../db.js';
 import { config } from '../config.js';
 import { liveKillCounts } from '../services/killBuffer.js';
+import { getPvpForecast } from '../services/pvpHistory.js';
 import { optionalAuth } from '../middleware/optionalAuth.js';
 
 const router = Router();
@@ -10,7 +11,12 @@ router.use(optionalAuth);
 const ESI         = 'https://esi.evetech.net/v1';
 const HOUR_MS     = 60 * 60 * 1000;
 const MAX_HISTORY = 24;
+// Fallback cache lifetime when ESI sends no Expires header.
 const ESI_CACHE_TTL = 5 * 60 * 1000;
+// Never treat a snapshot as stale sooner than this, even if its Expires has
+// already passed: CCP is sometimes late cutting the next one, and refetching on
+// every request until it does would hammer ESI for the same bytes.
+const MIN_CACHE_MS  = 60 * 1000;
 
 export interface HourlyPoint {
   hour:      number;
@@ -26,6 +32,10 @@ interface EsiSnapshot {
   jumps:     Map<number, number>;
   kills:     Map<number, EsiKill>;
   fetchedAt: number;
+  /** The hour this snapshot's counts belong to -- see snapshotHour. */
+  hour:      number;
+  /** When ESI says the next snapshot is due (its Expires header). */
+  expiresAt: number;
 }
 
 const systemHistory  = new Map<number, HourlyPoint[]>();
@@ -36,6 +46,10 @@ const systemHistory  = new Map<number, HourlyPoint[]>();
 // new tracker.
 let   esiCache: EsiSnapshot | null = null;
 let   fetching: Promise<EsiSnapshot | null> | null = null;
+// When ESI was last ASKED, successful or not. A failed fetch leaves esiCache
+// stale, and without this every page view would retry at once -- each failure
+// spending the shared per-IP ESI error budget that our other instances use too.
+let   lastAttemptAt = 0;
 // Tracks the ESI snapshot timestamp that's already been written to the DB so
 // we don't keep INSERT...ON CONFLICTing the same rows on every request.
 let   lastWrittenFetchedAt = 0;
@@ -44,13 +58,33 @@ function hourFloor(ts = Date.now()): number {
   return ts - (ts % HOUR_MS);
 }
 
+// CCP rebuilds system_jumps / system_kills once an hour on its OWN cycle, not on
+// the hour (lately about a quarter past): Last-Modified is when a snapshot was
+// cut, it counts roughly the hour before that, and Expires is when the next one
+// is due. Filing a snapshot under the hour it was FETCHED in labelled most hours
+// wrong -- data for 08:15-09:15 fetched at 10:05 landed in the 10:00 bucket.
+// Instead it goes in the hour holding most of its window: the one containing
+// the window's midpoint, half an hour before the cut.
+export function snapshotHour(lastModifiedMs: number): number {
+  return hourFloor(lastModifiedMs - HOUR_MS / 2);
+}
+
+function headerMs(res: Response, name: string): number | null {
+  const v = res.headers.get(name);
+  const ms = v ? Date.parse(v) : NaN;
+  return Number.isFinite(ms) ? ms : null;
+}
+
 async function fetchEsi(): Promise<EsiSnapshot | null> {
   const now = Date.now();
-  if (esiCache && now - esiCache.fetchedAt < ESI_CACHE_TTL) return esiCache;
+  if (esiCache && now < Math.max(esiCache.expiresAt, esiCache.fetchedAt + MIN_CACHE_MS)) return esiCache;
   // Promise-cached so concurrent callers share one fetch (the old boolean
   // soft-lock raced — two callers could both see fetching=false).
   if (fetching) return fetching;
+  // At most one attempt a minute, whatever happened last time.
+  if (now - lastAttemptAt < MIN_CACHE_MS) return esiCache;
 
+  lastAttemptAt = now;
   fetching = (async () => {
     try {
       const [jRes, kRes] = await Promise.all([
@@ -64,10 +98,16 @@ async function fetchEsi(): Promise<EsiSnapshot | null> {
         kRes.json() as Promise<EsiKill[]>,
       ]);
 
+      // Both endpoints are cut together; the kills one names the hour. Refresh
+      // when the later of the two is due, so neither is read stale.
+      const cutAt   = headerMs(kRes, 'last-modified') ?? headerMs(jRes, 'last-modified') ?? now;
+      const expires = Math.max(headerMs(kRes, 'expires') ?? 0, headerMs(jRes, 'expires') ?? 0);
       esiCache = {
         jumps:     new Map(jumps.map((j) => [j.system_id, j.ship_jumps])),
         kills:     new Map(kills.map((k) => [k.system_id, k])),
         fetchedAt: now,
+        hour:      snapshotHour(cutAt),
+        expiresAt: expires > 0 ? expires : now + ESI_CACHE_TTL,
       };
       return esiCache;
     } catch {
@@ -109,7 +149,7 @@ async function recordSnapshot(): Promise<void> {
   const snap = await fetchEsi();
   if (!snap) return;
 
-  const hour     = hourFloor();
+  const hour     = snap.hour;
   const hourDate = new Date(hour);
 
   // Union of every system that appears in either ESI snapshot — these are
@@ -142,8 +182,11 @@ async function recordSnapshot(): Promise<void> {
     };
     const history = systemHistory.get(sysId);
     if (history) {
-      if (history.length > 0 && history[history.length - 1].hour === hour) {
+      const last = history[history.length - 1];
+      if (last && last.hour === hour) {
         history[history.length - 1] = point;
+      } else if (last && last.hour > hour) {
+        // An older snapshot than one we already hold -- nothing to add.
       } else {
         history.push(point);
         if (history.length > MAX_HISTORY) history.shift();
@@ -193,12 +236,31 @@ async function pruneOldRows(): Promise<void> {
 // fire-on-import pattern would swallow a "relation does not exist" error and
 // then race writes against the migration on cold start.
 //
-// On boot we immediately call recordSnapshot() so the current hour's data
-// is captured (or refreshed via ON CONFLICT if a row already exists from
-// a previous server lifetime). Then a 61-minute interval keeps us
-// comfortably past CCP's 60-minute cache TTL on every subsequent poll,
-// so we never refetch the same hourly aggregate twice in a row.
-const POLL_MS = 61 * 60 * 1000;
+// On boot we immediately call recordSnapshot() so the latest snapshot is
+// captured (or refreshed via ON CONFLICT if a row already exists from a
+// previous server lifetime). After that each poll is timed off the snapshot's
+// own Expires, plus a short margin for ESI's cache to turn over, so a new
+// snapshot is picked up within a minute or so of CCP publishing it. A fixed
+// 61-minute interval drifted against CCP's cycle: the lag wandered between 0
+// and 60 minutes and, a minute later every hour, it skipped a snapshot outright
+// about every 60 hours.
+const POLL_MARGIN_MS = 30 * 1000;
+const POLL_MAX_MS    = 65 * 60 * 1000;
+
+/** Delay until the next poll, given when ESI says the next snapshot is due. */
+export function nextPollDelay(expiresAt: number | null, now = Date.now()): number {
+  if (expiresAt == null) return ESI_CACHE_TTL; // no snapshot yet (ESI down): retry soon
+  return Math.min(POLL_MAX_MS, Math.max(MIN_CACHE_MS, expiresAt - now + POLL_MARGIN_MS));
+}
+
+function schedulePoll(): void {
+  const t = setTimeout(async () => {
+    try { await recordSnapshot(); }
+    catch (err) { console.error('[activity] poll failed:', err); }
+    schedulePoll();
+  }, nextPollDelay(esiCache?.expiresAt ?? null));
+  t.unref?.();
+}
 
 export async function initActivity(): Promise<void> {
   await pruneOldRows();
@@ -208,10 +270,21 @@ export async function initActivity(): Promise<void> {
   try { await recordSnapshot(); }
   catch (err) { console.error('[activity] boot snapshot failed:', err); }
 
-  setInterval(() => {
-    recordSnapshot().catch((err) => console.error('[activity] poll failed:', err));
-  }, POLL_MS);
+  schedulePoll();
 }
+
+// Player kills in the system by UTC hour of day over the last 90 days, from the
+// live kill feed: the system panel's "when is it busy" forecast. Kill data is
+// public (zKillboard), so like the rest of this router it needs a login or a
+// share link but no particular map's access.
+router.get('/pvp/:systemId(\\d+)', async (req, res) => {
+  const eveSystemId = Number(req.params.systemId);
+  if (!Number.isInteger(eveSystemId) || eveSystemId <= 0 || eveSystemId > 2_147_483_647) {
+    res.status(400).json({ error: 'invalid system id' });
+    return;
+  }
+  res.json(await getPvpForecast(eveSystemId));
+});
 
 router.get('/:systemId(\\d+)', async (req, res) => {
   const eveSystemId = parseInt(req.params.systemId, 10);
@@ -227,6 +300,33 @@ router.get('/:systemId(\\d+)', async (req, res) => {
   res.json(systemHistory.get(eveSystemId) ?? []);
 });
 
+// Player kills per system over the last 24 hours, for the count on each map
+// node. Two sources, taking the higher per system rather than adding them
+// (they count the same kills): our own live-feed history covers wormhole space
+// and is up to the minute; CCP's hourly snapshots cover k-space for hours
+// before our feed was running. Cluster-wide, so cached briefly and shared.
+let kills24hCache: { at: number; value: Map<number, number> } | null = null;
+async function kills24h(): Promise<Map<number, number>> {
+  if (kills24hCache && Date.now() - kills24hCache.at < 60_000) return kills24hCache.value;
+  const out = new Map<number, number>();
+  try {
+    const [ours, ccp] = await Promise.all([
+      db.query<{ id: number; n: number }>(
+        `SELECT eve_system_id AS id, SUM(kills)::int AS n FROM system_pvp_hours
+          WHERE hour >= date_trunc('hour', NOW()) - interval '23 hours' GROUP BY 1`),
+      db.query<{ id: number; n: number }>(
+        `SELECT eve_system_id AS id, SUM(ship_kills + pod_kills)::int AS n FROM system_activity
+          WHERE hour >= NOW() - interval '24 hours' GROUP BY 1`),
+    ]);
+    for (const r of [...ours.rows, ...ccp.rows]) if (r.n > (out.get(r.id) ?? 0)) out.set(r.id, r.n);
+  } catch (err) {
+    console.error('[activity] 24h kill counts failed:', err);
+    return kills24hCache?.value ?? out;
+  }
+  kills24hCache = { at: Date.now(), value: out };
+  return out;
+}
+
 // Snapshot of the current ESI kills cache, used to highlight "hot" systems on
 // the map. One ESI call covers the whole cluster, already cached for 5 min by
 // fetchEsi(), so this endpoint adds no extra upstream load.
@@ -236,7 +336,7 @@ router.get('/current-kills', async (_req, res) => {
   // system's full metric set (ship/pod/npc kills + jumps) in one payload —
   // feeds the activity heatmaps. Jumps is a separate ESI map and covers
   // different systems (e.g. a quiet system with jumps but no kills).
-  type Row = { systemId: number; shipKills: number; podKills: number; npcKills: number; jumps: number };
+  type Row = { systemId: number; shipKills: number; podKills: number; npcKills: number; jumps: number; kills24h: number };
   const bySys = new Map<number, Row>();
   if (snap) {
     const ids = new Set<number>([...snap.kills.keys(), ...snap.jumps.keys()]);
@@ -248,6 +348,7 @@ router.get('/current-kills', async (_req, res) => {
         podKills:  k?.pod_kills ?? 0,
         npcKills:  k?.npc_kills ?? 0,
         jumps:     snap.jumps.get(id) ?? 0,
+        kills24h:  0,
       });
     }
   }
@@ -258,12 +359,19 @@ router.get('/current-kills', async (_req, res) => {
   // recently fall back to ESI; when the feed is disabled this is a no-op and the
   // heatmap is pure ESI as before.
   for (const [systemId, c] of liveKillCounts(config.killFeed.heatWindowSeconds * 1_000)) {
-    const row = bySys.get(systemId) ?? { systemId, shipKills: 0, podKills: 0, npcKills: 0, jumps: 0 };
+    const row = bySys.get(systemId) ?? { systemId, shipKills: 0, podKills: 0, npcKills: 0, jumps: 0, kills24h: 0 };
     row.shipKills = c.shipKills;
     row.podKills  = c.podKills;
     row.npcKills  = c.npcKills;
     bySys.set(systemId, row);
   }
+  for (const [systemId, n] of await kills24h()) {
+    const row = bySys.get(systemId) ?? { systemId, shipKills: 0, podKills: 0, npcKills: 0, jumps: 0, kills24h: 0 };
+    row.kills24h = n;
+    bySys.set(systemId, row);
+  }
+  // Never less than this hour's own count.
+  for (const row of bySys.values()) row.kills24h = Math.max(row.kills24h, row.shipKills + row.podKills);
   res.json([...bySys.values()]);
 });
 

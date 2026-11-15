@@ -10,6 +10,8 @@ import { refreshStandingsForUser } from '../services/standings.js';
 import { syncCorpStructures } from '../services/structureSync.js';
 import { isLoginPermitted, standingsPermitLogin } from '../services/accessGrants.js';
 import { seedDemoMap } from '../services/demoMap.js';
+import { settingsSiblings, shareableEntries, setShareSettings } from '../services/sharedSettings.js';
+import { publishToUsers } from '../services/userEvents.js';
 import { applyPrefsToNewUser, orgScopeFor, readDefaults, resolveReadScope } from '../services/uiDefaults.js';
 
 const log = createLogger('auth');
@@ -563,6 +565,15 @@ authRouter.post('/remove-character', async (req, res) => {
   res.json({ ok: true });
 });
 
+// GET /auth/org -- public. Which corps / alliances this deployment is run for,
+// so the landing page can show their logos above the login button. IDs only:
+// they're public in EVE, and returning them grants nothing (login is still
+// checked against the character's live affiliation). Empty on an open
+// deployment, which shows no logos.
+authRouter.get('/org', (_req, res) => {
+  res.json({ corpIds: config.corpIds, allianceIds: config.allianceIds });
+});
+
 // GET /auth/me
 authRouter.get('/me', async (req, res) => {
   if (!req.session.userId) {
@@ -570,13 +581,16 @@ authRouter.get('/me', async (req, res) => {
     return;
   }
 
-  // Hot path: prefs cached in session by login / PATCH. Only fall back to the
-  // DB for pre-existing sessions that predate this caching change.
+  // Prefs are read from the DB every time rather than from the session copy:
+  // with shared settings another character (another session) can change them,
+  // and the session copy would never hear about it. One primary-key read.
   let prefs = req.session.prefs;
   let role  = req.session.role ?? 'readonly';
-  if (!prefs) {
-    const { rows } = await db.query<{ compact_mode: boolean; snap_to_grid: boolean; show_minimap: boolean; uniform_size: boolean; show_statics: boolean; easy_connect: boolean; connection_thickness: string; route_mode: string; ui_zoom: string; ui_settings: Record<string, unknown>; panel_order: string[]; role: string }>(
-      `SELECT compact_mode, snap_to_grid, show_minimap, uniform_size, show_statics, easy_connect, connection_thickness, route_mode, ui_zoom, ui_settings, panel_order, role FROM users WHERE id = $1`,
+  let shareSettings = false;
+  {
+    const { rows } = await db.query<{ compact_mode: boolean; snap_to_grid: boolean; show_minimap: boolean; uniform_size: boolean; show_statics: boolean; easy_connect: boolean; connection_thickness: string; route_mode: string; ui_zoom: string; ui_settings: Record<string, unknown>; panel_order: string[]; role: string; share_settings: boolean | null }>(
+      `SELECT u.compact_mode, u.snap_to_grid, u.show_minimap, u.uniform_size, u.show_statics, u.easy_connect, u.connection_thickness, u.route_mode, u.ui_zoom, u.ui_settings, u.panel_order, u.role, o.share_settings
+         FROM users u LEFT JOIN owners o ON o.id = u.owner_id WHERE u.id = $1`,
       [req.session.userId],
     );
     const row = rows[0];
@@ -593,9 +607,12 @@ authRouter.get('/me', async (req, res) => {
       uiSettings:  row?.ui_settings ?? {},
       panelOrder:  row?.panel_order  ?? ['notes', 'signatures'],
     };
-    role = (row?.role as 'alliance_admin' | 'admin' | 'full' | 'edit' | 'contributor' | 'readonly') ?? 'readonly';
+    shareSettings = row?.share_settings ?? false;
+    if (!req.session.role) {
+      role = (row?.role as 'alliance_admin' | 'admin' | 'full' | 'edit' | 'contributor' | 'readonly') ?? 'readonly';
+      req.session.role = role;
+    }
     req.session.prefs = prefs;
-    req.session.role  = role;
   }
 
   // Last known system is dynamic (updated as the pilot jumps), so it's read
@@ -659,6 +676,8 @@ authRouter.get('/me', async (req, res) => {
       role,
       ownerId,
       characters,
+      // The account's characters share one set of settings.
+      shareSettings,
       lastKnownSystem,
       corpMode:      config.corpMode,
       allianceMode:  config.allianceMode,
@@ -729,9 +748,31 @@ authRouter.patch('/preferences', async (req, res) => {
   if (!sets.length) { res.status(400).json({ error: 'Nothing to update' }); return; }
 
   await db.query(
-    `UPDATE users SET ${sets.join(', ')}, updated_at = NOW() WHERE id = $${vals.length + 1}`,
+    `UPDATE users SET ${sets.join(', ')}, updated_at = NOW(), settings_updated_at = NOW() WHERE id = $${vals.length + 1}`,
     [...vals, req.session.userId],
   );
+  // Shared settings: the same change on every linked character, then pushed to
+  // their open tabs (and this character's other tabs and devices).
+  const siblings = await settingsSiblings(req.session.userId);
+  if (siblings.length) {
+    await db.query(
+      `UPDATE users SET ${sets.join(', ')}, updated_at = NOW() WHERE id = ANY($${vals.length + 1}::int[])`,
+      [...vals, siblings],
+    );
+  }
+  const applied: Record<string, unknown> = {};
+  if (typeof compactMode === 'boolean') applied.compactMode = compactMode;
+  if (typeof snapToGrid  === 'boolean') applied.snapToGrid  = snapToGrid;
+  if (typeof showMinimap === 'boolean') applied.showMinimap = showMinimap;
+  if (typeof uniformSize === 'boolean') applied.uniformSize = uniformSize;
+  if (typeof showStatics === 'boolean') applied.showStatics = showStatics;
+  if (typeof easyConnect === 'boolean') applied.easyConnect = easyConnect;
+  if (typeof connectionThickness === 'string' && VALID_THICKNESS.has(connectionThickness)) applied.connectionThickness = connectionThickness;
+  if (typeof routeMode === 'string' && VALID_ROUTE_MODE.has(routeMode)) applied.routeMode = routeMode;
+  if (typeof uiZoom === 'number' && Number.isFinite(uiZoom)) applied.uiZoom = Math.min(1.5, Math.max(0.8, uiZoom));
+  if (Array.isArray(panelOrder)) applied.panelOrder = panelOrder;
+  publishToUsers([req.session.userId, ...siblings],
+    { type: 'prefs.changed', prefs: applied, actor: req.get('x-client-id') ?? null });
 
   // Keep the session cache in sync so the next /auth/me reflects the change
   // without going back to the DB.
@@ -772,7 +813,11 @@ const SETTINGS_ALLOWLIST = new Set<string>([
   'nexum.activity.combined',
   'nexum.closestSystems.hiddenHome',
   'nexum.closestSystems.list',
+  'nexum.closestSystems.allMaps',
   'nexum.killboardIncludeNpc',
+  'nexum.killboard.window',
+  'nexum.killboard.scope',
+  'nexum.timeZone',
   'nexum.mapSidebar.connections',
   'nexum.mapSidebar.export',
   'nexum.mapSidebar.mapOptions',
@@ -783,6 +828,7 @@ const SETTINGS_ALLOWLIST = new Set<string>([
   'nexum.route.includeTurnur',
   'nexum.route.includeWormholes',
   'nexum.route.includeAnsiblex',
+  'nexum.route.avoid',
   'nexum.mapSidebar.stale',
   'nexum.mapSidebar.systemOptions',
   'nexum.panel.collapsed.a0',
@@ -813,6 +859,8 @@ const SETTINGS_ALLOWLIST = new Set<string>([
   'nexum.watchlist.panelOpen',
   'nexum.sig.bookmarkFormat',
   'nexum.sig.siteBookmarkFormat',
+  'nexum.sig.k162BookmarkFormat',
+  'nexum.sig.copyBookmarkOnJump',
   'nexum.sigPane.overwriteOnPaste',
   'nexum.sigPane.overwriteDelay',
   'nexum.anomPane.overwriteOnPaste',
@@ -847,6 +895,11 @@ const SETTINGS_ALLOWLIST = new Set<string>([
   // how the announcer keys above got lost too, and how the presence bug below
   // survived.
   'nexum.a11y.colorVision',
+  'nexum.map.homeColor',
+  'nexum.map.hereColor',
+  'nexum.map.herePulse',
+  'nexum.map.linkSigIds',
+  'nexum.map.confirmKeyDelete',
   'nexum.ui.density',
   'nexum.toolbar.order',
   'nexum.minimap.position',
@@ -862,6 +915,7 @@ const SETTINGS_ALLOWLIST = new Set<string>([
   'nexum.floatingPanelsLast',
   'nexum.sigPane.hiddenCols',
   'nexum.sigPane.colWidths',
+  'nexum.sigPane.typeIcons',
   'nexum.anomPane.hiddenCols',
   'nexum.anomPane.colWidths',
   'nexum.watchlist.collapsedGroups',
@@ -877,6 +931,7 @@ const SETTINGS_ALLOWLIST = new Set<string>([
   'nexum.map.centerOnSelect',
   'nexum.map.invertZoom',
   'nexum.map.showUndivedWh',
+  'nexum.map.showRegionBorders',
   'nexum.tracking.skipKspace',
   'nexum.skipDeleteConfirm',
   'nexum.roller',
@@ -928,6 +983,11 @@ export function settingAllowed(key: string): boolean {
 //   proximityOptInAsked                one-shot prompts, per-device
 //   nexum.lang                         owned by the i18next language detector
 
+// Generous by design: a real account carries well under a hundred keys and a
+// few KB. These exist to stop unbounded growth, not to ration normal use.
+const MAX_SETTING_KEYS  = 500;
+const MAX_SETTINGS_BYTES = 256 * 1024;
+
 authRouter.patch('/settings', async (req, res) => {
   if (!req.session.userId) { res.status(401).json({ error: 'Not authenticated' }); return; }
   const body = req.body as { entries?: Record<string, unknown> };
@@ -944,14 +1004,77 @@ authRouter.patch('/settings', async (req, res) => {
     res.json({ ok: true, applied: 0 });
     return;
   }
-  await db.query(
-    `UPDATE users SET ui_settings = ui_settings || $1::jsonb, updated_at = NOW() WHERE id = $2`,
-    [JSON.stringify(filtered), req.session.userId],
+  // Caps on the stored blob. Two of the allowed PREFIXES match any suffix, so
+  // without a limit a signed-in account can grow its own ui_settings without
+  // bound — and ui_settings is read on every session hydrate, so the cost of a
+  // bloated row lands on every page load.
+  //
+  // Checked on the POST-MERGE value inside the UPDATE rather than in JS first:
+  // two concurrent PATCHes would each pass a read-then-write check and both
+  // write. Testing the merged result also means changing a key you already
+  // have always succeeds (the count does not grow), and shrinking a value
+  // always succeeds, so the cap restricts growth rather than locking the
+  // account out of its own settings.
+  const capped = await db.query(
+    `UPDATE users
+        SET ui_settings = ui_settings || $1::jsonb, updated_at = NOW(), settings_updated_at = NOW()
+      WHERE id = $2
+        AND (SELECT count(*) FROM jsonb_object_keys(ui_settings || $1::jsonb)) <= $3
+        AND length((ui_settings || $1::jsonb)::text) <= $4
+      RETURNING 1`,
+    [JSON.stringify(filtered), req.session.userId, MAX_SETTING_KEYS, MAX_SETTINGS_BYTES],
   );
+  if (capped.rowCount === 0) {
+    // Nothing was written. Say so plainly rather than reporting success, or
+    // the client keeps a value the server does not have.
+    res.status(413).json({
+      error: 'settings_too_large',
+      message: `Settings are limited to ${MAX_SETTING_KEYS} keys and ${Math.floor(MAX_SETTINGS_BYTES / 1024)} KB.`,
+    });
+    return;
+  }
   // Keep the session cache in sync so /auth/me on the same session sees
   // the same data without a DB round-trip.
   if (req.session.prefs) {
     req.session.prefs.uiSettings = { ...(req.session.prefs.uiSettings ?? {}), ...filtered };
   }
+  // Shared settings: copy to every linked character (jump skills excepted),
+  // under the same caps -- a sibling already at the cap just misses the change.
+  // Then push to the open tabs: all of it to this character's other tabs, the
+  // shared part to the siblings'.
+  const actor = req.get('x-client-id') ?? null;
+  const siblings = await settingsSiblings(req.session.userId);
+  const shared = shareableEntries(filtered);
+  if (siblings.length && Object.keys(shared).length) {
+    await db.query(
+      `UPDATE users
+          SET ui_settings = ui_settings || $1::jsonb, updated_at = NOW()
+        WHERE id = ANY($2::int[])
+          AND (SELECT count(*) FROM jsonb_object_keys(ui_settings || $1::jsonb)) <= $3
+          AND length((ui_settings || $1::jsonb)::text) <= $4`,
+      [JSON.stringify(shared), siblings, MAX_SETTING_KEYS, MAX_SETTINGS_BYTES],
+    );
+    publishToUsers(siblings, { type: 'settings.changed', entries: shared, actor });
+  }
+  publishToUsers([req.session.userId], { type: 'settings.changed', entries: filtered, actor });
   res.json({ ok: true, applied: Object.keys(filtered).length });
+});
+
+// PUT /auth/share-settings -- turn shared settings on or off for the signed-in
+// account. Turning it on starts every linked character from the most recently
+// changed settings; every open tab of the account then reloads its settings.
+authRouter.put('/share-settings', async (req, res) => {
+  if (!req.session.userId) { res.status(401).json({ error: 'Not authenticated' }); return; }
+  const { enabled } = req.body as { enabled?: unknown };
+  if (typeof enabled !== 'boolean') { res.status(400).json({ error: 'enabled must be a boolean' }); return; }
+  const ownerId = await ensureOwnerId(req);
+  if (ownerId == null) { res.status(401).json({ error: 'Not authenticated' }); return; }
+  try {
+    const ids = await setShareSettings(ownerId, enabled);
+    if (enabled) publishToUsers(ids, { type: 'settings.resync', actor: req.get('x-client-id') ?? null });
+    res.json({ ok: true, enabled });
+  } catch (err) {
+    log.error('share-settings failed:', err);
+    res.status(500).json({ error: 'Failed to update' });
+  }
 });

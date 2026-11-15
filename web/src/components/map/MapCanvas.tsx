@@ -29,14 +29,16 @@ import { AddSystemModal } from '../ui/AddSystemModal';
 import { ContextMenu } from '../ui/ContextMenu';
 import type { ContextMenuItem } from '../ui/ContextMenu';
 import { ConfirmModal } from '../ui/ConfirmModal';
+import { MapKey } from './MapKey';
 import { shouldSkipConfirm } from '../../utils/confirmPref';
 import { systemDisplayName } from '../../utils/systemName';
 import {
   PathIcon, MapPinSimpleIcon, HouseIcon, LockIcon, LockOpenIcon,
-  XIcon, CheckIcon, PlusIcon, SelectionAllIcon, EyeIcon, CrosshairSimpleIcon,
+  XIcon, CheckIcon, PlusIcon, SelectionAllIcon, EyeIcon, CrosshairSimpleIcon, QuestionIcon,
   LinkSimpleIcon, LinkBreakIcon, ArrowsOutIcon, BookmarkSimpleIcon, TextAaIcon, TrashIcon,
   HashIcon, ProhibitIcon, BroomIcon,
   CopyIcon,
+  UsersThreeIcon,
 } from '../../icons';
 import { PREDEFINED_LABELS } from '../../data/labels';
 
@@ -58,6 +60,8 @@ import { isDefiniteWormholeHop, prefetchStargateNeighbors } from '../../utils/st
 import { api } from '../../api/client';
 import { truesecColor } from '../../utils/truesec';
 import { readUserSetting } from '../../hooks/useUserSetting';
+import { linkEndSigs, LINK_SIG_IDS_KEY } from '../../utils/linkSigIds';
+import { CONFIRM_KEY_DELETE_KEY } from '../../utils/confirmPref';
 import { findFreePosition, normalizePlacement, PLACEMENT_GAP } from '../../hooks/useLocationTracking';
 import { CLASS_COLORS } from '../../data/wormholes';
 import { cssVarToHex } from '../../utils/cssVar';
@@ -65,6 +69,9 @@ import { useJumpRangeStore } from '../../store/jumpRangeStore';
 import { useGateJumps } from '../../hooks/useGateJumps';
 import { pickHandles } from './edgeUtils';
 import { setDestination, addWaypoint } from '../../api/waypoint';
+import { SendToCharactersModal } from '../ui/SendToCharactersModal';
+import { useSendToStore } from '../../store/sendToStore';
+import { usePresenceStore } from '../../store/presenceStore';
 import { toast } from '../../utils/toastStore';
 import i18n from '../../i18n';
 import { useCustomIntel } from '../../hooks/useCustomIntel';
@@ -72,7 +79,7 @@ import { useUserSetting } from '../../hooks/useUserSetting';
 import { useCurrentHourKills } from '../../hooks/useCurrentHourKills';
 import { useFleet } from '../../hooks/useFleet';
 import { HeatmapContext } from '../../context/HeatmapContext';
-import { heatValue, type HeatMetric } from '../../utils/heatmap';
+import { heatValue, heatScale, type HeatMetric } from '../../utils/heatmap';
 import { resolveIntelColor } from '../../utils/intelColors';
 
 // Modifier keys that add a system to the current selection on click, alongside
@@ -96,6 +103,8 @@ const NODE_TYPES = { system: SystemNode };
 const VIEWPORT_HOLD_FRAMES = 32;
 const MIN_ZOOM = 0.2;
 const MAX_ZOOM = 2;
+// Pointer travel (px) between press and release that still counts as a click.
+const NODE_CLICK_DISTANCE = 5;
 
 function resolveOverlaps(
   items: Array<{ id: string; x: number; y: number; w: number; h: number; locked: boolean }>,
@@ -154,6 +163,9 @@ function systemToNode(sys: MapSystem, selectedId: string | null, easyConnect = f
   };
 }
 
+// Diameter of the snap-grid dots (Settings > Grid style: Dots).
+const SNAP_DOT_SIZE = 1.4;
+
 export function MapCanvas() {
   const { t } = useTranslation();
   const whTypes = useWormholeTypes();
@@ -175,6 +187,10 @@ export function MapCanvas() {
   const activeMapId          = useMapStore((s) => s.activeMapId);
   const routeHighlight       = useMapStore((s) => s.routeHighlight);
   const snapToGrid           = useMapStore((s) => s.snapToGrid);
+  // Snap's grid drawn as lines (default) or dots on the snap points (Settings).
+  const [snapGridStyle]      = useUserSetting<'lines' | 'dots'>('nexum.snapGridStyle', 'lines');
+  const gridLines            = snapToGrid && snapGridStyle !== 'dots';
+  const gridDots             = snapToGrid && !gridLines;
   const showMinimap          = useMapStore((s) => s.showMinimap);
   const [minimapPosition]    = useMinimapPosition();
   // React Flow's <Controls> usually sits bottom-left. When the user docks
@@ -188,6 +204,8 @@ export function MapCanvas() {
   const mapOptionsOpen       = useMapStore((s) => s.mapOptionsOpen);
   const edgeStyle            = useMapStore((s) => s.edgeStyle);
   const connectionThickness  = useMapStore((s) => s.connectionThickness);
+  const whSigsBySystem       = useMapStore((s) => s.whSigsBySystem);
+  const [linkSigIds]         = useUserSetting<boolean>(LINK_SIG_IDS_KEY, true);
   const addConnection        = useMapStore((s) => s.addConnection);
   const addSystem            = useMapStore((s) => s.addSystem);
   const moveSystem           = useMapStore((s) => s.moveSystem);
@@ -215,7 +233,10 @@ export function MapCanvas() {
   const setRouteOrigin       = useMapStore((s) => s.setRouteOrigin);
   const requestCenterOnEveSystem = useMapStore((s) => s.requestCenterOnEveSystem);
   const accountLocations     = useAccountLocations();
-  const pushUndo             = useMapStore((s) => s.pushUndo);
+  // Who's viewing this map and where — read by the bulk-remove sweeps so they
+  // never delete a system someone is sitting in.
+  const presenceBySystem     = usePresenceStore((s) => s.bySystem);
+  const pushUndo            = useMapStore((s) => s.pushUndo);
   const canEdit              = useCanEdit();
   const { screenToFlowPosition, setViewport, getViewport, getNode, getNodes, getZoom, fitView } = useReactFlow();
   // Invert mouse-wheel / trackpad zoom (per-user, cross-device). Off by default.
@@ -230,8 +251,9 @@ export function MapCanvas() {
   // re-resolves class colours when the colour-vision mode changes.
   const [colorVision] = useUserSetting<string>('nexum.a11y.colorVision', 'off');
 
-  // Active heatmap. The per-map max is computed once here and shared via
-  // HeatmapContext so each node only divides its own value by it.
+  // Active heatmap. The per-map max (never below the metric's floor) is
+  // computed once here and shared via HeatmapContext so each node only divides
+  // its own value by it.
   const [heatMetric]    = useUserSetting<HeatMetric>('nexum.map.heatmap', 'none');
   const [heatIntensity] = useUserSetting<number>('nexum.map.heatIntensity', 1);
   const heatKills    = useCurrentHourKills();
@@ -244,7 +266,7 @@ export function MapCanvas() {
       const v = heatValue(heatMetric, s.eveSystemId, heatKills, heatFleet, selfCharId);
       if (v > max) max = v;
     }
-    return max;
+    return heatScale(heatMetric, max);
   }, [heatMetric, systems, heatKills, heatFleet, selfCharId]);
   const heatmapState = useMemo(
     () => ({ metric: heatMetric, max: heatMax, intensity: heatIntensity, colorVision }),
@@ -283,6 +305,9 @@ export function MapCanvas() {
   const setConnectSource = useMapStore((s) => s.setConnectSource);
   // Pending "remove orphan systems" sweep, held while the confirm modal is up.
   const [orphanConfirm, setOrphanConfirm]     = useState<{ ids: string[] } | null>(null);
+  // The connection key, opened from the zoom controls.
+  const [keyOpen, setKeyOpen]                 = useState(false);
+  const closeKey                              = useCallback(() => setKeyOpen(false), []);
   // Pending "remove systems with no route home" sweep, held while its confirm is up.
   const [strandedConfirm, setStrandedConfirm] = useState<{ ids: string[]; home: string } | null>(null);
   // Gate-adjacent systems per k-space eveSystemId, fetched lazily when a node's
@@ -385,9 +410,21 @@ export function MapCanvas() {
     [systems, removeSystem, setNodes, canEdit],
   );
 
+  // While the panel-resize viewport hold (below) is reasserting the old view, a
+  // centre would be overwritten on the next frame -- so park it here and let the
+  // hold run it as it ends. That's also the right moment: the canvas has taken
+  // its new size by then, so the node lands centred above the opened panel.
+  const viewportHoldActive = useRef(false);
+  const pendingCentre      = useRef<(() => void) | null>(null);
+
   const centerOnSystem = useCallback((systemId: string, zoomOverride?: number) => {
     const node = getNode(systemId);
     if (!node) return false;
+
+    if (viewportHoldActive.current) {
+      pendingCentre.current = () => { centerOnSystem(systemId, zoomOverride); };
+      return true;
+    }
 
     const zoom   = zoomOverride ?? getZoom();
     const flowX  = node.position.x + (node.measured?.width  ?? 150) / 2;
@@ -489,6 +526,9 @@ export function MapCanvas() {
   // Preserve rubber-band selection when Shift is released before the mouse button.
   // React Flow clears the selection on Shift keyup, so we capture it just before.
   const shiftHeld        = useRef(false);
+  // Delete / Backspace removals waiting on the confirm, and whether to ask.
+  const [keyDeleteConfirm, setKeyDeleteConfirm] = useState<{ ids: string[]; name: string | null } | null>(null);
+  const [confirmKeyDelete, setConfirmKeyDelete] = useUserSetting<boolean>(CONFIRM_KEY_DELETE_KEY, true);
   const pendingSelection = useRef<string[]>([]);
 
   useEffect(() => {
@@ -513,23 +553,24 @@ export function MapCanvas() {
       if (e.key === 'Delete' || e.key === 'Backspace') {
         const target = e.target as HTMLElement;
         if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) return;
-        if (!canEdit) return;
+        if (!canEdit || keyDeleteConfirm) return;
 
-        // Multi-select: remove all RF-selected non-locked nodes
-        const rfSelected = nodes.filter((n) => n.selected);
-        if (rfSelected.length > 0) {
-          rfSelected.forEach((n) => {
-            const sys = systems.find((s) => s.id === n.id);
-            if (!sys?.locked) removeSystem(n.id);
-          });
-          return;
-        }
+        // Multi-select: every RF-selected node; else the single-click
+        // selection (panel open). Locked systems are never removed.
+        const rfSelected = nodes.filter((n) => n.selected).map((n) => n.id);
+        const picked = rfSelected.length > 0 ? rfSelected : selectedSystemId ? [selectedSystemId] : [];
+        const ids = picked.filter((id) => {
+          const sys = systems.find((s) => s.id === id);
+          return !!sys && !sys.locked;
+        });
+        if (ids.length === 0) return;
 
-        // Single-click selected (panel open)
-        if (selectedSystemId) {
-          const sys = systems.find((s) => s.id === selectedSystemId);
-          if (sys && !sys.locked) removeSystem(selectedSystemId);
-        }
+        // A stray Delete or Backspace is easy to hit, so ask first unless the
+        // user has said not to.
+        if (!confirmKeyDelete) { ids.forEach((id) => removeSystem(id)); return; }
+        const only = ids.length === 1 ? systems.find((s) => s.id === ids[0]) : undefined;
+        setKeyDeleteConfirm({ ids, name: only ? systemDisplayName(only) : null });
+        return;
       }
 
       if (e.key === 'h' || e.key === 'H') {
@@ -562,7 +603,7 @@ export function MapCanvas() {
       window.removeEventListener('keyup',   onKeyUp);
       window.removeEventListener('blur',    onBlur);
     };
-  }, [nodes, selectedSystemId, systems, removeSystem, undo, setNodes, canEdit, centerOnSystem]);
+  }, [nodes, selectedSystemId, systems, removeSystem, undo, setNodes, canEdit, centerOnSystem, confirmKeyDelete, keyDeleteConfirm]);
 
   const onSelectionChange = useCallback(({ nodes: sel }: { nodes: Node[] }) => {
     if (shiftHeld.current && sel.length > 0) pendingSelection.current = sel.map((n) => n.id);
@@ -752,11 +793,20 @@ export function MapCanvas() {
 
     const held = getViewport();
     let frames = 0;
+    viewportHoldActive.current = true;
     let raf = requestAnimationFrame(function hold() {
       setViewport(held);
-      if (++frames < VIEWPORT_HOLD_FRAMES) raf = requestAnimationFrame(hold);
+      if (++frames < VIEWPORT_HOLD_FRAMES) { raf = requestAnimationFrame(hold); return; }
+      viewportHoldActive.current = false;
+      const centre = pendingCentre.current;
+      pendingCentre.current = null;
+      centre?.();
     });
-    return () => cancelAnimationFrame(raf);
+    return () => {
+      cancelAnimationFrame(raf);
+      // A newer selection re-arms the hold and inherits any parked centre.
+      viewportHoldActive.current = false;
+    };
   }, [panelKey, activeMapId, getViewport, setViewport]);
 
   // Sweep expired EOL connections every minute. A connection is considered
@@ -812,6 +862,17 @@ export function MapCanvas() {
     [canEdit, connections, systems],
   );
 
+  // System names for the link sig IDs, rebuilt only when a name changes rather
+  // than on every drag frame, which would re-render every edge.
+  const namesKey = systems.map((x) => `${x.id}:${x.name}`).join('|');
+  const systemNames = useMemo(
+    () => new Map(namesKey ? namesKey.split('|').map((e) => {
+      const i = e.indexOf(':');
+      return [e.slice(0, i), { name: e.slice(i + 1) }] as const;
+    }) : []),
+    [namesKey],
+  );
+
   // Base edges — everything EXCEPT the mouse-hover highlight. Kept off the
   // hover state so moving the mouse across nodes doesn't rebuild all E edge
   // objects (which would re-render every ConnectionEdge). `highlighted` here
@@ -849,12 +910,13 @@ export function MapCanvas() {
           data: {
             ...c, edgeStyle, connectionThickness, highlighted: inRoute, dimmed,
             parallelIndex: group.indexOf(c.id), parallelCount: group.length,
+            endSigs: linkSigIds ? linkEndSigs(c, systemNames, whSigsBySystem) : null,
           } as unknown as Record<string, unknown>,
           selected: c.id === selectedConnectionId,
         };
       });
     },
-    [connections, selectedConnectionId, edgeStyle, connectionThickness, dragHandles, routeHighlight],
+    [connections, systemNames, whSigsBySystem, linkSigIds, selectedConnectionId, edgeStyle, connectionThickness, dragHandles, routeHighlight],
   );
 
   // Layer the hover highlight on top of the base edges. Only edges touching the
@@ -1072,6 +1134,15 @@ export function MapCanvas() {
     setConnectSource(null);
   }, [setConnectSource]);
 
+  // "Send to characters…" sits under the waypoint items, only for an account
+  // with more than one character.
+  const hasAlts = accountLocations.byChar.size > 0;
+  const sendToItem = (eveSystemId: number, name: string) => (hasAlts ? [{
+    label: t('waypoint.sendTo'),
+    icon: <UsersThreeIcon size={16} weight="regular" color="#5a9af8" />,
+    action: () => useSendToStore.getState().open(eveSystemId, name),
+  }] : []);
+
   const ctxItems = (() => {
     if (!contextMenu) return [];
 
@@ -1094,6 +1165,7 @@ export function MapCanvas() {
             icon: <PathIcon size={16} weight="regular" color="#5a9af8" />,
             action: () => { addWaypoint(sys.eveSystemId!, sys.name).catch(() => {}); },
           },
+          ...sendToItem(sys.eveSystemId, sys.name),
           {
             label: t('ctxMenu.jumpRangeFrom'),
             icon: <MapPinSimpleIcon size={16} weight="regular" color="#b57bff" />,
@@ -1295,6 +1367,7 @@ export function MapCanvas() {
           icon: <PathIcon size={16} weight="regular" color="#5a9af8" />,
           action: () => { addWaypoint(sys.eveSystemId!, sys.name).catch(() => {}); },
         },
+        ...sendToItem(sys.eveSystemId, sys.name),
         {
           label: t('ctxMenu.jumpRangeFrom'),
           icon: <MapPinSimpleIcon size={16} weight="regular" color="#b57bff" />,
@@ -1613,31 +1686,33 @@ export function MapCanvas() {
       ];
     }
 
-    // Orphans: systems with no *valid* connection — either no connection at all,
-    // or only broken (quarantined) ones. Home and locked systems are protected.
-    const orphanIds = systems
-      .filter((s) =>
-        !s.isHome && !s.locked &&
-        !connections.some((c) => !c.broken && (c.sourceId === s.id || c.targetId === s.id)),
-      )
-      .map((s) => s.id);
+    // Systems a pilot is in: you, anyone else viewing this map, your alts and
+    // your fleet. Both sweeps skip them. A hole whose only link expired is
+    // still where you're sitting, and deleting it under you loses its sigs.
+    const occupied = (s: typeof systems[number]) =>
+      s.id === currentSystemId ||
+      (s.eveSystemId != null && (
+        !!presenceBySystem.get(s.eveSystemId)?.length ||
+        !!accountLocations.bySystem.get(s.eveSystemId)?.length ||
+        !!heatFleet.bySystem.get(s.eveSystemId)?.length
+      ));
 
-    // Systems with no route back to home — a branch left behind when a chain
-    // collapsed, rather than anything still reachable.
     const homeSystem = systems.find((s) => s.isHome) ?? null;
-    const strandedIds = (() => {
-      if (!homeSystem) return [];
-      // Broken links still count as links here. "Broken" means re-scout, not
-      // gone, and this is a bulk delete — keeping a system that turns out to be
-      // reachable is far cheaper than wiping a live chain over one flagged hop.
+
+    // Systems reachable from home, over live links only or over every link.
+    const reachFromHome = (includeBroken: boolean): Set<string> => {
+      const reached = new Set<string>();
+      if (!homeSystem) return reached;
       const adj = new Map<string, string[]>();
       const link = (a: string, b: string) => {
         const list = adj.get(a);
         if (list) list.push(b); else adj.set(a, [b]);
       };
-      for (const c of connections) { link(c.sourceId, c.targetId); link(c.targetId, c.sourceId); }
-
-      const reached = new Set<string>([homeSystem.id]);
+      for (const c of connections) {
+        if (c.broken && !includeBroken) continue;
+        link(c.sourceId, c.targetId); link(c.targetId, c.sourceId);
+      }
+      reached.add(homeSystem.id);
       const queue = [homeSystem.id];
       for (let i = 0; i < queue.length; i++) {
         for (const next of adj.get(queue[i]) ?? []) {
@@ -1646,10 +1721,33 @@ export function MapCanvas() {
           queue.push(next);
         }
       }
-      // Locked systems are protected, same as the orphan sweep — locking one is
-      // how you say "leave this alone".
-      return systems.filter((sys) => !reached.has(sys.id) && !sys.locked).map((sys) => sys.id);
-    })();
+      return reached;
+    };
+    const reachedLive = reachFromHome(false);
+    const reachedAny  = reachFromHome(true);
+
+    // Orphans: systems with no *valid* connection — none at all, or only
+    // broken (scissored) ones — and systems behind a scissor: home reaches
+    // them only through a broken link. Paste over home's sigs and the chain
+    // past the severed hole goes too, though its own links are still live
+    // because nobody has scanned out there. Home, locked and occupied systems
+    // are protected.
+    const orphanIds = systems
+      .filter((s) =>
+        !s.isHome && !s.locked && !occupied(s) && (
+          !connections.some((c) => !c.broken && (c.sourceId === s.id || c.targetId === s.id)) ||
+          (reachedAny.has(s.id) && !reachedLive.has(s.id))
+        ),
+      )
+      .map((s) => s.id);
+
+    // Systems with no route back to home at all, not even through a scissored
+    // link — a branch left behind once a collapsed chain's links were cleaned
+    // up. Locked and occupied systems are protected, same as the orphan sweep —
+    // locking one is how you say "leave this alone".
+    const strandedIds = homeSystem
+      ? systems.filter((sys) => !reachedAny.has(sys.id) && !sys.locked && !occupied(sys)).map((sys) => sys.id)
+      : [];
 
     return [
       {
@@ -1687,7 +1785,11 @@ export function MapCanvas() {
         disabled: orphanIds.length === 0,
       },
       {
-        label: t('ctxMenu.removeStranded', { count: strandedIds.length }),
+        // Without a home there's nothing to be cut off from; say so rather
+        // than a bare 0 that reads as "nothing to clean up".
+        label: homeSystem
+          ? t('ctxMenu.removeStranded', { count: strandedIds.length })
+          : t('ctxMenu.removeStrandedNoHome'),
         icon: <BroomIcon size={15} weight="regular" color="#e25a5a" />,
         action: () => {
           if (strandedIds.length === 0 || !homeSystem) return;
@@ -1705,6 +1807,13 @@ export function MapCanvas() {
   return (
     <HeatmapContext.Provider value={heatmapState}>
     <div className="map-canvas" ref={wrapperRef}>
+      {/* connectOnClick={false}: React Flow joins a source handle to a target
+          handle on CLICK by default. Easy Connect lays a full-node source
+          handle over every system so you can drag from anywhere on it, which
+          also turns "click one system, then click another" into a connection
+          -- silently linking two systems somebody was only trying to look at.
+          Connections are made by dragging, here and from the context menu's
+          "Connect to system", so the click route was only ever a surprise. */}
       <ReactFlow
         ariaLabelConfig={ariaLabelConfig}
         nodes={nodes}
@@ -1712,6 +1821,7 @@ export function MapCanvas() {
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
+        connectOnClick={false}
         onNodeDragStart={onNodeDragStart}
         onNodeDrag={onNodeDrag}
         onNodeDragStop={onNodeDragStop}
@@ -1731,6 +1841,11 @@ export function MapCanvas() {
         connectionMode={ConnectionMode.Loose}
         nodesConnectable={canEdit}
         nodesDraggable={canEdit}
+        // A draggable node's click (which is what selects the system) is
+        // swallowed if the pointer moves at all between press and release --
+        // React Flow's default allowance is 0px, so a twitch of the mouse or
+        // trackpad made clicks randomly do nothing. A few px of slack fixes it.
+        nodeClickDistance={NODE_CLICK_DISTANCE}
         // Selection BOX stays shift-only: dragging with Ctrl/Cmd held is a
         // pan or zoom gesture on most setups, so co-opting it would be worse
         // than leaving it. Only click-to-add gains the extra modifier.
@@ -1746,10 +1861,18 @@ export function MapCanvas() {
         deleteKeyCode={null}
       >
         <Background
-          variant={snapToGrid ? BackgroundVariant.Lines : BackgroundVariant.Dots}
+          variant={gridLines ? BackgroundVariant.Lines : BackgroundVariant.Dots}
           gap={snapToGrid ? 20 : 24}
-          size={snapToGrid ? 1 : 1}
-          color={snapToGrid ? '#1a2240' : '#1a2040'}
+          // Snap dots mark the snap points, so they need to read clearly; the
+          // plain background dots (snap off) stay faint.
+          size={gridDots ? SNAP_DOT_SIZE : 1}
+          // The default offset lines the Lines grid up with the snap points but
+          // leaves dots half a cell off them. React Flow shifts the pattern by
+          // the offset, falling back to half the gap when it's 0, and draws a dot
+          // `radius` in from its tile's corner. An offset of the radius puts the
+          // dot centres on the snap points.
+          offset={gridDots ? SNAP_DOT_SIZE / 2 : undefined}
+          color={snapToGrid ? (gridLines ? '#1a2240' : '#3a4a7a') : '#1a2040'}
         />
         <Controls position={controlsPosition}>
           <ControlButton
@@ -1759,6 +1882,14 @@ export function MapCanvas() {
             aria-label={t('mapControls.centerOnMe')}
           >
             <CrosshairSimpleIcon size={14} weight="bold" />
+          </ControlButton>
+          <ControlButton
+            onClick={() => setKeyOpen((o) => !o)}
+            title={t('mapKey.title')}
+            aria-label={t('mapKey.title')}
+            aria-expanded={keyOpen}
+          >
+            <QuestionIcon size={14} weight="bold" />
           </ControlButton>
         </Controls>
         {showMinimap && (
@@ -1796,6 +1927,8 @@ export function MapCanvas() {
 
       {showCanvasHint && <div className="map-canvas__hint">{t('ctxMenu.canvasHint')}</div>}
 
+      {keyOpen && <MapKey onClose={closeKey} side={controlsPosition === 'bottom-right' ? 'right' : 'left'} />}
+
       {contextMenu && (
         <ContextMenu
           x={contextMenu.screenX}
@@ -1808,6 +1941,7 @@ export function MapCanvas() {
       {pendingPosition && (
         <AddSystemModal position={pendingPosition} onClose={() => setPendingPosition(null)} />
       )}
+      <SendToCharactersModal />
       {connectAdd && (
         <AddSystemModal
           position={connectAdd.position}
@@ -1882,6 +2016,19 @@ export function MapCanvas() {
         />
       )}
 
+      {keyDeleteConfirm && (
+        <ConfirmModal
+          message={keyDeleteConfirm.name
+            ? t('ctxMenu.keyDeleteConfirmOne', { name: keyDeleteConfirm.name })
+            : t('ctxMenu.keyDeleteConfirmMany', { count: keyDeleteConfirm.ids.length })}
+          onConfirm={() => {
+            keyDeleteConfirm.ids.forEach((id) => removeSystem(id));
+            setKeyDeleteConfirm(null);
+          }}
+          onCancel={() => setKeyDeleteConfirm(null)}
+          onDontAskAgain={() => setConfirmKeyDelete(false)}
+        />
+      )}
       {orphanConfirm && (
         <ConfirmModal
           message={t('ctxMenu.removeOrphansConfirm', { count: orphanConfirm.ids.length })}

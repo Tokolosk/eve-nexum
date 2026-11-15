@@ -20,6 +20,15 @@ import { pendingWhState, lifePatch } from './whState';
  * detect "this sig used to back this connection" so we don't accidentally
  * clear a value the user typed manually.
  */
+// Slack for the scan and the jump landing in the same moment, and for clocks.
+const SCAN_BEFORE_LINK_SLACK_MS = 2 * 60_000;
+
+function scannedBefore(sig: Signature, conn: MapConnection): boolean {
+  const sigAt = Date.parse(sig.createdAt ?? '');
+  const connAt = Date.parse(conn.createdAt ?? '');
+  return Number.isFinite(sigAt) && Number.isFinite(connAt) && sigAt <= connAt + SCAN_BEFORE_LINK_SLACK_MS;
+}
+
 export function reevaluateConnectionsForSystem(
   systemId: string,
   allSigs:  Signature[],
@@ -32,6 +41,10 @@ export function reevaluateConnectionsForSystem(
   // Called with a signature's id once its staged mass/life has been moved onto
   // a connection, so the caller can clear the sig's copy.
   onStagedConsumed?: (sigId: string) => void,
+  // The signature the PILOT said they jumped. When two holes in a system lead
+  // to the same place, the tie-break below cannot tell them apart and guesses;
+  // this is the answer, so it wins outright.
+  preferSigId?: string,
 ): void {
   const { map, updateConnection } = useMapStore.getState();
   const oldType  = oldSig?.whType?.toUpperCase();
@@ -59,7 +72,19 @@ export function reevaluateConnectionsForSystem(
         (s.whLeadsTo.toUpperCase() === oc || s.whLeadsTo.toUpperCase() === on),
     );
     const backingCodes = backing.map((s) => (s.whType ?? '').toUpperCase());
-    const best = backingCodes.find(t => t !== 'K162') ?? backingCodes[0];
+
+    // Normally prefer a typed sig over a K162: a K162 names no type of its
+    // own, so when both back a link the typed one says more.
+    //
+    // But that is a guess, and it was overriding a fact. With two holes to the
+    // same system -- a K162 and, say, a C008 frigate hole -- the pilot is asked
+    // which one they jumped, and this then stamped the C008 on it regardless.
+    // An answer beats a heuristic, so a chosen signature wins even when it is
+    // the K162.
+    const chosen = preferSigId ? backing.find((s) => s.id === preferSigId) : undefined;
+    const best = (chosen?.whType ?? '').toUpperCase()
+      || backingCodes.find(t => t !== 'K162')
+      || backingCodes[0];
 
     // True when this connection's current type was auto-filled from the sig
     // being re-evaluated (its OLD whType still equals conn.type, and its old
@@ -71,13 +96,47 @@ export function reevaluateConnectionsForSystem(
       conn.type && conn.type.toUpperCase() === oldType
     );
 
+    const endField = conn.sourceId === systemId ? 'sourceSignatureId' : 'targetSignatureId';
+
+    // A deleted sig that was tied to THIS link specifically -- linked as its
+    // backing signature, or pinned to the connected system by name -- was the
+    // hole, whatever its type says. The type test in oldBackedThis misses the
+    // K162 end: a link labelled with the code on the far side is backed here
+    // by a K162, which never equals the label, so deleting it did nothing.
+    // (eve-scout copies hit this every time: the code goes on one end only.)
+    //
+    // And only another sig tied to the link just as tightly keeps it alive. A
+    // sig that merely leads to the same CLASS is a different hole -- Thera has
+    // dozens of "HS" exits -- and must not stand in for the one deleted.
+    if (breakOnOrphan && !conn.broken && oldSig) {
+      const linkedOld = conn[endField] === oldSig.id;
+      const pinnedOld = !!(oldSig.whType && on && oldLeads === on);
+      if (linkedOld || pinnedOld) {
+        const tied = !!on && backing.some((s) => (s.whLeadsTo ?? '').toUpperCase() === on);
+        if (!tied) { updateConnection(conn.id, { broken: true }); continue; }
+      }
+    }
+
+    // Still tied to a sig here: its backing signature, or one pinned to the
+    // connected system by name. A sig that only matches the CLASS is a
+    // different hole -- an overwrite paste brings today's H296 -> C5 in as it
+    // removes yesterday's -- so it can fill in a type but can't keep a link
+    // alive or bring a severed one back.
+    const tiedNow = backing.some((s) =>
+      s.id === conn[endField] || (!!on && (s.whLeadsTo ?? '').toUpperCase() === on));
+
+    if (breakOnOrphan && !conn.broken && oldBackedThis && !tiedNow) {
+      updateConnection(conn.id, { broken: true });
+      continue;
+    }
+
     const patch: Partial<Omit<MapConnection, 'id'>> = {};
 
     if (best) {
       if (conn.broken) {
-        // A sig backs this link again (e.g. it reappeared in a re-scan) —
+        // A sig tied to this link is back (e.g. it reappeared in a re-scan) —
         // un-quarantine it and restore the type.
-        patch.broken = false; patch.type = best;
+        if (tiedNow) { patch.broken = false; patch.type = best; }
       } else if (conn.type === null || (conn.type.toUpperCase() === 'K162' && best !== 'K162')) {
         // Empty, or a K162 placeholder being upgraded to a real code.
         patch.type = best;
@@ -94,14 +153,21 @@ export function reevaluateConnectionsForSystem(
       // system, or the sole backing hole on this end — and never overriding a
       // manual link. (A K162 twin pinned to the same system alongside the real
       // code is fine: the real code wins as the single non-K162 pinned hole.)
-      const endField = conn.sourceId === systemId ? 'sourceSignatureId' : 'targetSignatureId';
-      if (!conn[endField]) {
+      // Not on a severed link: a class match picked here would tie it and
+      // bring it straight back.
+      if (!conn[endField] && !conn.broken) {
         const pinned = backing.filter((s) => (s.whLeadsTo ?? '').toUpperCase() === on);
         const pinnedReal = pinned.filter((s) => (s.whType ?? '').toUpperCase() !== 'K162');
+        // A sig that only matches the CLASS is only a fair guess when it was
+        // scanned before the link existed: scan, then jump. One that turns up
+        // later is a new hole -- an overwrite paste's H296 -> C5 replacing
+        // yesterday's -- and linking it would tie the old link to it, so the
+        // link could never be scissored.
+        const classOnly = pinned.length === 0 && backing.length === 1 ? backing[0] : undefined;
         const linkSig =
           pinnedReal.length === 1 ? pinnedReal[0] :
           pinned.length === 1     ? pinned[0]     :
-          pinned.length === 0 && backing.length === 1 ? backing[0] :
+          classOnly && scannedBefore(classOnly, conn) ? classOnly :
           undefined; // several plausible holes — ambiguous, leave it to the user
         if (linkSig) {
           patch[endField] = linkSig.id;

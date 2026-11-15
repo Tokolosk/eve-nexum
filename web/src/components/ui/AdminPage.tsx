@@ -1286,12 +1286,13 @@ const REPORT_TAB_KEY: Record<ReportKind, 'admin.reports.tabs.users' | 'admin.rep
   'ghost-sites': 'admin.reports.tabs.ghostSites',
 };
 
-type WindowKey = 'all' | '24h' | 'week' | 'month' | 'year';
+type WindowKey = 'all' | '24h' | 'week' | 'month' | 'quarter' | 'year';
 const WINDOW_OPTIONS: { value: WindowKey }[] = [
   { value: 'all'   },
   { value: '24h'   },
   { value: 'week'  },
   { value: 'month' },
+  { value: 'quarter' },
   { value: 'year'  },
 ];
 
@@ -1303,17 +1304,23 @@ function chartTitleFor(t: TFunction, window: WindowKey): string {
     case '24h':   return t('admin.reports.systems.chart.hour24');
     case 'week':  return t('admin.reports.systems.chart.dayWeek');
     case 'month': return t('admin.reports.systems.chart.dayMonth');
+    case 'quarter': return t('admin.reports.systems.chart.weekQuarter');
     case 'year':  return t('admin.reports.systems.chart.monthYear');
     case 'all':   return t('admin.reports.systems.chart.monthAll');
   }
 }
 
-type UserFilterKey = 'all' | 'logins' | 'signatures' | 'structures';
+type UserFilterKey = 'all' | 'active' | 'inactive' | 'new' | 'signatures' | 'structures'
+  | 'systemsAdded' | 'systemsDeleted';
 const USER_FILTER_OPTIONS: { value: UserFilterKey }[] = [
-  { value: 'all'        },
-  { value: 'logins'     },
-  { value: 'signatures' },
-  { value: 'structures' },
+  { value: 'all'            },
+  { value: 'active'         },
+  { value: 'inactive'       },
+  { value: 'new'            },
+  { value: 'signatures'     },
+  { value: 'structures'     },
+  { value: 'systemsAdded'   },
+  { value: 'systemsDeleted' },
 ];
 
 function ReportsTab() {
@@ -1539,7 +1546,6 @@ function UsersReport() {
         <Select
           value={window}
           onChange={(v) => setWindow(v as WindowKey)}
-          disabled={filter === 'all'}
           options={WINDOW_OPTIONS.map((o) => ({ value: o.value, label: t(`admin.reports.windowOptions.${o.value}`) }))}
         />
       </div>
@@ -2110,6 +2116,8 @@ interface DiscordSettings {
   notifyChains: boolean;
   notifyK162: boolean;
   notifyExits: boolean;
+  notifyEol:   boolean;
+  notifyThera: boolean;
   whTypes:      string[];
   whClasses:    string[];
   whSizes:      string[];
@@ -2118,6 +2126,8 @@ interface DiscordSettings {
   exitsMinSecurity:   number;
   killWebhook:        string;
   killMinIsk:         number;
+  specialKillWebhook: string;
+  specialKillKinds:   string[];
   maps:         { id: string; name: string; excluded: boolean }[];
 }
 interface RegionOption { id: number; name: string }
@@ -2126,6 +2136,13 @@ interface RegionOption { id: number; name: string }
 // Class chips show the raw EVE class code (no translation needed); size chips
 // reuse the existing connection-panel size labels.
 const WH_CLASS_OPTS = ['C1', 'C2', 'C3', 'C4', 'C5', 'C6', 'C13', 'HS', 'LS', 'NS', 'Thera', 'Pochven', 'Drifter', 'Turnur'];
+// What makes a kill "special" (mirrors SPECIAL_KINDS on the server).
+const SPECIAL_KILL_OPTS = [
+  { key: 'capital',   labelKey: 'admin.discord.specialCapital'   },
+  { key: 'billion',   labelKey: 'admin.discord.specialBillion'   },
+  { key: 'dictor',    labelKey: 'admin.discord.specialDictor'    },
+  { key: 'smartbomb', labelKey: 'admin.discord.specialSmartbomb' },
+] as const;
 const WH_SIZE_OPTS = [
   { key: 'small',  labelKey: 'connPanel.sizeSmall'  },
   { key: 'medium', labelKey: 'connPanel.sizeMedium' },
@@ -2160,6 +2177,9 @@ function DiscordTab() {
   // the feed surfaces). Requires the server KILL_FEED consumer to be enabled.
   const [killWebhook, setKillWebhook]   = useState('');
   const [killMinIsk, setKillMinIsk]     = useState(0);
+  // Special-kill webhook (empty = off) and which kinds of kill it fires for.
+  const [specialWebhook, setSpecialWebhook] = useState('');
+  const [specialKinds, setSpecialKinds]     = useState<string[]>([]);
 
   const load = useCallback(async () => {
     try {
@@ -2178,6 +2198,8 @@ function DiscordTab() {
       setExitMinSec(s.exitsMinSecurity ?? 0.45);
       setKillWebhook(s.killWebhook ?? '');
       setKillMinIsk(s.killMinIsk ?? 0);
+      setSpecialWebhook(s.specialKillWebhook ?? '');
+      setSpecialKinds(s.specialKillKinds ?? []);
       setRegionOpts(r.regions);
       setError(null);
     } catch (e) {
@@ -2196,8 +2218,8 @@ function DiscordTab() {
     try {
       // Send every field the PUT can wipe (it defaults absent flags/lists), so a
       // save never silently resets the chain toggle or another filter dimension.
-      await api('/api/admin/discord', { method: 'PUT', body: JSON.stringify({ allRegions, regions, notifyChains: data.notifyChains, notifyK162: data.notifyK162, notifyExits: data.notifyExits, whTypes, whClasses, whSizes, connectionsWebhook: connWebhook.trim(), chainsWebhook: chainWebhook.trim(), exitsMinSecurity: exitMinSec, killWebhook: killWebhook.trim(), killMinIsk }) });
-      setData((d) => (d ? { ...d, allRegions, regions, whTypes, whClasses, whSizes, connectionsWebhook: connWebhook.trim(), chainsWebhook: chainWebhook.trim(), exitsMinSecurity: exitMinSec, killWebhook: killWebhook.trim(), killMinIsk } : d));
+      await api('/api/admin/discord', { method: 'PUT', body: JSON.stringify({ allRegions, regions, notifyChains: data.notifyChains, notifyK162: data.notifyK162, notifyExits: data.notifyExits, notifyEol: data.notifyEol, notifyThera: data.notifyThera, whTypes, whClasses, whSizes, connectionsWebhook: connWebhook.trim(), chainsWebhook: chainWebhook.trim(), exitsMinSecurity: exitMinSec, killWebhook: killWebhook.trim(), killMinIsk, specialKillWebhook: specialWebhook.trim(), specialKillKinds: specialKinds }) });
+      setData((d) => (d ? { ...d, allRegions, regions, whTypes, whClasses, whSizes, connectionsWebhook: connWebhook.trim(), chainsWebhook: chainWebhook.trim(), exitsMinSecurity: exitMinSec, killWebhook: killWebhook.trim(), killMinIsk, specialKillWebhook: specialWebhook.trim(), specialKillKinds: specialKinds } : d));
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
     } catch (e) {
@@ -2210,7 +2232,7 @@ function DiscordTab() {
   // Broadcast toggles persist immediately, using the last-saved filters so an
   // unsaved draft isn't dragged along and no other filter is wiped. Every event
   // flag goes up on each call — omitting one reads as "off" server-side.
-  async function toggleEvent(field: 'notifyChains' | 'notifyK162' | 'notifyExits', next: boolean) {
+  async function toggleEvent(field: 'notifyChains' | 'notifyK162' | 'notifyExits' | 'notifyEol' | 'notifyThera', next: boolean) {
     if (!data) return;
     const prev = data[field];
     setData((d) => (d ? { ...d, [field]: next } : d));
@@ -2218,10 +2240,12 @@ function DiscordTab() {
       await api('/api/admin/discord', { method: 'PUT', body: JSON.stringify({
         allRegions: data.allRegions, regions: data.regions,
         notifyChains: data.notifyChains, notifyK162: data.notifyK162, notifyExits: data.notifyExits,
+        notifyEol: data.notifyEol, notifyThera: data.notifyThera,
         [field]: next,
         whTypes: data.whTypes, whClasses: data.whClasses, whSizes: data.whSizes,
         connectionsWebhook: data.connectionsWebhook, chainsWebhook: data.chainsWebhook,
         exitsMinSecurity: data.exitsMinSecurity, killWebhook: data.killWebhook, killMinIsk: data.killMinIsk,
+        specialKillWebhook: data.specialKillWebhook, specialKillKinds: data.specialKillKinds,
       }) });
     } catch (e) {
       setData((d) => (d ? { ...d, [field]: prev } : d));
@@ -2272,7 +2296,9 @@ function DiscordTab() {
     || chainWebhook.trim() !== data.chainsWebhook
     || exitMinSec          !== data.exitsMinSecurity
     || killWebhook.trim()  !== data.killWebhook
-    || killMinIsk          !== data.killMinIsk;
+    || killMinIsk          !== data.killMinIsk
+    || specialWebhook.trim() !== data.specialKillWebhook
+    || sortJoin(specialKinds) !== sortJoin(data.specialKillKinds);
 
   return (
     <>
@@ -2323,6 +2349,29 @@ function DiscordTab() {
           value={killMinIsk}
           onChange={(e) => setKillMinIsk(Math.max(0, Math.floor(Number(e.target.value) || 0)))}
         />
+
+        <label className={styles.dcSublabel} htmlFor="special-webhook">{t('admin.discord.specialWebhook')}</label>
+        <p className={styles.dcHint}>{t('admin.discord.specialWebhookHint')}</p>
+        <input
+          id="special-webhook"
+          type="url"
+          className={`${styles.dcSearch} ${styles.dcSearchWide}`}
+          placeholder="https://discord.com/api/webhooks/…"
+          value={specialWebhook}
+          spellCheck={false}
+          onChange={(e) => setSpecialWebhook(e.target.value)}
+        />
+        <div className={styles.dcTogglechips}>
+          {SPECIAL_KILL_OPTS.map((o) => (
+            <button
+              key={o.key}
+              type="button"
+              aria-pressed={specialKinds.includes(o.key)}
+              className={[styles.dcTogglechip, specialKinds.includes(o.key) && styles.dcTogglechipOn].filter(Boolean).join(' ')}
+              onClick={() => toggleIn(specialKinds, setSpecialKinds, o.key)}
+            >{t(o.labelKey)}</button>
+          ))}
+        </div>
       </section>
 
       <section className={styles.dcSection}>
@@ -2463,6 +2512,18 @@ function DiscordTab() {
           {t('admin.discord.broadcastExits')}
         </label>
         <p className={styles.dcHint}>{t('admin.discord.broadcastExitsHint')}</p>
+
+        <label className={styles.dcRadio}>
+          <input type="checkbox" checked={data.notifyEol} onChange={(e) => toggleEvent('notifyEol', e.target.checked)} />
+          {t('admin.discord.broadcastEol')}
+        </label>
+        <p className={styles.dcHint}>{t('admin.discord.broadcastEolHint')}</p>
+
+        <label className={styles.dcRadio}>
+          <input type="checkbox" checked={data.notifyThera} onChange={(e) => toggleEvent('notifyThera', e.target.checked)} />
+          {t('admin.discord.broadcastThera')}
+        </label>
+        <p className={styles.dcHint}>{t('admin.discord.broadcastTheraHint')}</p>
       </section>
 
       <section className={styles.dcSection}>

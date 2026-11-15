@@ -121,6 +121,21 @@
   display: block;
 }
 
+/* Corp / alliance logos of a restricted deployment, beside the Nexum mark and
+   sized to match it. */
+.toolbar__org-logos {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-6);
+}
+.toolbar__org-logos img {
+  width: calc(26px * var(--font-scale, 1));
+  height: calc(26px * var(--font-scale, 1));
+  object-fit: contain;
+  display: block;
+  border-radius: 4px;
+}
+
 .toolbar__option {
   display: flex;
   align-items: center;
@@ -469,6 +484,29 @@
   border-radius: 4px;
 }
 .character-switcher__add:hover { background: var(--surface-raised); color: var(--accent-light); }
+.character-switcher__share {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-8);
+  padding: var(--sp-6) var(--sp-8);
+  margin-top: 2px;
+  border-top: 1px solid var(--surface-hover);
+  font-size: calc(13px * var(--font-scale, 1));
+  cursor: pointer;
+  border-radius: 4px;
+}
+.character-switcher__share:hover { background: var(--surface-raised); }
+/* A button sharing the link's look: reset the button chrome. */
+.character-switcher__install {
+  width: 100%;
+  background: none;
+  border-left: 0;
+  border-right: 0;
+  border-bottom: 0;
+  font: inherit;
+  font-size: calc(13px * var(--font-scale, 1));
+  cursor: pointer;
+}
 
 
 .toolbar__online-dot {
@@ -494,6 +532,9 @@
   display: flex;
   align-items: center;
   gap: var(--sp-6);
+  /* The whole line carries the status tooltip, so it shouldn't read as a drag
+     handle; dragging from it still reorders (6px activation distance). */
+  cursor: default;
 }
 
 .toolbar__status-dot {
@@ -632,7 +673,22 @@
   border-bottom: 1px solid var(--surface-panel);
 }
 .chain-exits-menu__fav:last-child,
-.chain-exits-menu__exit:last-child { border-bottom: none; }
+.chain-exits-menu__exits li:last-child .chain-exits-menu__exit { border-bottom: none; }
+/* The exit row is a button (click to select + centre); strip the UA button
+   look so it renders exactly like the static row it replaced. */
+button.chain-exits-menu__exit {
+  width: 100%;
+  margin: 0;
+  background: none;
+  border-top: none;
+  border-left: none;
+  border-right: none;
+  color: inherit;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+button.chain-exits-menu__exit:hover { background: var(--surface-hover); }
 
 .chain-exits-menu__fav-name { flex: 1; min-width: 0; font-weight: 600; }
 .chain-exits-menu__fav-route { white-space: nowrap; }
@@ -2015,6 +2071,7 @@
 }
 .sig-col-menu__item:hover { background: rgba(90, 154, 248, 0.12); }
 .sig-col-menu__item input { cursor: pointer; }
+.sig-col-menu__sep { height: 1px; margin: var(--sp-4) var(--sp-2); background: var(--border-strong); }
 
 .sig-pane__empty {
   font-size: calc(16px * var(--font-scale, 1));
@@ -2296,6 +2353,17 @@
    native .sig-select was width:100%). Type tinting now comes from the option
    labels reusing .sig-select--type-*, so this is layout only. */
 .sig-type-select { width: 100%; }
+
+/* Group picker options are icon + name in the list either way. The trigger
+   (inside the wrapper; the list is portalled out of it) shows just the name,
+   or just the icon with "Group as icons" on. */
+.sig-type-icon { flex-shrink: 0; vertical-align: middle; }
+.sig-type-opt { display: inline-flex; align-items: center; gap: var(--sp-4); }
+.sig-type-select:not(.sig-type-select--icons) .sig-type-opt > .sig-type-icon { display: none; }
+.sig-type-select--icons .sig-type-opt__text { display: none; }
+/* Icon + caret only, so the trigger shrinks to fit instead of filling the cell. */
+.sig-type-select--icons { width: auto; }
+.sig-type-select--icons > button { gap: var(--sp-2); padding: var(--sp-4) var(--sp-3); }
 
 .sig-toolbar-btn {
   background: transparent;
@@ -2674,4 +2742,59 @@ select.sig-toolbar-btn option {
    height. */
 .map-sidebar__btn-group--inline {
   flex-direction: row;
+}
+
+/* Colour setting: a swatch that opens the OS picker, and Reset once changed.
+   The <input type="color"> is invisible over the swatch. */
+.map-sidebar__color {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-6);
+}
+
+.map-sidebar__swatch {
+  position: relative;
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  flex-shrink: 0;
+  cursor: pointer;
+  overflow: hidden;
+
+  & input[type="color"] {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    width: 100%;
+    height: 100%;
+    padding: 0;
+    border: none;
+    cursor: pointer;
+  }
+}
+
+/* Route avoidance list (Route section). */
+.route-avoid {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+  margin-top: var(--sp-6);
+}
+/* In the flow, not floating: the sidebar scrolls and would clip it. */
+.route-avoid__results.search-results { position: static; }
+.route-avoid__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-4);
+}
+.route-avoid__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: var(--sp-1) var(--sp-2) var(--sp-1) var(--sp-6);
+  font-size: calc(12px * var(--font-scale, 1));
+  color: var(--text-default);
 }

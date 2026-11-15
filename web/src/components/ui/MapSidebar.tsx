@@ -22,15 +22,19 @@ import {
 import type { Density } from '../../utils/density';
 import { useUserSetting } from "../../hooks/useUserSetting";
 import { normalizePlacement } from "../../hooks/useLocationTracking";
-import { NOTIFY, notifyDefault, previewAlertVolume, ALERT_VOLUME_KEY, ALERT_VOLUME_DEFAULT, EXITS_MIN_SECURITY_KEY, EXITS_MIN_SECURITY_DEFAULT, EXITS_MIN_SECURITY_OFF } from "../../utils/notificationPrefs";
+import { NOTIFY, notifyDefault, previewAlertVolume, ALERT_VOLUME_KEY, ALERT_VOLUME_DEFAULT, EXITS_MIN_SECURITY_KEY, EXITS_MIN_SECURITY_DEFAULT, EXITS_MIN_SECURITY_OFF, KILLS_FILTER_KEY, KILLS_FILTER_DEFAULT, type KillsFilter } from "../../utils/notificationPrefs";
 import { useResettableState } from "../../hooks/useResettableState";
-import { DEFAULT_BOOKMARK_FORMAT, BOOKMARK_TOKENS, DEFAULT_SITE_BOOKMARK_FORMAT, SITE_BOOKMARK_TOKENS } from "../../utils/signatureBookmark";
+import { DEFAULT_BOOKMARK_FORMAT, BOOKMARK_TOKENS, DEFAULT_SITE_BOOKMARK_FORMAT, SITE_BOOKMARK_TOKENS, K162_BOOKMARK_FORMAT_KEY } from "../../utils/signatureBookmark";
+import { COPY_BOOKMARK_ON_JUMP } from "../../hooks/whJumpConfirm";
 import { toPng } from "html-to-image";
 import { CaretLeftIcon, CaretRightIcon, DiscordLogoIcon } from "@phosphor-icons/react";
 import { DISCORD_INVITE_URL } from "../../data/links";
 import { JumpRangePane } from "./JumpRangePane";
 import { AnnouncerSection } from "./AnnouncerSection";
 import { MapSharesSection } from "./MapSharesSection";
+import { MapAuditModal } from "./MapAuditModal";
+import { WAYPOINT_SEND_TO_KEY, type WaypointSendTo } from "../../api/waypoint";
+import { useAccountLocations } from "../../hooks/useAccountLocations";
 import { MergeMapModal } from "./MergeMapModal";
 import { CustomIntelBlock } from "./CustomIntelBlock";
 import { FlagPresetsBlock } from "./FlagPresetsBlock";
@@ -38,6 +42,12 @@ import { PatchNotesModal } from "./PatchNotesModal";
 import { ContentFilterBlock } from "./ContentFilterBlock";
 import { useIsMapOwner } from "../../hooks/useIsMapOwner";
 import type { WormholeMap } from "../../types";
+import { countPersonalMaps } from '../../utils/personalMaps';
+import { useEscapeClose } from '../../hooks/useEscapeClose';
+import { LINK_SIG_IDS_KEY } from '../../utils/linkSigIds';
+import { RouteAvoidList } from './RouteAvoidList';
+import { CONFIRM_KEY_DELETE_KEY } from '../../utils/confirmPref';
+import { HOME_COLOR_KEY, HOME_COLOR_DEFAULT, HERE_COLOR_KEY, HERE_COLOR_DEFAULT, HERE_PULSE_KEY, HERE_PULSE_DEFAULT, HERE_PULSES, normalisePulse, safeColor } from '../../utils/mapMarkers';
 
 // Single labelled checkbox row backed by useUserSetting so the on/off
 // state syncs cross-device via users.ui_settings. Used by the Activity
@@ -157,6 +167,7 @@ type SectionId =
   | "fleet"
   | "share"
   | "shareGrants"
+  | "auditLog"
   | "mergeMaps"
   | "staleFade"
   | "export"
@@ -529,26 +540,30 @@ function LazyWhSweepToggle() {
   );
 }
 
-// Corp/alliance map-level "Don't track K-space" policy. When on, no one on this
-// map records K-space jumps, overriding each member's personal
-// nexum.tracking.skipKspace while they're on the map. Only owner/admins may
-// change it (alliance maps need the alliance admin role, corp maps an admin) —
+// A corp/alliance map-level policy switch, e.g. "Don't track K-space" (no one on
+// the map records K-space jumps, overriding each member's personal
+// nexum.tracking.skipKspace) or cross-map sync. Only owner/admins may change
+// one (alliance maps need the alliance admin role, corp maps an admin) --
 // everyone else sees the current state read-only. Same optimistic
 // PATCH-with-revert pattern as the lazy-sweep toggle.
-function CorpKspaceToggle() {
+function MapPolicyToggle({ field, label, hint }: {
+  field: "skipKspace" | "crossMapSync";
+  label: string;
+  hint: string;
+}) {
   const { t } = useTranslation();
   const map = useMapStore((s) => s.map);
   const { user } = useAuth();
-  const enabled = !!map.skipKspace;
+  const enabled = !!map[field];
   const [saving, setSaving] = useState(false);
 
   const role = user?.role ?? "readonly";
   const canEdit = map.isAllianceMap ? isAllianceAdminRole(role) : isAdminRole(role);
 
-  function setInStore(skip: boolean) {
+  function setInStore(on: boolean) {
     useMapStore.setState((s) => ({
-      map: { ...s.map, skipKspace: skip },
-      maps: s.maps.map((m) => (m.id === map.id ? { ...m, skipKspace: skip } : m)),
+      map: { ...s.map, [field]: on },
+      maps: s.maps.map((m) => (m.id === map.id ? { ...m, [field]: on } : m)),
     }));
   }
 
@@ -556,7 +571,7 @@ function CorpKspaceToggle() {
     setSaving(true);
     setInStore(next);
     try {
-      await api(`/api/maps/${map.id}`, { method: "PATCH", body: JSON.stringify({ skipKspace: next }) });
+      await api(`/api/maps/${map.id}`, { method: "PATCH", body: JSON.stringify({ [field]: next }) });
     } catch (e) {
       setInStore(!next);
       toast.error(e instanceof Error ? e.message : t("mapSidebar.updateSettingFailed"));
@@ -568,7 +583,7 @@ function CorpKspaceToggle() {
   return (
     <>
       <label className="map-sidebar__row map-sidebar__toggle-row">
-        <span className="map-sidebar__label">{t("mapSidebar.corpSkipKspace")}</span>
+        <span className="map-sidebar__label">{label}</span>
         <input
           type="checkbox"
           className="map-sidebar__toggle-input"
@@ -577,7 +592,7 @@ function CorpKspaceToggle() {
           onChange={(e) => persist(e.target.checked)}
         />
       </label>
-      <div className="map-sidebar__hint">{t("mapSidebar.corpSkipKspaceHint")}</div>
+      <div className="map-sidebar__hint">{hint}</div>
     </>
   );
 }
@@ -867,6 +882,16 @@ export function MapSidebar() {
   // admin for org maps). Hide the section for anyone else so it never suggests
   // an action the server would reject.
   const canManageShareGrants = canShareThisMap(user, isCorpMap, isAllianceMap, isMapOwner);
+  // The audit log answers to the same people as sharing (requireMapAdmin on
+  // the server): the owner, or the corp/alliance admins of an org map.
+  const canViewAudit = canManageShareGrants;
+  const auditMapId = useMapStore((s) => s.map.id);
+  const auditMapName = useMapStore((s) => s.map.name);
+  const [auditOpen, setAuditOpen] = useState(false);
+  // Sending a destination to several characters only means anything with
+  // more than one on the account.
+  const hasAlts = useAccountLocations().byChar.size > 0;
+  const [waypointSendTo, setWaypointSendTo] = useUserSetting<WaypointSendTo>(WAYPOINT_SEND_TO_KEY, "me");
   // The map-management buttons (optimize / spread / JSON / PNG / stale fade)
   // are hidden only when a readonly user is looking at a corp map. On their
   // own personal map a readonly user still owns the layout and can use the
@@ -920,9 +945,11 @@ export function MapSidebar() {
   const maxMaps = useMapStore((s) => s.maxMaps);
   const snapToGrid = useMapStore((s) => s.snapToGrid);
   const setSnapToGrid = useMapStore((s) => s.setSnapToGrid);
+  const [snapGridStyle, setSnapGridStyle] = useUserSetting<"lines" | "dots">("nexum.snapGridStyle", "lines");
   const compactMode = useMapStore((s) => s.compactMode);
   const panelSideBySide = useMapStore((s) => s.panelSideBySide);
   const [exitsMinSec, setExitsMinSec] = useUserSetting<number>(EXITS_MIN_SECURITY_KEY, EXITS_MIN_SECURITY_DEFAULT);
+  const [killsFilter, setKillsFilter] = useUserSetting<KillsFilter>(KILLS_FILTER_KEY, KILLS_FILTER_DEFAULT);
   const [alertVolume, setAlertVolume] = useUserSetting<number>(ALERT_VOLUME_KEY, ALERT_VOLUME_DEFAULT);
   const setPanelSideBySide = useMapStore((s) => s.setPanelSideBySide);
   const setCompactMode = useMapStore((s) => s.setCompactMode);
@@ -931,17 +958,25 @@ export function MapSidebar() {
   const [minimapPosition, setMinimapPosition] = useMinimapPosition();
   const [placement, setPlacement] = useUserSetting<string>("nexum.map.placement", "east");
   const [colorVision, setColorVision] = useUserSetting<string>("nexum.a11y.colorVision", "off");
+  const [homeColor, setHomeColor] = useUserSetting<string>(HOME_COLOR_KEY, HOME_COLOR_DEFAULT);
+  const [hereColor, setHereColor] = useUserSetting<string>(HERE_COLOR_KEY, HERE_COLOR_DEFAULT);
+  const [herePulse, setHerePulse] = useUserSetting<string>(HERE_PULSE_KEY, HERE_PULSE_DEFAULT);
   const [sigBookmarkFmt, setSigBookmarkFmt] = useUserSetting<string>("nexum.sig.bookmarkFormat", DEFAULT_BOOKMARK_FORMAT);
   const [siteBookmarkFmt, setSiteBookmarkFmt] = useUserSetting<string>("nexum.sig.siteBookmarkFormat", DEFAULT_SITE_BOOKMARK_FORMAT);
+  const [k162BookmarkFmt, setK162BookmarkFmt] = useUserSetting<string>(K162_BOOKMARK_FORMAT_KEY, "");
   const uniformSize = useMapStore((s) => s.uniformSize);
   const setUniformSize = useMapStore((s) => s.setUniformSize);
   const showStatics = useMapStore((s) => s.showStatics);
   const setShowStatics = useMapStore((s) => s.setShowStatics);
   const [showUndivedWh, setShowUndivedWh] = useUserSetting<boolean>('nexum.map.showUndivedWh', true);
+  const [showRegionBorders, setShowRegionBorders] = useUserSetting<boolean>('nexum.map.showRegionBorders', false);
   const easyConnect = useMapStore((s) => s.easyConnect);
   const setEasyConnect = useMapStore((s) => s.setEasyConnect);
   const mapOptionsOpen = useMapStore((s) => s.mapOptionsOpen);
   const setMapOptionsOpen = useMapStore((s) => s.setMapOptionsOpen);
+  // Settings registers last, so with both open Escape closes the dialog first.
+  useEscapeClose(() => setMapOptionsOpen(false), mapOptionsOpen);
+  useEscapeClose(() => setSettingsOpen(false), settingsOpen);
   const edgeStyle = useMapStore((s) => s.edgeStyle);
   const setEdgeStyle = useMapStore((s) => s.setEdgeStyle);
   const connectionThickness = useMapStore((s) => s.connectionThickness);
@@ -1019,40 +1054,62 @@ export function MapSidebar() {
   // only maps the user owns (not corp/alliance maps or ones merely shared with
   // them). Matches the server's quota (owner_id, corp/alliance NULL). Counting
   // every visible map wrongly disabled Import for corp/alliance members/admins.
-  const atMapLimit = maps.filter((m) => !m.isCorpMap && !m.isAllianceMap && !m.sharedWithMe).length >= maxMaps;
+  const atMapLimit = countPersonalMaps(maps) >= maxMaps;
 
 
-  function handleExport() {
+  // A full backup from the server: systems, connections with their clocks and
+  // flags, signatures, anomalies and structures. (The old export was the
+  // browser's copy of the map, which left the scan data behind and carried the
+  // share-link token.)
+  async function handleExport() {
     const { map } = useMapStore.getState();
-    const json = JSON.stringify(map, null, 2);
-    const blob = new Blob([json], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `${map.name.replace(/[^a-z0-9]/gi, "_")}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
+    try {
+      const backup = await api<unknown>(`/api/maps/${map.id}/export`);
+      const blob = new Blob([JSON.stringify(backup)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${map.name.replace(/[^a-z0-9]/gi, "_")}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      toast.error(t("mapSidebar.exportFailed", { error: err instanceof Error ? err.message : String(err) }));
+    }
   }
 
   async function handleImport(file: File) {
-    let parsed: WormholeMap;
+    let parsed: Partial<WormholeMap> & Record<string, unknown>;
     try {
-      parsed = JSON.parse(await file.text()) as WormholeMap;
+      parsed = JSON.parse(await file.text()) as Partial<WormholeMap> & Record<string, unknown>;
     } catch {
       toast.error(t("mapSidebar.invalidJson"));
       return;
     }
-    if (!parsed.systems || !parsed.connections) {
+    if (!parsed || !Array.isArray(parsed.systems) || !Array.isArray(parsed.connections)) {
       toast.error(t("mapSidebar.notNexumMap"));
       return;
     }
     try {
+      // Only the map's contents. An older export is the raw map state, which
+      // also carries its scope (isCorpMap...) and share token -- none of that
+      // should ride along into a new personal map. Settings sit on the map
+      // itself in those files.
+      const settings = parsed.settings ?? {
+        lazyRemoveWormholes: parsed.lazyRemoveWormholes,
+        collapseGraceHours:  parsed.collapseGraceHours,
+        bookmarkFormat:      parsed.bookmarkFormat,
+        siteBookmarkFormat:  parsed.siteBookmarkFormat,
+      };
       const { id } = await api<{ id: string }>("/api/maps/import", {
         method: "POST",
         body: JSON.stringify({
           name: parsed.name,
+          settings,
           systems: parsed.systems,
           connections: parsed.connections,
+          signatures: parsed.signatures,
+          anomalies: parsed.anomalies,
+          structures: parsed.structures,
         }),
       });
       await useMapStore.getState().loadMaps();
@@ -1279,11 +1336,27 @@ export function MapSidebar() {
             defaultOn={false}
           />
           <SettingToggle
-            settingKey="nexum.crossMapSync"
-            label={t("mapSidebar.crossMapSync")}
-            defaultOn={false}
+            settingKey={CONFIRM_KEY_DELETE_KEY}
+            label={t("mapSidebar.confirmKeyDelete")}
           />
-          <p className="map-sidebar__help">{t("mapSidebar.crossMapSyncHelp")}</p>
+          {isCorpMap || isAllianceMap ? (
+            // Org maps opt in per map (set by admins), and only sync with the
+            // same corp's / alliance's other opted-in maps.
+            <MapPolicyToggle
+              field="crossMapSync"
+              label={t("mapSidebar.crossMapSyncOrg")}
+              hint={t(isAllianceMap ? "mapSidebar.crossMapSyncAllianceHelp" : "mapSidebar.crossMapSyncCorpHelp")}
+            />
+          ) : (
+            <>
+              <SettingToggle
+                settingKey="nexum.crossMapSync"
+                label={t("mapSidebar.crossMapSync")}
+                defaultOn={false}
+              />
+              <p className="map-sidebar__help">{t("mapSidebar.crossMapSyncHelp")}</p>
+            </>
+          )}
         </CollapsibleSection>
 
         <CollapsibleSection
@@ -1375,6 +1448,18 @@ export function MapSidebar() {
           </div>
 
           <div className="map-sidebar__row">
+            <label className="map-sidebar__label">{t("mapSidebar.showRegionBorders")}</label>
+            <button
+              className={`toolbar__toggle${showRegionBorders ? " toolbar__toggle--on" : ""}`}
+              onClick={() => setShowRegionBorders(!showRegionBorders)}
+              aria-pressed={showRegionBorders}
+              data-tooltip={t("mapSidebar.showRegionBordersTooltip")}
+            >
+              {showRegionBorders ? t("actions.on") : t("actions.off")}
+            </button>
+          </div>
+
+          <div className="map-sidebar__row">
             <label className="map-sidebar__label">{t("mapSidebar.easyConnect")}</label>
             <button
               className={`toolbar__toggle${easyConnect ? " toolbar__toggle--on" : ""}`}
@@ -1442,6 +1527,11 @@ export function MapSidebar() {
             />
           </div>
 
+          <SettingToggle
+            settingKey={LINK_SIG_IDS_KEY}
+            label={t("mapSidebar.linkSigIds")}
+          />
+
           {!hideTopologyTools && (
             <>
               <button
@@ -1499,7 +1589,11 @@ export function MapSidebar() {
           {isCorpMap || isAllianceMap ? (
             // Corp/alliance maps use a map-level policy that overrides everyone's
             // personal K-space setting while they're on this map.
-            <CorpKspaceToggle />
+            <MapPolicyToggle
+              field="skipKspace"
+              label={t("mapSidebar.corpSkipKspace")}
+              hint={t("mapSidebar.corpSkipKspaceHint")}
+            />
           ) : (
             <>
               <SettingToggle
@@ -1564,6 +1658,26 @@ export function MapSidebar() {
           <p className="map-sidebar__hint">
             {t("mapSidebar.routeShortcutNote")}
           </p>
+          <RouteAvoidList />
+          {hasAlts && (
+            <>
+              <div className="map-sidebar__row">
+                <label className="map-sidebar__label" htmlFor="waypoint-send-to">
+                  {t("mapSidebar.waypointSendTo")}
+                </label>
+                <Select
+                  id="waypoint-send-to"
+                  value={waypointSendTo}
+                  onChange={(v) => setWaypointSendTo(v as WaypointSendTo)}
+                  options={[
+                    { value: "me", label: t("mapSidebar.waypointSendToMe") },
+                    { value: "allOnline", label: t("mapSidebar.waypointSendToAllOnline") },
+                  ]}
+                />
+              </div>
+              <p className="map-sidebar__hint">{t("mapSidebar.waypointSendToHint")}</p>
+            </>
+          )}
         </CollapsibleSection>
 
 
@@ -1660,6 +1774,16 @@ export function MapSidebar() {
               desktopKey={NOTIFY.exitsDesktop}
               soundKey={NOTIFY.exitsSound}
             />
+            <NotifRow
+              label={t("mapSidebar.notifKills")}
+              desktopKey={NOTIFY.killsDesktop}
+              soundKey={NOTIFY.killsSound}
+            />
+            <NotifRow
+              label={t("mapSidebar.notifEol")}
+              desktopKey={NOTIFY.eolDesktop}
+              soundKey={NOTIFY.eolSound}
+            />
           </div>
           {/* Which exits count. Only meaningful with the row above switched on,
               so it sits under the grid rather than in it. */}
@@ -1677,6 +1801,21 @@ export function MapSidebar() {
             />
           </label>
           <div className="map-sidebar__hint">{t("mapSidebar.notifExitsHint")}</div>
+
+          {/* Which kills count for the Kills row. */}
+          <label className="map-sidebar__field">
+            <span>{t("mapSidebar.notifKillsWhich")}</span>
+            <Select
+              value={killsFilter}
+              onChange={(v) => setKillsFilter(v as KillsFilter)}
+              options={[
+                { value: "special", label: t("mapSidebar.notifKillsSpecial") },
+                { value: "billion", label: t("mapSidebar.notifKillsBillion") },
+                { value: "all",     label: t("mapSidebar.notifKillsAll") },
+              ]}
+            />
+          </label>
+          <div className="map-sidebar__hint">{t("mapSidebar.notifKillsHint")}</div>
 
           {/* Volume for everything the app makes a sound with: the generated
               chimes AND the spoken announcer in the section below. The chimes
@@ -1861,6 +2000,18 @@ export function MapSidebar() {
           </CollapsibleSection>
         )}
 
+        {canViewAudit && auditMapId && (
+          <CollapsibleSection
+            title={t("mapSidebar.sections.auditLog")}
+            {...sectionProps("auditLog")}
+          >
+            <div className="map-sidebar__hint">{t("audit.sidebarHint")}</div>
+            <button type="button" className="map-sidebar__action" onClick={() => setAuditOpen(true)}>
+              {t("audit.open")}
+            </button>
+          </CollapsibleSection>
+        )}
+
       </div>
 
       <input
@@ -1901,6 +2052,11 @@ export function MapSidebar() {
 
       {patchNotesOpen && <PatchNotesModal onClose={() => setPatchNotesOpen(false)} />}
 
+      {auditOpen && auditMapId && createPortal(
+        <MapAuditModal mapId={auditMapId} mapName={auditMapName} onClose={() => setAuditOpen(false)} />,
+        document.body,
+      )}
+
       {tripwireOpen && (
         <TripwireImportModal onImport={handleImportTripwire} onClose={() => setTripwireOpen(false)} />
       )}
@@ -1934,6 +2090,15 @@ export function MapSidebar() {
                       {snapToGrid ? t("actions.on") : t("actions.off")}
                     </button>
                   </div>
+                  {snapToGrid && (
+                    <div className="map-sidebar__row">
+                      <label className="map-sidebar__label" htmlFor="snap-grid-style">{t("mapSidebar.gridStyle")}</label>
+                      <Select id="snap-grid-style" value={snapGridStyle} onChange={(v) => setSnapGridStyle(v as "lines" | "dots")} options={[
+                        { value: "lines", label: t("mapSidebar.gridStyleLines") },
+                        { value: "dots", label: t("mapSidebar.gridStyleDots") },
+                      ]} />
+                    </div>
+                  )}
                   <div className="map-sidebar__row">
                     <label className="map-sidebar__label">{t("mapSidebar.minimap")}</label>
                     <button className={`toolbar__toggle${showMinimap ? " toolbar__toggle--on" : ""}`} onClick={() => setShowMinimap(!showMinimap)} aria-pressed={showMinimap}>
@@ -1989,6 +2154,32 @@ export function MapSidebar() {
                       { value: "tritanopia", label: t("mapSidebar.colorVisionOptions.tritanopia") },
                     ]} />
                   </div>
+                  {([
+                    ["home-color", "mapSidebar.homeColor", homeColor, setHomeColor, HOME_COLOR_DEFAULT],
+                    ["here-color", "mapSidebar.hereColor", hereColor, setHereColor, HERE_COLOR_DEFAULT],
+                  ] as const).map(([id, label, value, set, def]) => {
+                    const color = safeColor(value, def);
+                    return (
+                      <div key={id} className="map-sidebar__row">
+                        <label className="map-sidebar__label" htmlFor={id}>{t(label)}</label>
+                        <div className="map-sidebar__color">
+                          {color !== def && (
+                            <button type="button" className="map-sidebar__zoom-value" onClick={() => set(def)}>
+                              {t("mapSidebar.resetColor")}
+                            </button>
+                          )}
+                          <label className="map-sidebar__swatch" style={{ background: color }}>
+                            <input id={id} type="color" value={color} onChange={(e) => set(e.target.value)} />
+                          </label>
+                        </div>
+                      </div>
+                    );
+                  })}
+                  <div className="map-sidebar__row">
+                    <label className="map-sidebar__label" htmlFor="here-pulse">{t("mapSidebar.herePulse")}</label>
+                    <Select id="here-pulse" value={normalisePulse(herePulse)} onChange={(v) => setHerePulse(v)}
+                      options={HERE_PULSES.map((p) => ({ value: p, label: t(`mapSidebar.herePulseOptions.${p}`) }))} />
+                  </div>
                 </>
               )}
 
@@ -2004,6 +2195,13 @@ export function MapSidebar() {
                       <li key={b.token}><code>{b.token}</code> - {b.desc}</li>
                     ))}
                   </ul>
+                  <div className="map-sidebar__field">
+                    <label className="map-sidebar__label" htmlFor="k162-bookmark-fmt">{t("mapSidebar.k162Bookmark")}</label>
+                    <input id="k162-bookmark-fmt" className="map-sidebar__select map-sidebar__select--full" type="text" spellCheck={false} value={k162BookmarkFmt} onChange={(e) => setK162BookmarkFmt(e.target.value)} placeholder={t("mapSidebar.k162BookmarkPlaceholder")} />
+                  </div>
+                  <p className="map-sidebar__help">{t("mapSidebar.k162BookmarkHelp")}</p>
+                  <SettingToggle settingKey={COPY_BOOKMARK_ON_JUMP} label={t("mapSidebar.copyBookmarkOnJump")} />
+                  <p className="map-sidebar__help">{t("mapSidebar.copyBookmarkOnJumpHelp")}</p>
                   <div className="map-sidebar__field">
                     <label className="map-sidebar__label" htmlFor="site-bookmark-fmt">{t("mapSidebar.siteBookmark")}</label>
                     <input id="site-bookmark-fmt" className="map-sidebar__select map-sidebar__select--full" type="text" spellCheck={false} value={siteBookmarkFmt} onChange={(e) => setSiteBookmarkFmt(e.target.value)} placeholder={DEFAULT_SITE_BOOKMARK_FORMAT} />

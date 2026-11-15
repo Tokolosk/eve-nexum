@@ -6,6 +6,25 @@ import { readFileSync } from 'node:fs'
 // without an API round-trip. Kept in sync with the server (both bumped together).
 const APP_VERSION = (JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')) as { version?: string }).version ?? '0.0.0'
 
+// Unique per build, unlike APP_VERSION (a silent deploy keeps the version). The
+// build also publishes it as /version.json, which open tabs poll to notice a
+// newer deploy and offer a reload (src/utils/updateCheck.ts).
+const BUILD_ID = Date.now().toString(36)
+
+function versionFilePlugin(): PluginOption {
+  return {
+    name: 'version-file',
+    apply: 'build',
+    generateBundle() {
+      this.emitFile({
+        type: 'asset',
+        fileName: 'version.json',
+        source: JSON.stringify({ version: APP_VERSION, build: BUILD_ID }),
+      })
+    },
+  }
+}
+
 // Inject the Google Tag Manager snippet at build time, but ONLY when a
 // container ID is provided via VITE_GTM_ID. With no ID (the default, and what
 // every self-hoster gets), nothing is injected — so a deployment never loads
@@ -45,8 +64,8 @@ export default defineConfig(({ mode }) => {
   const gtmId = (env.VITE_GTM_ID ?? process.env.VITE_GTM_ID ?? '').trim()
 
   return {
-    define: { __APP_VERSION__: JSON.stringify(APP_VERSION) },
-    plugins: [react(), gtmPlugin(gtmId)],
+    define: { __APP_VERSION__: JSON.stringify(APP_VERSION), __BUILD_ID__: JSON.stringify(BUILD_ID) },
+    plugins: [react(), gtmPlugin(gtmId), versionFilePlugin()],
     // kokoro-js pulls @huggingface/transformers (ONNX runtime + wasm + import.meta.url
     // + node-only fallbacks). Skip esbuild pre-bundling so Vite resolves its browser
     // build and dynamic wasm/model loading correctly; it's dynamically imported, so
@@ -66,7 +85,11 @@ export default defineConfig(({ mode }) => {
             if (id.includes('@phosphor-icons')) return 'phosphor';
             if (id.includes('@xyflow') || id.includes('@dnd-kit')) return 'xyflow';
             if (id.includes('chart.js')) return 'chartjs';
-            if (id.includes('/src/i18n/locales/')) return 'locales';
+            // No manual chunk for locales: each non-English file is its own
+            // dynamic import (see i18n/index.ts) and naming them all 'locales'
+            // would glue them back into one eager chunk, which is what this
+            // used to do -- 339K gzipped of nine languages for the one being
+            // read. English is static and lands in the entry.
           },
         },
       },

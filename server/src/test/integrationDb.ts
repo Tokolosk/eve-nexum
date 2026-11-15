@@ -3,9 +3,10 @@
 // and provides truncate + seed helpers. Runs the REAL SQL — nothing here is
 // mocked — so it catches authz bugs that the mocked-db unit tests cannot.
 //
-// If the test DB is unreachable, ensureIntegrationDb() returns false and the
-// suites skip (describe.skipIf) rather than fail — so `yarn test` still runs the
-// unit suites on a machine with no Postgres. CI provides the DB, so they run there.
+// Where the database comes from: CI provides one, and locally the run starts its
+// own throwaway Postgres in Docker when none is reachable (src/test/globalSetup.ts).
+// Only with NEXUM_TEST_DB=skip is there none, and then ensureIntegrationDb()
+// returns false and the suites skip (describe.skipIf) rather than fail.
 import { db } from '../db.js';
 import { migrate } from '../migrate.js';
 
@@ -50,6 +51,26 @@ const SDE_DDL = `
     pos_z            DOUBLE PRECISION,
     pos2d_x          DOUBLE PRECISION,
     pos2d_y          DOUBLE PRECISION
+  );
+  CREATE TABLE IF NOT EXISTS item_categories (
+    id        INTEGER PRIMARY KEY,
+    name      TEXT    NOT NULL,
+    published BOOLEAN NOT NULL DEFAULT false
+  );
+  CREATE TABLE IF NOT EXISTS item_groups (
+    id          INTEGER PRIMARY KEY,
+    name        TEXT    NOT NULL,
+    category_id INTEGER NOT NULL,
+    published   BOOLEAN NOT NULL DEFAULT false
+  );
+  CREATE TABLE IF NOT EXISTS item_types (
+    id          INTEGER  PRIMARY KEY,
+    name        TEXT     NOT NULL,
+    group_id    INTEGER  NOT NULL,
+    mass        NUMERIC,
+    volume      NUMERIC,
+    description TEXT,
+    published   BOOLEAN  NOT NULL DEFAULT false
   );`;
 
 let ready: Promise<boolean> | null = null;
@@ -72,7 +93,7 @@ export function ensureIntegrationDb(): Promise<boolean> {
 }
 
 const TABLES = [
-  'solar_systems', 'map_regions',
+  'solar_systems', 'map_regions', 'item_categories', 'item_groups', 'item_types', 'dscans', 'system_pvp_hours', 'recent_kills', 'system_activity',
   'access_grants', 'app_settings', 'map_shares', 'maps',
   'corp_standings', 'alliance_standings', 'character_standings',
   'standings_refresh', 'entity_names', 'sessions', 'user_events', 'users',

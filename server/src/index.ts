@@ -52,8 +52,15 @@ import { keysRouter } from './routes/keys.js';
 import { apiV1Router } from './routes/apiV1.js';
 import { shareRouter } from './routes/share.js';
 import searchRouter from './routes/search.js';
+import { dscanRouter } from './routes/dscan.js';
+import { startDscanSweeper } from './services/dscan.js';
+import { startMapAuditPruner } from './services/mapAudit.js';
+import { startPvpHistory } from './services/pvpHistory.js';
+import { startKillStore } from './services/killStore.js';
 import { authLimiter, esiLimiter, publicLimiter, appLimiter } from './middleware/rateLimits.js';
 import { originGuard } from './middleware/originGuard.js';
+import { slowRequests } from './middleware/slowRequests.js';
+import { startFreezeDetector } from './services/freezeDetector.js';
 import { createLogger } from './utils/logger.js';
 
 const rootLog = createLogger('http');
@@ -67,6 +74,8 @@ const PORT = process.env.PORT ?? 3001;
 // IP-keyed rate limit is bucketed on.
 app.set('trust proxy', config.trustProxy);
 app.disable('x-powered-by');
+// First, so the time counted includes everything after it (sessions included).
+app.use(slowRequests);
 
 // Default Helmet is safe for a JSON API: HSTS (HTTPS only), nosniff,
 // frameguard=deny, referrer-policy=no-referrer, etc. This server only ever
@@ -87,7 +96,17 @@ app.use(cors({
   origin: process.env.FRONTEND_URL ?? 'http://localhost:5174',
   credentials: true,
 }));
-app.use(express.json({ limit: '2mb' }));
+// inflate: false refuses compressed request bodies (415). Nothing we serve
+// sends them, and body-parser < 1.20.9 can be stalled by trailing bytes after
+// a compressed body (GHSA, Dependabot #58) -- this closes that path outright.
+const jsonBody = express.json({ limit: '2mb', inflate: false });
+// Map import reads its own body, with a larger cap, once the router has
+// checked the session (routes/maps.ts) -- so a big upload is never parsed for
+// someone who isn't signed in.
+app.use((req, res, next) => {
+  if (req.method === 'POST' && req.path === '/api/maps/import') { next(); return; }
+  jsonBody(req, res, next);
+});
 
 // Derive cookie.secure from FRONTEND_URL's protocol rather than NODE_ENV.
 // Tying it to NODE_ENV breaks the common "production build running over plain
@@ -160,8 +179,17 @@ app.use('/api/v1', (req, res, next) => {
   next();
 }, appLimiter, apiV1Router);
 app.use('/api/search',            esiLimiter, searchRouter);
+// D-scan analyser. Public: creating and viewing a scan needs no login (the
+// app limiter keys anonymous callers by IP; creation has its own tighter cap).
+app.use('/api/dscan',             appLimiter, dscanRouter);
 
 app.get('/health', (_req, res) => res.json({ ok: true }));
+
+// Round-trip probe for the toolbar's Nexum latency. Empty and never cached, so
+// the time measured is the network plus Express, nothing else.
+app.get('/api/ping', publicLimiter, (_req, res) => {
+  res.set('Cache-Control', 'no-store').status(204).end();
+});
 
 // Catch-all error middleware. Logs the failure with method+path for triage
 // and returns a generic 500 — stack traces stay in the server logs rather
@@ -174,6 +202,12 @@ app.get('/health', (_req, res) => res.json({ ok: true }));
 app.use((err: Error & { status?: number; type?: string }, req: express.Request, res: express.Response, _next: express.NextFunction) => {
   if (err.type === 'entity.parse.failed') {
     res.status(400).json({ error: 'Invalid JSON body' });
+    return;
+  }
+  // A compressed body, refused by inflate: false above. Expected noise, not
+  // a server fault, so it is answered without logging.
+  if (err.type === 'encoding.unsupported') {
+    res.status(415).json({ error: 'Compressed request bodies are not supported' });
     return;
   }
   rootLog.error(`${req.method} ${req.originalUrl} →`, err);
@@ -204,6 +238,11 @@ migrate()
     startIskDonationPoller();
     startAccessRevalidation();
     startKillFeed();
+    startPvpHistory();
+    startKillStore();
+    startDscanSweeper();
+    startMapAuditPruner();
+    startFreezeDetector();
     void startTelemetry();
   })
   .catch((err) => { console.error('Migration failed:', err); process.exit(1); });

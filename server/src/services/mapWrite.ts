@@ -3,6 +3,7 @@ import { publishToMap } from './mapEvents.js';
 import { syncSignature, syncAnomaly } from './crossMapSync.js';
 import { recordGhostSiteIfMatch } from './ghostSites.js';
 import { createLogger } from '../utils/logger.js';
+import { recordMapAudit, inSystemLabel, type AuditActor, type AuditEntry } from './mapAudit.js';
 
 const log = createLogger('map-write');
 
@@ -20,7 +21,26 @@ export interface WriteActor {
   userId: number;
   /** x-client-id for SSE echo suppression (null for API-key writes). */
   clientId: string | null;
+  /** Who to record in the map's audit log. Absent for writes nobody made by
+   *  hand (cross-map sync, sweeps), which aren't audited. */
+  audit?: AuditActor;
 }
+
+// Audit a content change, labelled by the item and the system it's in.
+function audit(
+  actor: WriteActor, mapId: string, systemId: string, item: string,
+  entry: Omit<AuditEntry, 'subject'>,
+): void {
+  const who = actor.audit;
+  if (!who) return;
+  inSystemLabel(mapId, systemId, item)
+    .then((subject) => recordMapAudit(who, mapId, { ...entry, subject }))
+    .catch(console.error);
+}
+
+// How a signature or anomaly reads in the log: its scan id, else its name.
+const scanLabel = (scanId: string | null | undefined, name: string | null | undefined) =>
+  (scanId && scanId.trim()) || (name && name.trim()) || '';
 
 const bumpActivity = (systemId: string) =>
   db.query(`UPDATE map_systems SET last_activity_at = NOW() WHERE id = $1`, [systemId]).catch(console.error);
@@ -37,45 +57,106 @@ export interface SignatureInput {
   ghostType: string;
   massStatus: string;
   timeStatus: string;
+  /** Set only by the Thera/Turnur copy, to the eve-scout connection id this
+   *  row came from. Null everywhere else, which is what lets the cleanup tell
+   *  "we wrote this" from "a person wrote this". */
+  scoutConnectionId?: string | null;
 }
 
-// A signature carrying nothing at all — no scan id, no name, no notes, no
-// wormhole data. "Add signature" legitimately creates one (an empty row to type
-// into), but they have also been appearing on live maps that nobody added by
-// hand, so log every one with the actor and client that asked for it. clientId
-// is the browser tab's x-client-id and is null for API-key writes, which
-// separates the app from an integration. Diagnostic — remove once the source of
-// the unexplained ones is identified.
-function logIfContentless(mapId: string, systemId: string, d: SignatureInput, actor: WriteActor): void {
-  if (d.sigId || d.name || d.notes || d.whType || d.whLeadsTo) return;
-  log.warn('contentless signature created', JSON.stringify({
-    mapId, systemId, sigType: d.sigType, userId: actor.userId, clientId: actor.clientId,
-  }));
+/** Thrown by updateSignature when the new scan id is already used by another
+ *  signature in the same system. Routes answer it with a 409. */
+export class DuplicateSignatureError extends Error {
+  constructor() { super('A signature with that ID already exists in this system'); }
 }
 
 export async function createSignature(mapId: string, systemId: string, d: SignatureInput, actor: WriteActor) {
-  logIfContentless(mapId, systemId, d, actor);
+  // Returns the creator alongside the row. The client inserts this response
+  // straight into the open pane, and without the character the "added by"
+  // portrait stayed blank until something forced a re-fetch -- which looked
+  // like the row had no author rather than like a missing field.
+  // A CTE rather than a second round trip: the id is only known after the
+  // insert, and the join is on a user we already have the id for.
+  //
+  // The scan id is unique per system (uq_map_signatures_system_sig), so a
+  // create for an id that is already there -- two pilots pasting the same scan
+  // a moment apart -- lands on the existing row instead, filling only its
+  // empty fields (as a paste onto a known sig does) and leaving the author.
+  // `inserted` tells the two apart; xmax is 0 only on a freshly inserted row.
   const { rows } = await db.query(
-    `INSERT INTO map_signatures (system_id, sig_id, sig_type, name, notes, wh_type, wh_leads_to, ghost_type, mass_status, time_status, created_by_user_id)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-     RETURNING id, sig_id AS "sigId", sig_type AS "sigType", name, notes, wh_type AS "whType", wh_leads_to AS "whLeadsTo",
-               ghost_type AS "ghostType", mass_status AS "massStatus", time_status AS "timeStatus",
-               created_at AS "createdAt"`,
+    `WITH ins AS (
+       INSERT INTO map_signatures (system_id, sig_id, sig_type, name, notes, wh_type, wh_leads_to, ghost_type, mass_status, time_status, created_by_user_id,
+                                   scout_connection_id, scout_last_seen)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11,
+               $12, CASE WHEN $12::text IS NULL THEN NULL ELSE NOW() END)
+       ON CONFLICT (system_id, UPPER(sig_id)) WHERE sig_id <> '' DO UPDATE SET
+         sig_type    = CASE WHEN map_signatures.sig_type    = 'unknown' THEN EXCLUDED.sig_type    ELSE map_signatures.sig_type    END,
+         name        = CASE WHEN map_signatures.name        = ''        THEN EXCLUDED.name        ELSE map_signatures.name        END,
+         notes       = CASE WHEN map_signatures.notes       = ''        THEN EXCLUDED.notes       ELSE map_signatures.notes       END,
+         wh_type     = CASE WHEN map_signatures.wh_type     = ''        THEN EXCLUDED.wh_type     ELSE map_signatures.wh_type     END,
+         wh_leads_to = CASE WHEN map_signatures.wh_leads_to = ''        THEN EXCLUDED.wh_leads_to ELSE map_signatures.wh_leads_to END,
+         ghost_type  = CASE WHEN map_signatures.ghost_type  = ''        THEN EXCLUDED.ghost_type  ELSE map_signatures.ghost_type  END,
+         mass_status = CASE WHEN map_signatures.mass_status = ''        THEN EXCLUDED.mass_status ELSE map_signatures.mass_status END,
+         time_status = CASE WHEN map_signatures.time_status = ''        THEN EXCLUDED.time_status ELSE map_signatures.time_status END,
+         updated_at  = NOW()
+       RETURNING *, (xmax = 0) AS inserted
+     )
+     SELECT ins.inserted, ins.id, ins.sig_id AS "sigId", ins.sig_type AS "sigType", ins.name, ins.notes,
+            ins.wh_type AS "whType", ins.wh_leads_to AS "whLeadsTo",
+            ins.ghost_type AS "ghostType", ins.mass_status AS "massStatus",
+            ins.time_status AS "timeStatus", ins.created_at AS "createdAt",
+            u.character_name AS "createdByName", u.character_id AS "createdByCharId"
+       FROM ins LEFT JOIN users u ON u.id = ins.created_by_user_id`,
     [systemId, d.sigId, d.sigType, d.name, d.notes, d.whType, d.whLeadsTo, d.ghostType,
-     d.massStatus, d.timeStatus, actor.userId],
+     d.massStatus, d.timeStatus, actor.userId, d.scoutConnectionId ?? null],
   );
-  db.query(`INSERT INTO user_events (user_id, event_type, sig_type) VALUES ($1, 'signature', $2)`,
-    [actor.userId, d.sigType]).catch(console.error);
+  const { inserted, ...row } = rows[0] as { inserted: boolean } & Record<string, unknown> & { id: string };
+  // Scan stats count signatures found, so a create that merged into an
+  // existing row isn't another one -- but the merge may have given an unknown
+  // sig its type.
+  if (inserted) {
+    db.query(`INSERT INTO user_events (user_id, event_type, sig_type, signature_id) VALUES ($1, 'signature', $2, $3)`,
+      [actor.userId, d.sigType, row.id]).catch(console.error);
+  } else {
+    resolveScanType(row.id, row.sigType);
+  }
   bumpActivity(systemId);
   recordGhostSiteIfMatch(systemId, d.name);
   publishToMap(mapId, { type: 'sig.changed', actor: actor.clientId, systemId });
-  syncSignature(mapId, systemId, rows[0].id, actor.userId);
-  return rows[0];
+  syncSignature(mapId, systemId, row.id, actor.userId);
+  if (inserted) {
+    audit(actor, mapId, systemId, scanLabel(d.sigId, d.name), {
+      action: 'signature.add', targetId: row.id, details: { values: { sigType: d.sigType, whType: d.whType || undefined } },
+    });
+  }
+  return { row, inserted };
 }
+
+/**
+ * Give a sig's scan-stats event its type once the sig has one. The event is
+ * logged when the sig is first created, so a sig pasted as unknown and typed
+ * afterwards -- by hand, or by a later paste filling it in -- counted in the
+ * stats with no type. Only an unknown event changes: the count stays the same
+ * and the pilot who scanned it keeps the credit.
+ */
+function resolveScanType(sigRowId: string, sigType: unknown): void {
+  if (typeof sigType !== 'string' || !sigType || sigType === 'unknown') return;
+  db.query(
+    `UPDATE user_events SET sig_type = $2
+      WHERE signature_id = $1 AND event_type = 'signature' AND (sig_type IS NULL OR sig_type IN ('', 'unknown'))`,
+    [sigRowId, sigType],
+  ).catch(console.error);
+}
+
+// Signature fields whose new value goes in the audit entry (short codes);
+// names and notes are listed by name only.
+const AUDITED_SIG_VALUES = new Set(['sigId', 'sigType', 'whType', 'whLeadsTo', 'massStatus', 'timeStatus']);
 
 const SIG_COLS: Record<string, string> = {
   sigId: 'sig_id', sigType: 'sig_type', name: 'name', notes: 'notes', whType: 'wh_type', whLeadsTo: 'wh_leads_to',
   ghostType: 'ghost_type', massStatus: 'mass_status', timeStatus: 'time_status',
+  // Re-copying a hole that is still listed refreshes both, which is what keeps
+  // the grace period meaningful: scout_last_seen is "the feed still had it".
+  scoutConnectionId: 'scout_connection_id',
 };
 
 // Updates the signature and returns flags the route uses to drive the K162
@@ -94,8 +175,9 @@ export async function updateSignature(
 
   // The other way a blank row can appear: an existing signature's scan id being
   // cleared. Only the ID input writes this, on every keystroke, so a legitimate
-  // retype logs one line — worth the noise while the unexplained blanks are
-  // being traced. Diagnostic, paired with logIfContentless above.
+  // retype logs one line. The empty "Add signature" rows are explained (they're
+  // local drafts now), but a few blanks had no add in the audit log; this stays
+  // until those are accounted for. Diagnostic.
   if ('sigId' in updates && !updates.sigId) {
     log.warn('signature scan id cleared', JSON.stringify({
       mapId, systemId, sigRowId: sigId, userId: actor.userId, clientId: actor.clientId,
@@ -107,24 +189,161 @@ export async function updateSignature(
   for (const [key, col] of Object.entries(SIG_COLS)) {
     if (key in updates) { sets.push(`${col} = $${vals.length + 1}`); vals.push(updates[key]); }
   }
-  await db.query(
-    `UPDATE map_signatures SET ${sets.join(', ')} WHERE id = $${vals.length + 1} AND system_id = $${vals.length + 2} AND ${inThisMap(vals.length + 3)}`,
-    [...vals, sigId, systemId, mapId],
-  );
+  // Writing the provenance also stamps when the feed last confirmed the hole.
+  // Kept here rather than in SIG_COLS because the value is NOW(), not
+  // something the caller supplies.
+  if ('scoutConnectionId' in updates && updates.scoutConnectionId != null) {
+    sets.push('scout_last_seen = NOW()');
+  }
+  let updated: { sigId: string; name: string }[];
+  try {
+    ({ rows: updated } = await db.query<{ sigId: string; name: string }>(
+      `UPDATE map_signatures SET ${sets.join(', ')} WHERE id = $${vals.length + 1} AND system_id = $${vals.length + 2} AND ${inThisMap(vals.length + 3)}
+       RETURNING sig_id AS "sigId", name`,
+      [...vals, sigId, systemId, mapId],
+    ));
+  } catch (err) {
+    const e = err as { code?: string; constraint?: string };
+    if (e.code === '23505' && e.constraint === 'uq_map_signatures_system_sig') throw new DuplicateSignatureError();
+    throw err;
+  }
   bumpActivity(systemId);
+  if (updated.length) resolveScanType(sigId, updates.sigType);
   if (typeof updates.name === 'string') recordGhostSiteIfMatch(systemId, updates.name);
   publishToMap(mapId, { type: 'sig.changed', actor: actor.clientId, systemId });
   syncSignature(mapId, systemId, sigId, actor.userId);
+  const changed = Object.keys(updates).filter((k) => k in SIG_COLS && k !== 'scoutConnectionId');
+  if (updated.length && changed.length) {
+    const values: Record<string, unknown> = {};
+    for (const k of changed) if (AUDITED_SIG_VALUES.has(k)) values[k] = updates[k];
+    audit(actor, mapId, systemId, scanLabel(updated[0].sigId, updated[0].name), {
+      action: 'signature.update', targetId: sigId, details: { fields: changed, values },
+    });
+  }
   return {
     dispatchK162: settingK162 && !prevWasK162,
     flushK162: typeof updates.whLeadsTo === 'string' && updates.whLeadsTo.trim().length > 0,
   };
 }
 
+export interface DeletedSig { sigId: string; name: string; whType: string; whLeadsTo: string }
+export interface LinkRow {
+  id: string; sourceId: string; type: string | null;
+  sourceSigId: string | null; targetSigId: string | null;
+  otherName: string; otherClass: string;
+}
+
+/**
+ * The wormhole links a just-deleted sig was holding open, which nothing left in
+ * the system still holds. Same rules as the client's reevaluate on delete
+ * (utils/whAutoDetect.ts):
+ *  - a sig tied to the link (its backing signature, or pinned to the connected
+ *    system by name, typed or not) breaks it unless another sig is pinned there
+ *    by name;
+ *  - otherwise a sig whose type labels the link and whose leads-to points at the
+ *    other end breaks it, unless the link is still tied to a sig here: its
+ *    backing signature is another sig that's still present, or a remaining sig
+ *    is pinned to the other end by name.
+ *
+ * A remaining sig that only leads to the other end's CLASS doesn't hold it. That
+ * is a different hole: an overwrite paste brings today's H296 -> C5 in as it
+ * removes yesterday's, and the new one kept every old H296 link to a C5 live.
+ *
+ * `alsoGone` lists other sig row ids deleted in the same pass (the sweep), so a
+ * link backed by one of those doesn't count as still tied.
+ */
+export function linksLeftOrphaned(
+  systemId: string, sigId: string, deleted: DeletedSig, links: LinkRow[], remaining: DeletedSig[],
+  alsoGone: ReadonlySet<string> = new Set(),
+): string[] {
+  const oldType = deleted.whType.toUpperCase();
+  const oldLeads = deleted.whLeadsTo.toUpperCase();
+  const out: string[] = [];
+  for (const c of links) {
+    const on = c.otherName.toUpperCase();
+    const oc = c.otherClass.toUpperCase();
+    const leadsHere = (s: DeletedSig) => {
+      const l = s.whLeadsTo.toUpperCase();
+      return !!s.whType && !!l && (l === on || l === oc);
+    };
+    const endSig = c.sourceId === systemId ? c.sourceSigId : c.targetSigId;
+    // Pinned by name counts with or without a type: a jump pins the hole it
+    // used to the arrival system before anyone has scanned its code.
+    const tiedOld = endSig === sigId || (!!on && oldLeads === on);
+    if (tiedOld) {
+      if (!remaining.some((s) => !!on && s.whLeadsTo.toUpperCase() === on)) out.push(c.id);
+      continue;
+    }
+    const labelledByOld = leadsHere(deleted) && !!c.type && c.type.toUpperCase() === oldType;
+    if (!labelledByOld) continue;
+    const backedByOther = !!endSig && !alsoGone.has(endSig);
+    const pinnedHere = remaining.some((s) => !!on && s.whLeadsTo.toUpperCase() === on);
+    if (!backedByOther && !pinnedHere) out.push(c.id);
+  }
+  return out;
+}
+
+/**
+ * Delete a sig and quarantine (mark broken) any wormhole link it was holding.
+ *
+ * This used to be left to the browser, which only checked when the sig pane
+ * was showing that system as the delete landed. An overwrite paste deletes
+ * after a grace period, by which time the pilot has usually jumped on and the
+ * pane has followed them, so the link stayed live, was never stamped broken,
+ * and the broken-link cleanup never removed it. Doing it here, in the same
+ * transaction, catches every delete path.
+ */
 export async function deleteSignature(mapId: string, systemId: string, sigId: string, actor: WriteActor): Promise<void> {
-  await db.query(`DELETE FROM map_signatures WHERE id = $1 AND system_id = $2 AND ${inThisMap(3)}`, [sigId, systemId, mapId]);
+  const client = await db.connect();
+  let deleted: DeletedSig | undefined;
+  let brokenIds: string[] = [];
+  try {
+    await client.query('BEGIN');
+    // Read the links before the delete: their signature ids are ON DELETE SET
+    // NULL, so afterwards we couldn't tell which ones this sig was backing.
+    const links = await client.query<LinkRow>(
+      `SELECT c.id, c.source_id AS "sourceId", c.wh_type AS "type",
+              c.source_signature_id AS "sourceSigId", c.target_signature_id AS "targetSigId",
+              COALESCE(o.name, '') AS "otherName", COALESCE(o.system_class, '') AS "otherClass"
+         FROM map_connections c
+         JOIN map_systems o ON o.id = CASE WHEN c.source_id = $1 THEN c.target_id ELSE c.source_id END
+        WHERE c.map_id = $2 AND (c.source_id = $1 OR c.target_id = $1)
+          AND c.connection_type = 'standard' AND c.broken = FALSE`,
+      [systemId, mapId],
+    );
+    const { rows } = await client.query<DeletedSig>(
+      `DELETE FROM map_signatures WHERE id = $1 AND system_id = $2 AND ${inThisMap(3)}
+       RETURNING sig_id AS "sigId", name, COALESCE(wh_type, '') AS "whType", COALESCE(wh_leads_to, '') AS "whLeadsTo"`,
+      [sigId, systemId, mapId],
+    );
+    deleted = rows[0];
+    if (deleted && links.rows.length) {
+      const remaining = await client.query<DeletedSig>(
+        `SELECT sig_id AS "sigId", name, COALESCE(wh_type, '') AS "whType", COALESCE(wh_leads_to, '') AS "whLeadsTo"
+           FROM map_signatures WHERE system_id = $1`,
+        [systemId],
+      );
+      brokenIds = linksLeftOrphaned(systemId, sigId, deleted, links.rows, remaining.rows);
+      if (brokenIds.length) {
+        await client.query(
+          `UPDATE map_connections SET broken = TRUE, broken_at = NOW() WHERE id = ANY($1::uuid[])`, [brokenIds]);
+      }
+    }
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
   bumpActivity(systemId);
   publishToMap(mapId, { type: 'sig.changed', actor: actor.clientId, systemId });
+  // actor null so every client applies it, the one that deleted the sig too:
+  // its own pane may be showing another system and not have broken the link.
+  for (const id of brokenIds) {
+    publishToMap(mapId, { type: 'connection.update', actor: null, id, updates: { broken: true } });
+  }
+  if (deleted) audit(actor, mapId, systemId, scanLabel(deleted.sigId, deleted.name), { action: 'signature.remove', targetId: sigId });
 }
 
 // ── Anomalies ─────────────────────────────────────────────────────────────────
@@ -141,6 +360,7 @@ export async function createAnomaly(mapId: string, systemId: string, d: AnomalyI
   bumpActivity(systemId);
   publishToMap(mapId, { type: 'anom.changed', actor: actor.clientId, systemId });
   syncAnomaly(mapId, systemId, rows[0].id, actor.userId);
+  audit(actor, mapId, systemId, scanLabel(d.anomId, d.name), { action: 'anomaly.add', targetId: rows[0].id });
   return rows[0];
 }
 
@@ -154,19 +374,30 @@ export async function updateAnomaly(
   for (const [key, col] of Object.entries(ANOM_COLS)) {
     if (key in updates) { sets.push(`${col} = $${vals.length + 1}`); vals.push(updates[key]); }
   }
-  await db.query(
-    `UPDATE map_anomalies SET ${sets.join(', ')} WHERE id = $${vals.length + 1} AND system_id = $${vals.length + 2} AND ${inThisMap(vals.length + 3)}`,
+  const { rows } = await db.query<{ anomId: string; name: string }>(
+    `UPDATE map_anomalies SET ${sets.join(', ')} WHERE id = $${vals.length + 1} AND system_id = $${vals.length + 2} AND ${inThisMap(vals.length + 3)}
+     RETURNING anom_id AS "anomId", name`,
     [...vals, anomId, systemId, mapId],
   );
   bumpActivity(systemId);
   publishToMap(mapId, { type: 'anom.changed', actor: actor.clientId, systemId });
   syncAnomaly(mapId, systemId, anomId, actor.userId);
+  const changed = Object.keys(updates).filter((k) => k in ANOM_COLS);
+  if (rows.length && changed.length) {
+    audit(actor, mapId, systemId, scanLabel(rows[0].anomId, rows[0].name), {
+      action: 'anomaly.update', targetId: anomId, details: { fields: changed },
+    });
+  }
 }
 
 export async function deleteAnomaly(mapId: string, systemId: string, anomId: string, actor: WriteActor): Promise<void> {
-  await db.query(`DELETE FROM map_anomalies WHERE id = $1 AND system_id = $2 AND ${inThisMap(3)}`, [anomId, systemId, mapId]);
+  const { rows } = await db.query<{ anomId: string; name: string }>(
+    `DELETE FROM map_anomalies WHERE id = $1 AND system_id = $2 AND ${inThisMap(3)} RETURNING anom_id AS "anomId", name`,
+    [anomId, systemId, mapId],
+  );
   bumpActivity(systemId);
   publishToMap(mapId, { type: 'anom.changed', actor: actor.clientId, systemId });
+  if (rows.length) audit(actor, mapId, systemId, scanLabel(rows[0].anomId, rows[0].name), { action: 'anomaly.remove', targetId: anomId });
 }
 
 // ── Structures ────────────────────────────────────────────────────────────────
@@ -186,6 +417,7 @@ export async function createStructure(mapId: string, systemId: string, d: Struct
     [systemId, d.name, d.structureType, d.ownerCorp, d.eveId, d.notes, actor.userId, d.ownerCorpId],
   );
   publishToMap(mapId, { type: 'structure.changed', actor: actor.clientId, systemId });
+  audit(actor, mapId, systemId, d.name || d.structureType, { action: 'structure.add', targetId: rows[0].id });
   return rows[0];
 }
 
@@ -201,14 +433,25 @@ export async function updateStructure(
   for (const [key, col] of Object.entries(STRUCT_COLS)) {
     if (key in updates) { sets.push(`${col} = $${vals.length + 1}`); vals.push(updates[key]); }
   }
-  await db.query(
-    `UPDATE map_structures SET ${sets.join(', ')} WHERE id = $${vals.length + 1} AND system_id = $${vals.length + 2} AND ${inThisMap(vals.length + 3)}`,
+  const { rows } = await db.query<{ name: string; structureType: string }>(
+    `UPDATE map_structures SET ${sets.join(', ')} WHERE id = $${vals.length + 1} AND system_id = $${vals.length + 2} AND ${inThisMap(vals.length + 3)}
+     RETURNING name, structure_type AS "structureType"`,
     [...vals, structureId, systemId, mapId],
   );
   publishToMap(mapId, { type: 'structure.changed', actor: actor.clientId, systemId });
+  const changed = Object.keys(updates).filter((k) => k in STRUCT_COLS);
+  if (rows.length && changed.length) {
+    audit(actor, mapId, systemId, rows[0].name || rows[0].structureType, {
+      action: 'structure.update', targetId: structureId, details: { fields: changed },
+    });
+  }
 }
 
 export async function deleteStructure(mapId: string, systemId: string, structureId: string, actor: WriteActor): Promise<void> {
-  await db.query(`DELETE FROM map_structures WHERE id = $1 AND system_id = $2 AND ${inThisMap(3)}`, [structureId, systemId, mapId]);
+  const { rows } = await db.query<{ name: string; structureType: string }>(
+    `DELETE FROM map_structures WHERE id = $1 AND system_id = $2 AND ${inThisMap(3)} RETURNING name, structure_type AS "structureType"`,
+    [structureId, systemId, mapId],
+  );
   publishToMap(mapId, { type: 'structure.changed', actor: actor.clientId, systemId });
+  if (rows.length) audit(actor, mapId, systemId, rows[0].name || rows[0].structureType, { action: 'structure.remove', targetId: structureId });
 }

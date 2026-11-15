@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { formatBookmarkName, DEFAULT_BOOKMARK_FORMAT } from './signatureBookmark';
+import { formatBookmarkName, DEFAULT_BOOKMARK_FORMAT, wormholeBookmarkFormat } from './signatureBookmark';
 import type { Signature } from '../types';
 
 const sig = (over: Partial<Signature> = {}): Signature => ({
@@ -57,5 +57,51 @@ describe('formatBookmarkName {dest_type}', () => {
     expect(formatBookmarkName(DEFAULT_BOOKMARK_FORMAT, before, WH_TYPES)).toBe('ABC-123 C1-C3');
     expect(formatBookmarkName(DEFAULT_BOOKMARK_FORMAT, after, WH_TYPES, Date.now(), () => 'C3'))
       .toBe('ABC-123 C3');
+  });
+});
+
+describe('formatBookmarkName {leads_to}', () => {
+  const jumped = sig({ whType: 'K162', whLeadsTo: 'J110555' });
+
+  it('names a pinned system by its alias when it has one', () => {
+    expect(formatBookmarkName('{sig} {leads_to}', jumped, WH_TYPES, Date.now(), undefined,
+      (n) => (n === 'J110555' ? 'Home' : null))).toBe('ABC-123 Home');
+  });
+
+  it('falls back to the system name when there is no alias', () => {
+    expect(formatBookmarkName('{leads_to}', jumped, WH_TYPES, Date.now(), undefined, () => null)).toBe('J110555');
+    expect(formatBookmarkName('{leads_to}', jumped, WH_TYPES, Date.now(), undefined, () => '  ')).toBe('J110555');
+  });
+
+  it('still looks the class up by the real name', () => {
+    const classOf = (n: string) => (n === 'J110555' ? 'C3' : null);
+    expect(formatBookmarkName('{dest_type} {leads_to}', jumped, WH_TYPES, Date.now(), classOf, () => 'Home'))
+      .toBe('C3 Home');
+  });
+});
+
+describe('wormholeBookmarkFormat', () => {
+  const WH = '{sig} {dest_type}';
+  const OUT = 'OUT {sig_letters}';
+
+  it('gives a K162 the K162 format when one is set', () => {
+    expect(wormholeBookmarkFormat({ whType: 'K162' }, null, WH, OUT)).toBe(OUT);
+    expect(wormholeBookmarkFormat({ whType: ' k162 ' }, '', WH, OUT)).toBe(OUT);
+  });
+
+  it('leaves every other hole on the wormhole format', () => {
+    expect(wormholeBookmarkFormat({ whType: 'D382' }, null, WH, OUT)).toBe(WH);
+    expect(wormholeBookmarkFormat({ whType: '' }, null, WH, OUT)).toBe(WH);
+  });
+
+  it('falls back to the wormhole format when the K162 format is empty', () => {
+    expect(wormholeBookmarkFormat({ whType: 'K162' }, null, WH, '')).toBe(WH);
+    expect(wormholeBookmarkFormat({ whType: 'K162' }, null, WH, '   ')).toBe(WH);
+    expect(wormholeBookmarkFormat({ whType: 'K162' }, null, WH, undefined)).toBe(WH);
+  });
+
+  it("lets a map's shared format win for every hole, K162s included", () => {
+    expect(wormholeBookmarkFormat({ whType: 'K162' }, 'MAP {sig}', WH, OUT)).toBe('MAP {sig}');
+    expect(wormholeBookmarkFormat({ whType: 'K162' }, '  ', WH, OUT)).toBe(OUT);
   });
 });

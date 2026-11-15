@@ -219,6 +219,12 @@ export async function migrate() {
     -- nexum.tracking.skipKspace while they are on the map. Only ever set on corp or
     -- alliance maps (personal maps keep the per-user setting). DEFAULT FALSE.
     ALTER TABLE maps ADD COLUMN IF NOT EXISTS skip_kspace BOOLEAN NOT NULL DEFAULT FALSE;
+    -- Corp/alliance maps only: opt this map in to cross-map sync. Sigs and anoms
+    -- scanned here are copied to the same system on the org's other maps that
+    -- also have it on (alliance maps with alliance maps, corp maps with corp
+    -- maps). Set by owner/admins. Personal maps use the per-user
+    -- nexum.crossMapSync setting instead. DEFAULT FALSE.
+    ALTER TABLE maps ADD COLUMN IF NOT EXISTS cross_map_sync BOOLEAN NOT NULL DEFAULT FALSE;
     -- Per-map grace period (hours) a connection stays past its expiry before the
     -- lifetime sweep collapses it (severs + drops its backing sigs) on lazy-removal
     -- maps. 0.5 = 30 min. Editable from the map settings; also applied to the sig
@@ -506,6 +512,21 @@ export async function migrate() {
     -- live signature pane still reads the real table (merged sigs show on the
     -- map, they just don't inflate anyone's numbers).
     ALTER TABLE map_signatures ADD COLUMN IF NOT EXISTS from_merge BOOLEAN NOT NULL DEFAULT FALSE;
+
+    -- Provenance for rows written by the Thera/Turnur copy button, so the same
+    -- button can later clear up after itself without touching anything a
+    -- person made. NULL on every hand-created signature, which is what makes
+    -- manual rows structurally unreachable by that cleanup.
+    --
+    -- scout_last_seen is the last time the feed still listed this hole. The
+    -- cleanup needs "gone for a while", not "gone right now": eve-scout lists
+    -- a hole until somebody reports it collapsed, so a single stale or partial
+    -- read would otherwise delete live holes out of a chain.
+    ALTER TABLE map_signatures  ADD COLUMN IF NOT EXISTS scout_connection_id TEXT;
+    ALTER TABLE map_signatures  ADD COLUMN IF NOT EXISTS scout_last_seen     TIMESTAMPTZ;
+    ALTER TABLE map_connections ADD COLUMN IF NOT EXISTS scout_connection_id TEXT;
+    CREATE INDEX IF NOT EXISTS idx_map_signatures_scout  ON map_signatures  (scout_connection_id) WHERE scout_connection_id IS NOT NULL;
+    CREATE INDEX IF NOT EXISTS idx_map_connections_scout ON map_connections (scout_connection_id) WHERE scout_connection_id IS NOT NULL;
     CREATE OR REPLACE VIEW reportable_signatures AS
       SELECT * FROM map_signatures WHERE from_merge = FALSE;
 
@@ -685,6 +706,12 @@ export async function migrate() {
     -- survive even after the map is force-deleted.
     ALTER TABLE user_events ADD COLUMN IF NOT EXISTS map_id UUID;
 
+    -- The signature a 'signature' event was logged for, so the scan stats can
+    -- take its type once it's known: a sig pasted as unknown and typed later
+    -- otherwise stayed 'unknown' in the stats for good. No FK, same as map_id:
+    -- the event outlives the sig.
+    ALTER TABLE user_events ADD COLUMN IF NOT EXISTS signature_id UUID;
+
     -- Cluster-wide log of K-space systems where a Covert Research Facility
     -- signature ("Ghost site") has been observed. One row per system, with
     -- observation count + first/last seen for spawn-rate analysis. Static
@@ -808,6 +835,7 @@ export async function migrate() {
     CREATE INDEX IF NOT EXISTS idx_map_anomalies_system  ON map_anomalies (system_id);
     CREATE INDEX IF NOT EXISTS idx_map_anomalies_creator ON map_anomalies (created_by_user_id);
     CREATE INDEX IF NOT EXISTS idx_user_events_map         ON user_events (map_id);
+    CREATE INDEX IF NOT EXISTS idx_user_events_signature   ON user_events (signature_id) WHERE signature_id IS NOT NULL;
     CREATE INDEX IF NOT EXISTS idx_maps_corp               ON maps (corp_id);
     CREATE INDEX IF NOT EXISTS idx_maps_alliance           ON maps (alliance_id);
 
@@ -1002,6 +1030,15 @@ export async function migrate() {
     CREATE INDEX IF NOT EXISTS idx_users_owner ON users (owner_id);
     CREATE INDEX IF NOT EXISTS idx_maps_owner  ON maps  (owner_id);
 
+    -- Opt-in: an account's characters share one set of settings (ui_settings
+    -- and the preference columns), kept in step on every write. Off by default,
+    -- so each character keeps its own until the account turns it on.
+    ALTER TABLE owners ADD COLUMN IF NOT EXISTS share_settings BOOLEAN NOT NULL DEFAULT FALSE;
+    -- When this character last changed a setting. updated_at can't stand in for
+    -- it (token refreshes bump that); turning sharing on starts every character
+    -- from the most recently changed one.
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS settings_updated_at TIMESTAMPTZ;
+
     -- Account-scoped API keys for the external read API. A key acts as one
     -- owner (account) with one bound character supplying role/corp context, so
     -- a key request resolves to exactly what that character sees in the app.
@@ -1186,6 +1223,22 @@ export async function migrate() {
     ALTER TABLE alliance_discord_settings ADD COLUMN IF NOT EXISTS notify_k162  BOOLEAN NOT NULL DEFAULT FALSE;
     ALTER TABLE alliance_discord_settings ADD COLUMN IF NOT EXISTS notify_exits BOOLEAN NOT NULL DEFAULT FALSE;
 
+    -- More opt-in pings on the connections webhook: a hole marked end of life,
+    -- and a hole into Thera or Turnur (announced whatever the wormhole filters
+    -- say, since that's the point of asking for them).
+    ALTER TABLE corp_discord_settings     ADD COLUMN IF NOT EXISTS notify_eol   BOOLEAN NOT NULL DEFAULT FALSE;
+    ALTER TABLE corp_discord_settings     ADD COLUMN IF NOT EXISTS notify_thera BOOLEAN NOT NULL DEFAULT FALSE;
+    ALTER TABLE alliance_discord_settings ADD COLUMN IF NOT EXISTS notify_eol   BOOLEAN NOT NULL DEFAULT FALSE;
+    ALTER TABLE alliance_discord_settings ADD COLUMN IF NOT EXISTS notify_thera BOOLEAN NOT NULL DEFAULT FALSE;
+
+    -- Special kills (a capital lost, 1B+ ISK, a dictor/HIC or smartbomb on the
+    -- mail) get their own webhook, so they can go to a channel that pings, and
+    -- ignore kill_min_isk. NULL = off. The kinds default to all four.
+    ALTER TABLE corp_discord_settings     ADD COLUMN IF NOT EXISTS special_kill_webhook TEXT;
+    ALTER TABLE alliance_discord_settings ADD COLUMN IF NOT EXISTS special_kill_webhook TEXT;
+    ALTER TABLE corp_discord_settings     ADD COLUMN IF NOT EXISTS special_kill_kinds TEXT[] NOT NULL DEFAULT '{capital,billion,dictor,smartbomb}';
+    ALTER TABLE alliance_discord_settings ADD COLUMN IF NOT EXISTS special_kill_kinds TEXT[] NOT NULL DEFAULT '{capital,billion,dictor,smartbomb}';
+
     -- When a connection was quarantined. The lazy-removal sweep greys a dead
     -- hole's line out first and deletes it once it has stayed broken this long,
     -- so a wrongly-severed link can still be restored in between.
@@ -1231,6 +1284,181 @@ export async function migrate() {
     -- once it's gone from the feed.
     CREATE INDEX IF NOT EXISTS idx_scout_expired_created
       ON scout_expired (created_at);
+
+    -- One person opting out of a map shared with their whole corp or alliance.
+    --
+    -- A map_shares row targets a character, a corp or an alliance, so an org
+    -- grant is ONE row meaning "everyone in it". There is nothing individual
+    -- to delete, and deleting the row would take the map from every member —
+    -- so leaving one is recorded here instead of touching the grant.
+    --
+    -- Keyed on the OWNER, not the user: personal maps are owner-scoped, so a
+    -- map left on your main stays left when you switch to an alt. Both sides
+    -- cascade — the row is meaningless once either the map or the account is
+    -- gone, and re-sharing a map is not supposed to resurrect an old opt-out.
+    CREATE TABLE IF NOT EXISTS map_share_optouts (
+      map_id     UUID        NOT NULL REFERENCES maps(id)   ON DELETE CASCADE,
+      owner_id   INTEGER     NOT NULL REFERENCES owners(id) ON DELETE CASCADE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (map_id, owner_id)
+    );
+    -- Read per map when the owner asks how many have opted out.
+    CREATE INDEX IF NOT EXISTS idx_map_share_optouts_map
+      ON map_share_optouts (map_id);
+
+    -- One row per scan id per system. Without it two pilots pasting the same
+    -- scan a moment apart (each browser only de-dupes against what it has
+    -- loaded) both create the signature. Blank ids are exempt: "Add signature"
+    -- makes an empty row to type into, and several can be open at once. Case is
+    -- ignored so a hand-typed id can't sit beside the pasted one.
+    --
+    -- Existing duplicates are merged first: the oldest row survives, each of its
+    -- empty fields is filled from the earliest duplicate that has a value,
+    -- connections pointing at a duplicate are re-pointed, then the extras go.
+    -- A no-op once the index exists.
+    DO $migration$
+    BEGIN
+      IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'uq_map_signatures_system_sig') THEN
+        CREATE TEMP TABLE _sig_dups ON COMMIT DROP AS
+        SELECT id AS loser_id, winner_id FROM (
+          SELECT id,
+                 FIRST_VALUE(id) OVER w AS winner_id,
+                 ROW_NUMBER()    OVER w AS rn
+            FROM map_signatures
+           WHERE sig_id <> ''
+          WINDOW w AS (PARTITION BY system_id, UPPER(sig_id) ORDER BY created_at, id)
+        ) ranked
+        WHERE rn > 1;
+
+        UPDATE map_signatures w SET
+            sig_type    = CASE WHEN w.sig_type = 'unknown' THEN COALESCE((
+                            SELECT l.sig_type FROM map_signatures l JOIN _sig_dups d ON d.loser_id = l.id
+                             WHERE d.winner_id = w.id AND l.sig_type <> 'unknown'
+                             ORDER BY l.created_at, l.id LIMIT 1), w.sig_type)
+                          ELSE w.sig_type END,
+            name        = CASE WHEN w.name = '' THEN COALESCE((
+                            SELECT l.name FROM map_signatures l JOIN _sig_dups d ON d.loser_id = l.id
+                             WHERE d.winner_id = w.id AND l.name <> ''
+                             ORDER BY l.created_at, l.id LIMIT 1), w.name)
+                          ELSE w.name END,
+            notes       = CASE WHEN w.notes = '' THEN COALESCE((
+                            SELECT l.notes FROM map_signatures l JOIN _sig_dups d ON d.loser_id = l.id
+                             WHERE d.winner_id = w.id AND l.notes <> ''
+                             ORDER BY l.created_at, l.id LIMIT 1), w.notes)
+                          ELSE w.notes END,
+            wh_type     = CASE WHEN w.wh_type = '' THEN COALESCE((
+                            SELECT l.wh_type FROM map_signatures l JOIN _sig_dups d ON d.loser_id = l.id
+                             WHERE d.winner_id = w.id AND l.wh_type <> ''
+                             ORDER BY l.created_at, l.id LIMIT 1), w.wh_type)
+                          ELSE w.wh_type END,
+            wh_leads_to = CASE WHEN w.wh_leads_to = '' THEN COALESCE((
+                            SELECT l.wh_leads_to FROM map_signatures l JOIN _sig_dups d ON d.loser_id = l.id
+                             WHERE d.winner_id = w.id AND l.wh_leads_to <> ''
+                             ORDER BY l.created_at, l.id LIMIT 1), w.wh_leads_to)
+                          ELSE w.wh_leads_to END,
+            ghost_type  = CASE WHEN w.ghost_type = '' THEN COALESCE((
+                            SELECT l.ghost_type FROM map_signatures l JOIN _sig_dups d ON d.loser_id = l.id
+                             WHERE d.winner_id = w.id AND l.ghost_type <> ''
+                             ORDER BY l.created_at, l.id LIMIT 1), w.ghost_type)
+                          ELSE w.ghost_type END,
+            mass_status = CASE WHEN w.mass_status = '' THEN COALESCE((
+                            SELECT l.mass_status FROM map_signatures l JOIN _sig_dups d ON d.loser_id = l.id
+                             WHERE d.winner_id = w.id AND l.mass_status <> ''
+                             ORDER BY l.created_at, l.id LIMIT 1), w.mass_status)
+                          ELSE w.mass_status END,
+            time_status = CASE WHEN w.time_status = '' THEN COALESCE((
+                            SELECT l.time_status FROM map_signatures l JOIN _sig_dups d ON d.loser_id = l.id
+                             WHERE d.winner_id = w.id AND l.time_status <> ''
+                             ORDER BY l.created_at, l.id LIMIT 1), w.time_status)
+                          ELSE w.time_status END,
+            updated_at  = NOW()
+         WHERE w.id IN (SELECT winner_id FROM _sig_dups);
+
+        UPDATE map_connections SET source_signature_id = d.winner_id
+          FROM _sig_dups d WHERE source_signature_id = d.loser_id;
+        UPDATE map_connections SET target_signature_id = d.winner_id
+          FROM _sig_dups d WHERE target_signature_id = d.loser_id;
+
+        DELETE FROM map_signatures WHERE id IN (SELECT loser_id FROM _sig_dups);
+
+        CREATE UNIQUE INDEX uq_map_signatures_system_sig
+          ON map_signatures (system_id, UPPER(sig_id)) WHERE sig_id <> '';
+      END IF;
+    END
+    $migration$;
+
+    -- D-scan / local-scan analyser results. Public by unguessable id, kept a day
+    -- (services/dscan.ts sweeps expired rows hourly). A logged-in pilot can pin
+    -- one to a system on a map; the pin is by EVE system id so it survives the
+    -- system being removed and re-added, and is dropped (not the scan) if the
+    -- map goes.
+    CREATE TABLE IF NOT EXISTS dscans (
+      id            TEXT        PRIMARY KEY,
+      kind          TEXT        NOT NULL,
+      data          JSONB       NOT NULL,
+      summary       JSONB       NOT NULL,
+      created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      expires_at    TIMESTAMPTZ NOT NULL,
+      created_by    INTEGER,
+      map_id        UUID        REFERENCES maps(id) ON DELETE SET NULL,
+      eve_system_id INTEGER
+    );
+    CREATE INDEX IF NOT EXISTS idx_dscans_expires ON dscans (expires_at);
+    CREATE INDEX IF NOT EXISTS idx_dscans_map_system
+      ON dscans (map_id, eve_system_id, created_at DESC) WHERE map_id IS NOT NULL;
+
+    -- Player kills per system per UTC hour, from the live kill feed, kept 90
+    -- days (services/pvpHistory.ts) for the system panel's PvP forecast.
+    CREATE TABLE IF NOT EXISTS system_pvp_hours (
+      eve_system_id INTEGER     NOT NULL,
+      hour          TIMESTAMPTZ NOT NULL,
+      kills         INTEGER     NOT NULL,
+      PRIMARY KEY (eve_system_id, hour)
+    );
+    CREATE INDEX IF NOT EXISTS idx_system_pvp_hours_hour ON system_pvp_hours (hour);
+
+    -- The last week of kills from the live feed (services/killStore.ts), for
+    -- the killboard's whole-map view and its 1h / 24h / 7d windows.
+    CREATE TABLE IF NOT EXISTS recent_kills (
+      killmail_id           BIGINT           PRIMARY KEY,
+      eve_system_id         INTEGER          NOT NULL,
+      killed_at             TIMESTAMPTZ      NOT NULL,
+      ship_type_id          INTEGER          NOT NULL DEFAULT 0,
+      total_value           DOUBLE PRECISION NOT NULL DEFAULT 0,
+      victim_character_id   INTEGER,
+      victim_corporation_id INTEGER,
+      victim_alliance_id    INTEGER,
+      fb_character_id       INTEGER,
+      fb_corporation_id     INTEGER,
+      fb_alliance_id        INTEGER,
+      fb_ship_type_id       INTEGER          NOT NULL DEFAULT 0,
+      attacker_count        INTEGER          NOT NULL DEFAULT 0,
+      solo                  BOOLEAN          NOT NULL DEFAULT FALSE,
+      npc                   BOOLEAN          NOT NULL DEFAULT FALSE,
+      tags                  TEXT[]           NOT NULL DEFAULT '{}'
+    );
+    CREATE INDEX IF NOT EXISTS idx_recent_kills_system_time ON recent_kills (eve_system_id, killed_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_recent_kills_time ON recent_kills (killed_at);
+
+    -- Per-map audit log (services/mapAudit.ts): who changed what on a map, kept
+    -- 30 days. The actor's character and the subject are stored as text at the
+    -- time, so an entry still reads correctly after the character leaves or the
+    -- system/connection is deleted. Goes with the map.
+    CREATE TABLE IF NOT EXISTS map_audit (
+      id             BIGSERIAL   PRIMARY KEY,
+      map_id         UUID        NOT NULL REFERENCES maps(id) ON DELETE CASCADE,
+      user_id        INTEGER     REFERENCES users(id) ON DELETE SET NULL,
+      character_id   BIGINT,
+      character_name TEXT,
+      via_api        BOOLEAN     NOT NULL DEFAULT FALSE,
+      action         TEXT        NOT NULL,
+      target_id      TEXT,
+      subject        TEXT,
+      details        JSONB,
+      created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_map_audit_map_time ON map_audit (map_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_map_audit_time ON map_audit (created_at);
   `);
 
   await encryptLegacyTokens();

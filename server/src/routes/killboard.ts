@@ -4,12 +4,16 @@ import { createLogger } from '../utils/logger.js';
 import { TtlCache } from '../utils/cache.js';
 import { resolveEntityNames } from '../services/entityNames.js';
 import { esiFetch } from '../utils/esi.js';
+import { ZKB_AGENT, zkillPaused, noteZkillFailure } from '../utils/zkill.js';
+import { recentKillsForSystems, type BufferedKill } from '../services/killBuffer.js';
+import { killsInSystems } from '../services/killStore.js';
+import { tagsFor, loadGroups, attackerTypeIds, type KillTag } from '../services/killTags.js';
+import { resolveSystemMeta } from '../services/killFeed.js';
 
 const router = Router();
 router.use(optionalAuth);
 const log = createLogger('killboard');
 
-const ZKB_AGENT    = 'Eve-Nexum/1.0 (https://github.com/GQuantrill/eve-nexum; gq@area404.org)';
 const CACHE_TTL_MS = 90 * 1000; // fresher REST half now that the live feed covers the newest kills
 const FETCH_TIMEOUT_MS = 8_000;
 
@@ -20,6 +24,9 @@ interface ZkbEntry {
     totalValue: number;
     solo:       boolean;
     npc:        boolean;
+    awox?:      boolean;
+    locationID?: number;
+    labels?:    string[];
   };
 }
 
@@ -37,6 +44,7 @@ interface EsiKillmail {
     corporation_id?: number;
     alliance_id?:    number;
     ship_type_id?:   number;
+    weapon_type_id?: number;
     final_blow:      boolean;
   }>;
 }
@@ -64,6 +72,11 @@ export interface KillEntry {
     final_blow:        boolean;
   }>;
   zkb: ZkbEntry['zkb'];
+  /** gate / hic / dic / sb / solo / npc -- see services/killTags.ts. */
+  tags?: KillTag[];
+  /** Set on whole-map lists, where kills come from many systems. */
+  eveSystemId?: number;
+  systemName?: string;
 }
 
 // Per-system kill cache. The shared TtlCache utility handles TTL + the
@@ -100,7 +113,15 @@ function withTimeout(ms: number): AbortSignal {
   return AbortSignal.timeout(ms);
 }
 
+// Killmails never change once written, so one fetched is kept: the list above
+// re-reads zKill every 90s and would otherwise re-fetch every mail on it from
+// ESI each time. Insertion-ordered, oldest dropped first past the cap.
+const killmailCache = new Map<number, EsiKillmail>();
+const KILLMAIL_CACHE_MAX = 20_000;
+
 async function fetchEsi(killmailId: number, hash: string): Promise<EsiKillmail | null> {
+  const cached = killmailCache.get(killmailId);
+  if (cached) return cached;
   const key = `${killmailId}/${hash}`;
   const existing = esiInflight.get(key);
   if (existing) return existing;
@@ -113,7 +134,13 @@ async function fetchEsi(killmailId: number, hash: string): Promise<EsiKillmail |
         { signal: withTimeout(FETCH_TIMEOUT_MS) },
       );
       if (!res.ok) return null;
-      return (await res.json()) as EsiKillmail;
+      const km = (await res.json()) as EsiKillmail;
+      killmailCache.set(killmailId, km);
+      if (killmailCache.size > KILLMAIL_CACHE_MAX) {
+        const oldest = killmailCache.keys().next().value;
+        if (oldest !== undefined) killmailCache.delete(oldest);
+      }
+      return km;
     } catch {
       return null;
     } finally {
@@ -147,6 +174,9 @@ export async function fetchSystemKills(
   const fresh = cache.get(key);
   if (fresh) return fresh.value;
   const stale = cache.peek(key);
+  // zKill is timing out: answer now with what we have (the route adds the
+  // live feed's kills on top) instead of waiting another 8s.
+  if (zkillPaused()) return stale?.value ?? [];
 
   const zkbUrl = `https://zkillboard.com/api/kills/solarSystemID/${systemId}/pastSeconds/${secs}/`;
   const zkbHeaders: Record<string, string> = { 'User-Agent': ZKB_AGENT, Accept: 'application/json' };
@@ -192,6 +222,9 @@ export async function fetchSystemKills(
     // Hydrate full killmails from ESI in parallel (capped at ESI_MAX_CONCURRENT
     // so a busy system queues rather than thundering CCP).
     const esiResults = await Promise.all(wanted.map((k) => fetchEsi(k.killmail_id, k.zkb.hash)));
+    // Tags need every attacker's ship and weapon; worked out before the
+    // attacker list is trimmed to what the pane renders.
+    const groupOf = await loadGroups(esiResults.flatMap((e) => (e ? attackerTypeIds(e.attackers) : [])));
 
     const kills = wanted
       .map((zkb, i) => {
@@ -210,6 +243,11 @@ export async function fetchSystemKills(
             final_blow:     a.final_blow,
           })),
           zkb: zkb.zkb,
+          tags: tagsFor({
+            locationId: zkb.zkb?.locationID, solo: zkb.zkb?.solo, npc: zkb.zkb?.npc,
+            awox: zkb.zkb?.awox, labels: zkb.zkb?.labels,
+            typeIds: attackerTypeIds(esi.attackers),
+          }, groupOf),
         };
         return entry;
       })
@@ -238,10 +276,94 @@ export async function fetchSystemKills(
     cache.set(key, kills, etag ? { etag } : undefined);
     return kills;
   } catch (err) {
+    noteZkillFailure(err);
     log.warn(`Failed to reach zKillboard for system ${systemId}:`, (err as Error).message);
     if (stale) return stale.value;
     return [];
   }
+}
+
+/** A kill from the live feed's buffer, in the shape the killboard renders. The
+ *  feed keeps only the final-blow attacker, so the rest of the list is
+ *  placeholders -- the pane only needs the count ("+N") and the final blow. */
+export function liveKillToEntry(k: BufferedKill, names: Map<number, { name: string }>): KillEntry {
+  const name = (id: number | null | undefined) => (id ? names.get(id)?.name : undefined);
+  const others = Math.max(0, (k.attackerCount ?? 1) - 1);
+  return {
+    killmail_id:   k.killmailId,
+    killmail_time: new Date(k.atMs).toISOString(),
+    victim: {
+      character_id:     k.victimCharacterId ?? undefined,
+      character_name:   name(k.victimCharacterId),
+      corporation_id:   k.victimCorporationId ?? undefined,
+      corporation_name: name(k.victimCorporationId),
+      alliance_id:      k.victimAllianceId ?? undefined,
+      alliance_name:    name(k.victimAllianceId),
+      ship_type_id:     k.shipTypeId,
+    },
+    attackers: [
+      {
+        character_id:     k.finalBlowCharacterId ?? undefined,
+        character_name:   name(k.finalBlowCharacterId),
+        corporation_id:   k.finalBlowCorporationId ?? undefined,
+        corporation_name: name(k.finalBlowCorporationId),
+        alliance_id:      k.finalBlowAllianceId ?? undefined,
+        alliance_name:    name(k.finalBlowAllianceId),
+        ship_type_id:     k.finalBlowShipTypeId || undefined,
+        final_blow:       true,
+      },
+      ...Array.from({ length: others }, () => ({ final_blow: false })),
+    ],
+    zkb: { hash: '', totalValue: k.totalValue, solo: !!k.solo, npc: k.npc },
+    tags: k.tags ?? [],
+  };
+}
+
+/** The week of kills the live feed has stored for these systems (plus any
+ *  still only in memory), as killboard entries, newest first. */
+export async function storedKills(
+  systemIds: number[], sinceMs: number, limit: number, opts: { systemNames?: boolean } = {},
+): Promise<{ kills: KillEntry[]; total: number }> {
+  const want = new Set(systemIds);
+  const [{ kills: stored, total }, buffered] = await Promise.all([
+    killsInSystems(systemIds, sinceMs, limit),
+    Promise.resolve(recentKillsForSystems(want, limit).filter((k) => k.atMs >= sinceMs)),
+  ]);
+  const byId = new Map<number, BufferedKill>();
+  for (const k of [...stored, ...buffered]) if (!byId.has(k.killmailId)) byId.set(k.killmailId, k);
+  const merged = [...byId.values()].sort((a, b) => b.atMs - a.atMs).slice(0, limit);
+  const names = await resolveEntityNames(merged.flatMap((k) => [
+    k.victimCharacterId, k.victimCorporationId, k.victimAllianceId,
+    k.finalBlowCharacterId, k.finalBlowCorporationId, k.finalBlowAllianceId,
+  ]));
+  const entries = merged.map((k) => liveKillToEntry(k, names));
+  if (opts.systemNames) {
+    const metas = new Map<number, string>();
+    for (const id of new Set(merged.map((k) => k.eveSystemId))) metas.set(id, (await resolveSystemMeta(id)).systemName);
+    for (let i = 0; i < entries.length; i++) {
+      entries[i].eveSystemId = merged[i].eveSystemId;
+      entries[i].systemName = metas.get(merged[i].eveSystemId);
+    }
+  }
+  return { kills: entries, total: Math.max(total, merged.length) };
+}
+
+/** The killboard's time windows. */
+export const KILL_WINDOWS: Record<string, number> = { '1h': 3_600, '24h': 86_400, '7d': 604_800 };
+export function windowSeconds(raw: unknown): number {
+  return (typeof raw === 'string' && KILL_WINDOWS[raw]) || KILL_WINDOWS['24h'];
+}
+
+/** zKill's REST list plus anything the live feed has seen in the same window
+ *  that the list doesn't have yet. zKill caches that list for up to an hour, so
+ *  without this the newest kills -- the cheap ones especially, which never
+ *  reach the client's own live merge -- only turn up an hour late. */
+export async function withLiveKills(systemId: number, rest: KillEntry[], pastSeconds: number): Promise<KillEntry[]> {
+  const have = new Set(rest.map((k) => k.killmail_id));
+  const { kills } = await storedKills([systemId], Date.now() - pastSeconds * 1000, 1_000);
+  const live = kills.filter((k) => !have.has(k.killmail_id));
+  if (live.length === 0) return rest;
+  return [...live, ...rest].sort((a, b) => b.killmail_id - a.killmail_id);
 }
 
 router.get('/:systemId(\\d+)', async (req, res) => {
@@ -251,7 +373,11 @@ router.get('/:systemId(\\d+)', async (req, res) => {
   if (!Number.isInteger(idNum) || idNum <= 0 || idNum > 100_000_000) {
     return res.status(400).json({ error: 'Invalid system id' });
   }
-  return res.json(await fetchSystemKills(idNum, 86_400));
+  // ?window=1h|24h|7d; anything else is the default 24h. zKill returns at most
+  // 200 kills a request, so a busy system's 7 days is its newest 200 plus the
+  // feed's own week.
+  const secs = windowSeconds(req.query.window);
+  return res.json(await withLiveKills(idNum, await fetchSystemKills(idNum, secs), secs));
 });
 
 // GET /:systemId/last — the timestamp of the most recent kill in the system,
@@ -269,6 +395,7 @@ router.get('/:systemId(\\d+)/last', async (req, res) => {
   const fresh = lastKillCache.get(systemId);
   if (fresh) return res.json({ killmailTime: fresh.value });
   const stale = lastKillCache.peek(systemId);
+  if (zkillPaused()) return res.json({ killmailTime: stale?.value ?? null });
 
   // No pastSeconds → zKillboard returns the system's most recent kills, newest
   // first. We only need the first entry's time.
@@ -311,6 +438,7 @@ router.get('/:systemId(\\d+)/last', async (req, res) => {
     else if (stale) return res.json({ killmailTime: stale.value });
     return res.json({ killmailTime: time });
   } catch (err) {
+    noteZkillFailure(err);
     log.warn(`Failed to reach zKillboard (last) for system ${systemId}:`, (err as Error).message);
     if (stale) return res.json({ killmailTime: stale.value });
     return res.json({ killmailTime: null });

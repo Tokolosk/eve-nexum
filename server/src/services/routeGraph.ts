@@ -12,6 +12,10 @@ export interface EdgeMeta {
   critical?: boolean;   // critical mass
   frig?:     boolean;   // frigate-sized hole
   whType?:   string;    // wormhole type code, when known
+  /** Which map contributed this hop. The closest-systems pane unions every map
+   *  the user can see, so without this a hole from a corp map they aren't
+   *  looking at is indistinguishable from one in the open chain. */
+  mapName?:  string;
 }
 
 // A per-request overlay of extra edges (+ their node info + edge metadata)
@@ -45,11 +49,19 @@ export type RouteMode = 'shortest' | 'secure';
 // is essentially "only if you have to". Numbers are large enough that no
 // reasonable HS detour will ever lose to a single LS/NS shortcut.
 const SECURE_WEIGHTS = { hs: 1, ls: 100, ns: 10_000 } as const;
-function edgeCost(toSecurity: number, mode: RouteMode, isSpecial: boolean): number {
+function edgeCost(
+  toSecurity: number, mode: RouteMode, special: EdgeMeta['kind'] | undefined, toKspace: boolean,
+): number {
   if (mode === 'shortest') return 1;
-  // Shortcuts (wormhole / Thera / Turnur) count as null-sec in secure mode, so
-  // a "secure" route only dives through one when there's no k-space path.
-  if (isSpecial) return SECURE_WEIGHTS.ns;
+  // A Thera / Turnur hole is one the user asked to route through, so it costs
+  // what the far side does: the exit's own security, and the hub itself as
+  // high-sec. Counting the hole as null-sec meant a secure route never used
+  // one -- Jita to Amarr stayed 34 jumps with a high-sec Thera route of ~20.
+  // Turnur has gates, so it stays the low-sec it is.
+  if ((special === 'thera' || special === 'turnur') && !toKspace) return SECURE_WEIGHTS.hs;
+  // Other shortcuts (mapped wormholes, Ansiblex) count as null-sec, so a
+  // "secure" route only dives through one when there's no k-space path.
+  if (special && special !== 'thera' && special !== 'turnur') return SECURE_WEIGHTS.ns;
   if (toSecurity >= 0.45) return SECURE_WEIGHTS.hs;
   if (toSecurity >  0.00) return SECURE_WEIGHTS.ls;
   return SECURE_WEIGHTS.ns;
@@ -71,6 +83,14 @@ let systemInfo: Map<number, { name: string; security: number }> | null = null;
  * { name, security } for every system that participates in the graph.
  * Called once at server startup.
  */
+/** Tests only: install a small graph instead of loading the SDE one. */
+export function setRouteGraphForTest(
+  adj: Map<number, number[]>, info: Map<number, { name: string; security: number }>,
+): void {
+  adjacency = adj;
+  systemInfo = info;
+}
+
 export async function loadRouteGraph(): Promise<void> {
   const [adjRows, sysRows] = await Promise.all([
     db.query<{ system_id: number; destination_system_id: number }>(
@@ -116,12 +136,17 @@ export async function loadRouteGraph(): Promise<void> {
  * `jumps` in the returned RouteEntry is always the literal hop count of
  * the path, not the weighted cost — that's what users care about and it
  * keeps the response shape stable across modes.
+ *
+ * `avoid` is the user's avoidance list: a route never passes through one of
+ * those systems, the same as EVE's own autopilot avoidance. Starting in one,
+ * or asking for a route TO one, still works -- only passing through is out.
  */
 export async function shortestRoutes(
   source: number,
   targets: number[],
   mode: RouteMode = 'shortest',
   overlay?: RouteOverlay,
+  avoid?: ReadonlySet<number>,
 ): Promise<Record<number, RouteEntry>> {
   if (!adjacency || !systemInfo) throw new Error('Route graph not loaded');
   const baseAdj  = adjacency;
@@ -135,12 +160,16 @@ export async function shortestRoutes(
 
   // Neighbours come from the static stargate graph plus any per-request overlay
   // edges; the base graph is never copied or mutated.
-  const neighborsOf = (node: number): number[] =>
+  const allNeighbors = (node: number): number[] =>
     overlay ? [...(baseAdj.get(node) ?? []), ...(overlay.adj.get(node) ?? [])]
             : (baseAdj.get(node) ?? []);
+  // An avoided system can be arrived at (when it's a target) but never left,
+  // so no route passes through it.
+  const neighborsOf = (node: number): number[] =>
+    avoid?.size && node !== source && avoid.has(node) ? [] : allNeighbors(node);
   const infoOf = (id: number) => overlay?.info.get(id) ?? baseInfo.get(id);
-  const isSpecialEdge = (a: number, b: number): boolean =>
-    overlay ? overlay.edgeMeta.has(edgeKey(a, b)) : false;
+  const specialKind = (a: number, b: number): EdgeMeta['kind'] | undefined =>
+    overlay?.edgeMeta.get(edgeKey(a, b))?.kind;
 
   const dist = new Map<number, number>();
   const prev = new Map<number, number>();
@@ -183,7 +212,7 @@ export async function shortestRoutes(
       const neighbors = neighborsOf(node);
       if (neighbors.length === 0) continue;
       for (const n of neighbors) {
-        const w = edgeCost(infoOf(n)?.security ?? 0, 'secure', isSpecialEdge(node, n));
+        const w = edgeCost(infoOf(n)?.security ?? 0, 'secure', specialKind(node, n), baseAdj.has(n));
         const newCost = cost + w;
         if (newCost < (dist.get(n) ?? Infinity)) {
           dist.set(n, newCost);

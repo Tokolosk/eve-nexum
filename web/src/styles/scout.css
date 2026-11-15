@@ -87,6 +87,23 @@
 }
 
 /* "Add System" affordance at the bottom of the Closest Systems pane. */
+/* Scope toggle in Closest Systems: this pane routes across every map the user
+   can see, which is useful and was previously invisible. Quiet by default —
+   it reports a mode rather than inviting a change. */
+.closest-pane__scope {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  font-size: calc(12px * var(--font-scale, 1));
+  color: var(--text-dim);
+  cursor: pointer;
+  user-select: none;
+
+  &:hover { color: var(--text-secondary); }
+  input { cursor: pointer; margin: 0; }
+}
+
 .scout-pane__add {
   display: inline-flex;
   align-items: center;
@@ -541,6 +558,8 @@
   padding: 5px 8px;
 }
 .route-planner__picked-actions { display: inline-flex; align-items: center; gap: 2px; }
+.route-planner__picked-name { display: inline-flex; align-items: baseline; gap: 6px; min-width: 0; }
+.route-planner__real-name { color: var(--text-subtle); font-size: calc(11px * var(--font-scale, 1)); }
 /* Anchors the absolutely-positioned results list to the input. */
 .route-planner__search { position: relative; display: flex; align-items: center; gap: 4px; }
 .route-planner__search > input { flex: 1; min-width: 0; }
@@ -588,3 +607,17 @@
 .route-planner__chip .icon-btn { padding: 0 7px; border-left: 1px solid var(--border); }
 .route-planner__save { display: flex; gap: 6px; align-items: center; }
 .route-planner__save > input { flex: 1; min-width: 0; }
+
+/* The bulk-copy button sits on its own line beneath the sort control. Full
+   width so the label has room: it carries a count and a system name, which is
+   more text than fits beside a select in a sidebar-width pane. */
+.scout-pane__copy-row {
+  display: flex;
+  padding: 0 var(--sp-8, 8px) var(--sp-6, 6px);
+}
+
+.scout-pane__copy {
+  flex: 1;
+  justify-content: center;
+  white-space: nowrap;
+}

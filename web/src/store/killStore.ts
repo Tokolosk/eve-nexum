@@ -12,6 +12,11 @@ import { create } from 'zustand';
 // window; nodes also gate on it via the shared 30s ticker.
 export const RECENT_KILL_MS = 15 * 60 * 1000;
 
+// A live kill whose killmail is older than this on arrival is logged but doesn't
+// flag its node -- the server already holds these back (KILL_FEED_MAX_LAG_SECONDS);
+// this is the client's own guard, matching the server default.
+const MAX_FLAG_LAG_MS = 60 * 60 * 1000;
+
 // Newest-first log cap — plenty for the panel, bounded so a busy feed can't grow
 // the array without limit.
 const LOG_CAP = 300;
@@ -33,6 +38,10 @@ export interface KillRow {
   victimCorporationId: number | null;
   victimCorpName:      string | null;
   npc:                 boolean;
+  /** Why it's a special kill: 'capital' | 'billion' | 'dictor' | 'smartbomb'. */
+  special?:            string[];
+  /** Arrived on the live feed (rather than the history backfill). */
+  live?:               boolean;
   finalBlow: {
     characterId:   number | null;
     name:          string | null;
@@ -81,13 +90,15 @@ export const useKillStore = create<KillState>((set) => ({
     // flashes for the full window regardless of the killmail's (possibly stale)
     // timestamp.
     const existing = next.get(row.eveSystemId);
-    if (!existing || row.atMs >= existing.atMs) next.set(row.eveSystemId, { ...row, flaggedAtMs: now });
-    return { bySystem: next, log: prependDeduped(s.log, row) };
+    const timely = now - row.atMs <= MAX_FLAG_LAG_MS;
+    if (timely && (!existing || row.atMs >= existing.atMs)) next.set(row.eveSystemId, { ...row, flaggedAtMs: now });
+    return { bySystem: next, log: prependDeduped(s.log, { ...row, live: true }) };
   }),
   seedBackfill: (rows) => set((s) => {
     // Merge backfilled history into the log (deduped), newest first, capped.
     const byId = new Map<number, KillRow>();
-    for (const r of [...s.log, ...rows]) byId.set(r.killmailId, r);
+    // What's already in the log wins, so a live kill keeps its `live` mark.
+    for (const r of [...rows, ...s.log]) byId.set(r.killmailId, r);
     const log = [...byId.values()].sort((a, b) => b.atMs - a.atMs).slice(0, LOG_CAP);
     // Flag any backfilled kill that's STILL within the recency window so its
     // node pulses the moment the map loads (a kill 6 min ago should already be

@@ -7,6 +7,8 @@ import { useMapStore } from '../../store/mapStore';
 import { useAuth, isAdminRole, isAllianceAdminRole } from '../../context/AuthContext';
 import { toast } from '../../utils/toastStore';
 import { Select } from './Select';
+import { countPersonalMaps } from '../../utils/personalMaps';
+import { useEscapeClose } from '../../hooks/useEscapeClose';
 
 type MapScope = 'personal' | 'corp' | 'alliance';
 
@@ -25,6 +27,7 @@ const MAX_REGION_RESULTS = 8;
 // systems + stargates (POST /api/maps/from-region). Replaces the old dual
 // "+ Personal/Corp Map" buttons and the name PromptModal.
 export function CreateMapModal({ onClose }: { onClose: () => void }) {
+  useEscapeClose(onClose);
   const { t } = useTranslation();
   const maps             = useMapStore((s) => s.maps);
   const maxMaps          = useMapStore((s) => s.maxMaps);
@@ -40,7 +43,7 @@ export function CreateMapModal({ onClose }: { onClose: () => void }) {
   // alliance a corp keeps corp-private maps without needing a CORP_ID list.
   const canCorp     = (!!user?.corpMode || !!user?.allianceMode) && (user?.role === 'full' || (!!user && isAdminRole(user.role)));
   const canAlliance = !!user?.allianceMode && !!user && isAllianceAdminRole(user.role);
-  const atPersonalLimit = maps.filter((m) => !m.isCorpMap && !m.isAllianceMap).length >= maxMaps;
+  const atPersonalLimit = countPersonalMaps(maps) >= maxMaps;
   const atCorpLimit     = corpMapCount >= maxCorpMaps;
   const atAllianceLimit = allianceMapCount >= maxAllianceMaps;
 
