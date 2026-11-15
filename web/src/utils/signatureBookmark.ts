@@ -10,7 +10,7 @@ export const BOOKMARK_TOKENS: { token: string; desc: string }[] = [
   { token: '{sig_letters}', desc: 'First 3 chars (ABC)' },
   { token: '{type}',        desc: 'Wormhole type code (D382)' },
   { token: '{dest_type}',   desc: 'Destination class (C5, HS)' },
-  { token: '{leads_to}',    desc: 'Leads to — pinned system or class (J110555)' },
+  { token: '{leads_to}',    desc: 'Leads to — pinned system (its alias if set) or class (J110555)' },
   { token: '{size}',        desc: 'Hole size (S / M / L / XL)' },
   { token: '{mass}',        desc: 'Total mass in billions (3.0)' },
   { token: '{age}',         desc: 'Hours since first seen (2h)' },
@@ -22,6 +22,30 @@ export const BOOKMARK_TOKENS: { token: string; desc: string }[] = [
 // created-at age is always ~0h at copy time. It stays an available token for
 // anyone who wants it, just not in the default.
 export const DEFAULT_BOOKMARK_FORMAT = '{sig} {dest_type} {size}';
+
+// Personal format for K162s only: many pilots name the outbound side of a hole
+// differently from the holes they scan down. Empty (the default) means a K162
+// uses the wormhole format like any other hole.
+export const K162_BOOKMARK_FORMAT_KEY = 'nexum.sig.k162BookmarkFormat';
+
+/**
+ * The format to copy a wormhole sig's bookmark with. A map's shared format is
+ * a policy for everyone on it, so it wins outright; otherwise a K162 takes the
+ * pilot's K162 format when they've set one, and every other hole (or a K162
+ * with no K162 format) takes their wormhole format.
+ */
+export function wormholeBookmarkFormat(
+  sig: Pick<Signature, 'whType'>,
+  mapFormat: string | null | undefined,
+  userFormat: string,
+  userK162Format: string | null | undefined,
+): string {
+  if (mapFormat && mapFormat.trim()) return mapFormat;
+  if ((sig.whType ?? '').trim().toUpperCase() === 'K162' && userK162Format && userK162Format.trim()) {
+    return userK162Format;
+  }
+  return userFormat;
+}
 
 // Per-jump mass -> short size letter. Reuses the canonical classifier in
 // wormholeSize.ts so the bookmark {size} can never drift from the connection
@@ -48,6 +72,10 @@ export function formatBookmarkName(
   /** A system's class by name. Lets {dest_type} stay filled once a hole has
    *  been jumped and its leads-to is a real system rather than a band. */
   classOfSystem?: (name: string) => string | null | undefined,
+  /** A system's alias on this map by name, if it has one. {leads_to} names a
+   *  pinned system the way the pilot calls it; everything else keeps the real
+   *  name (the class lookup above needs it). */
+  aliasOfSystem?: (name: string) => string | null | undefined,
 ): string {
   // The full wormhole catalog (useWormholeTypes) keyed by type code — the small
   // static map only covers k-space statics, so most holes (e.g. A641) miss it.
@@ -76,7 +104,7 @@ export function formatBookmarkName(
     '{sig_letters}': (sig.sigId ?? '').slice(0, 3).toUpperCase(),
     '{type}':        sig.whType ?? '',
     '{dest_type}':   destType,
-    '{leads_to}':    leadsTo,
+    '{leads_to}':    (leadsTo && aliasOfSystem?.(leadsTo)?.trim()) || leadsTo,
     '{size}':        wh ? sizeLetter(wh.maxJumpMass) : '',
     '{mass}':        wh && wh.totalMass ? String(Number((wh.totalMass / 1_000_000_000).toFixed(1))) : '',
     '{age}':         ageH != null ? `${ageH}h` : '',

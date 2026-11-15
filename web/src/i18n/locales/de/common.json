@@ -12,6 +12,11 @@
   "account": {
     "switchCharacter": "Charakter wechseln",
     "addCharacter": "Charakter hinzufügen",
+    "shareSettings": "Einstellungen zwischen Charakteren teilen",
+    "shareSettingsHint": "Wenn aktiv, nutzen alle Charaktere dieses Kontos dieselben Einstellungen, außer Sprungfertigkeiten. Beim Einschalten werden die zuletzt geänderten Einstellungen auf die anderen Charaktere übertragen.",
+    "shareSettingsFailed": "Teilen der Einstellungen konnte nicht geändert werden",
+    "installApp": "Als App installieren",
+    "installAppHint": "Nexum in einem eigenen Fenster öffnen, mit eigenem Symbol im Dock oder in der Taskleiste.",
     "blocked": "blockiert",
     "characterAdded": "{{name}} hinzugefügt",
     "switchTo": "Zu {{name}} wechseln",
@@ -45,6 +50,28 @@
     "allHidden": "Alle Diagramme ausgeblendet. Aktiviere sie unter Kartenoptionen → Aktivität.",
     "loading": "Aktivität wird geladen…",
     "peak": "Max. {{value}}"
+  },
+  "pvp": {
+    "loading": "PvP-Aktivität wird geladen…",
+    "loadFailed": "PvP-Aktivität konnte nicht geladen werden.",
+    "noHistory": "Noch kein PvP-Verlauf. Spielerkills hier werden ab jetzt erfasst.",
+    "noneInDays_one": "Keine Kills hier am letzten Tag.",
+    "noneInDays_other": "Keine Kills hier in den letzten {{count}} Tagen.",
+    "busiestNow": "Jetzt am aktivsten ({{time}})",
+    "busiestNext": "Am aktivsten um {{time}}, in {{n}} Std.",
+    "quietAhead": "Die nächsten 24 Stunden ruhig",
+    "killsInDays": "{{n}} in {{days}} T.",
+    "recent": "Live-Feed: {{n}} in den letzten 24 Std.",
+    "chartLabel": "Spielerkills nach Tageszeit für die nächsten 24 Stunden",
+    "barTitle": "{{day}} {{time}}: {{n}}",
+    "now": "jetzt",
+    "noteZkill": "Kills nach Wochentag und Stunde aus den letzten 90 Tagen von zKillboard, angezeigt in {{zone}}. Wärmere Balken sind meist aktiver.",
+    "noteLive": "zKillboard ist nicht erreichbar, daher werden die hier bisher erfassten Kills verwendet.",
+    "timesIn": "Zeiten in",
+    "zoneAuto": "Lokal ({{zone}})",
+    "zoneUtc": "EVE-Zeit (UTC)",
+    "zoneSearch": "Zeitzonen suchen",
+    "zoneNoMatches": "Keine passende Zeitzone"
   },
   "addSystem": {
     "title": "System hinzufügen",
@@ -225,11 +252,16 @@
         "24h": "Letzte 24 Stunden",
         "week": "Letzte Woche",
         "month": "Letzter Monat",
+        "quarter": "Letztes Quartal",
         "year": "Letztes Jahr"
       },
       "userFilters": {
         "all": "Alle Benutzer",
-        "logins": "Logins",
+        "active": "Aktiv",
+        "inactive": "Inaktiv",
+        "new": "Neue Benutzer",
+        "systemsAdded": "Systeme hinzugefügt",
+        "systemsDeleted": "Systeme gelöscht",
         "signatures": "Signaturen",
         "structures": "Strukturen"
       },
@@ -270,6 +302,7 @@
           "hour24": "Signaturen pro Stunde (letzte 24 Stunden)",
           "dayWeek": "Signaturen pro Tag (letzte Woche)",
           "dayMonth": "Signaturen pro Tag (letzter Monat)",
+          "weekQuarter": "Signaturen pro Woche (letztes Quartal)",
           "monthYear": "Signaturen pro Monat (letztes Jahr)",
           "monthAll": "Signaturen pro Monat (gesamte Zeit)"
         },
@@ -317,6 +350,10 @@
       "broadcastK162Hint": "Wenn aktiv, wird eine als K162 identifizierte Signatur an Discord gemeldet, sobald ihr Ziel bekannt ist. Standardmäßig aus.",
       "broadcastExits": "K-Space-Ausgänge melden",
       "broadcastExitsHint": "Wenn aktiv, meldet eine Verbindung, die einen K-Space-Ausgang mit mindestens der unten gewählten Sicherheit aufdeckt, eine Routen-Übersicht — Ausgang, Weg dorthin und nächstes Handelszentrum. Standardmäßig aus; die Verbindung selbst wird ohnehin gemeldet.",
+      "broadcastEol": "End-of-Life-Löcher melden",
+      "broadcastEolHint": "Wenn aktiv, wird es im Verbindungs-Webhook gepostet, sobald ein Pilot ein Wurmloch als End of Life markiert (unter 4 Stunden oder unter 1 Stunde). Standardmäßig aus.",
+      "broadcastThera": "Thera- und Turnur-Löcher melden",
+      "broadcastTheraHint": "Wenn aktiv, wird ein neues Loch nach Thera oder Turnur als Thera/Turnur-Meldung im Verbindungs-Webhook gepostet, auch wenn die Wurmloch-Filter oben es ausschließen würden. Standardmäßig aus.",
       "webhooks": "Webhooks",
       "webhooksHint": "Wohin Benachrichtigungen gepostet werden. Füge für jeden Kanal eine Discord-Webhook-URL ein; leer lassen, um diesen Typ zu deaktivieren.",
       "connectionsWebhook": "Verbindungen (K162 + neue Verbindungen)",
@@ -337,7 +374,13 @@
       "colMap": "Karte",
       "colExclude": "Ausschließen",
       "killWebhook": "Kill-Webhook",
-      "killMinIsk": "Mindest-ISK"
+      "killMinIsk": "Mindest-ISK",
+      "specialWebhook": "Webhook für besondere Kills",
+      "specialWebhookHint": "Kills, die einen Ping wert sind, unabhängig vom Wert gepostet – z. B. in einen Kanal mit Benachrichtigungen. Wähle, was zählt:",
+      "specialCapital": "Capitals",
+      "specialBillion": "1 Mrd.+ ISK",
+      "specialDictor": "Dictor / HIC",
+      "specialSmartbomb": "Smartbomb"
     },
     "roles": {
       "button": "Rollen?",
@@ -474,10 +517,141 @@
     "revokeFailed": "Schlüssel konnte nicht widerrufen werden. Bitte erneut versuchen.",
     "disabled": "API-Schlüssel deaktiviert"
   },
+  "audit": {
+    "title": "Änderungsprotokoll",
+    "titleFor": "Änderungsprotokoll — {{name}}",
+    "hint": "Änderungen der letzten {{days}} Tage. Verschieben von Systemen und automatische Bereinigung werden nicht erfasst.",
+    "sidebarHint": "Wer auf dieser Karte was hinzugefügt, entfernt oder geändert hat.",
+    "open": "Änderungsprotokoll öffnen",
+    "filter": "Anzeigen",
+    "empty": "Noch nichts erfasst.",
+    "loading": "Wird geladen…",
+    "loadMore": "Ältere laden",
+    "unknownPilot": "Unbekannter Pilot",
+    "viaApi": "API",
+    "on": "an",
+    "off": "aus",
+    "cleared": "gelöscht",
+    "kind": {
+      "all": "Alle Änderungen",
+      "system": "Systeme",
+      "connection": "Verbindungen",
+      "signature": "Signaturen",
+      "anomaly": "Anomalien",
+      "structure": "Strukturen",
+      "chain": "Ketten",
+      "map": "Karteneinstellungen",
+      "share": "Teilen"
+    },
+    "action": {
+      "system": {
+        "add": "hat {{subject}} hinzugefügt",
+        "update": "hat {{subject}} geändert",
+        "remove": "hat {{subject}} entfernt"
+      },
+      "connection": {
+        "add": "hat {{subject}} verbunden",
+        "update": "hat {{subject}} geändert",
+        "remove": "hat {{subject}} getrennt"
+      },
+      "signature": {
+        "add": "hat Signatur {{subject}} hinzugefügt",
+        "update": "hat Signatur {{subject}} geändert",
+        "remove": "hat Signatur {{subject}} entfernt"
+      },
+      "anomaly": {
+        "add": "hat Anomalie {{subject}} hinzugefügt",
+        "update": "hat Anomalie {{subject}} geändert",
+        "remove": "hat Anomalie {{subject}} entfernt"
+      },
+      "structure": {
+        "add": "hat Struktur {{subject}} hinzugefügt",
+        "update": "hat Struktur {{subject}} geändert",
+        "remove": "hat Struktur {{subject}} entfernt"
+      },
+      "chain": {
+        "add": "hat Kette {{subject}} gespeichert",
+        "update": "hat Kette {{subject}} geändert",
+        "remove": "hat Kette {{subject}} entfernt"
+      },
+      "map": {
+        "update": "hat die Karteneinstellungen geändert",
+        "merge": "hat {{subject}} zusammengeführt",
+        "scoutCleanup": "hat {{subject}}-Löcher bereinigt"
+      },
+      "share": {
+        "add": "hat die Karte mit {{subject}} geteilt",
+        "remove": "teilt nicht mehr mit {{subject}}",
+        "link": {
+          "create": "hat einen Übertragungslink erstellt",
+          "update": "hat den Übertragungslink geändert",
+          "revoke": "hat den Übertragungslink widerrufen"
+        }
+      }
+    },
+    "field": {
+      "name": "Name",
+      "alias": "Alias",
+      "notes": "Notizen",
+      "status": "Status",
+      "isHome": "Heimat",
+      "locked": "Gesperrt",
+      "intel": "Intel",
+      "tag": "Markierung",
+      "labels": "Labels",
+      "customLabels": "Eigene Labels",
+      "connectionType": "Sprungart",
+      "massStatus": "Masse",
+      "timeStatus": "Lebensdauer",
+      "size": "Größe",
+      "type": "Wurmlochtyp",
+      "massUsed": "Genutzte Masse",
+      "eolAt": "EOL-Zeit",
+      "lifetimeExpiresAt": "Ablauf",
+      "broken": "Unterbrochen",
+      "flagIcon": "Flaggen-Symbol",
+      "flagNote": "Flaggen-Notiz",
+      "flagBlink": "Flagge blinkt",
+      "flagColor": "Flaggenfarbe",
+      "sourceSignatureId": "Quellsignatur",
+      "targetSignatureId": "Zielsignatur",
+      "sigId": "Signatur-ID",
+      "sigType": "Gruppe",
+      "whType": "Wurmlochtyp",
+      "whLeadsTo": "Führt nach",
+      "ghostType": "Geisterstätte",
+      "anomId": "Anomalie-ID",
+      "anomType": "Typ",
+      "structureType": "Strukturtyp",
+      "ownerCorp": "Besitzer",
+      "eveId": "EVE-ID",
+      "systemIds": "Systeme",
+      "connectionIds": "Verbindungen",
+      "allowAsMergeSource": "Zusammenführungsquelle",
+      "allowAsMergeDestination": "Zusammenführungsziel",
+      "lazyRemoveWormholes": "Verzögertes Entfernen von Wurmlöchern",
+      "collapseGraceHours": "Kollaps-Toleranz (Stunden)",
+      "bookmarkFormat": "Lesezeichenformat",
+      "siteBookmarkFormat": "Lesezeichenformat für Stätten",
+      "skipKspace": "K-Space überspringen",
+      "crossMapSync": "Kartenübergreifende Synchronisierung",
+      "expiryHours": "Ablauf (Stunden)",
+      "includeSigs": "Signaturen",
+      "includeBridges": "Brücken",
+      "includeNotes": "Notizen",
+      "includeStructures": "Strukturen",
+      "kind": "Geteilt mit",
+      "canWrite": "Darf bearbeiten",
+      "systems": "Systeme",
+      "connections": "Verbindungen",
+      "signatures": "Signaturen",
+      "structures": "Strukturen"
+    }
+  },
   "chainExits": {
     "title": "Chain-Ausgänge",
     "noExits": "Keine K-Space-Ausgänge in dieser Kette.",
-    "hint": "K-Space-Systeme aktuell auf der Karte, nach Sicherheitsklasse. Jita-Route nur über Gates — Wurmloch-Abkürzungen nicht gezählt.",
+    "hint": "K-Space-Systeme mit einem Wurmloch auf der Karte, nach Sicherheitsklasse. Jita-Route nur über Gates — Wurmloch-Abkürzungen nicht gezählt.",
     "allExits": "Alle K-Space-Ausgänge",
     "noFavourites": "Noch keine Favoriten — füge welche im Panel „Nächste Systeme“ hinzu.",
     "noRoute": "keine Route",
@@ -530,7 +704,9 @@
     "signIn": "Melde dich an und docke in K-Space, um Sprünge zu Hubs zu sehen, oder aktiviere die Routen-Shortcut-Optionen, um von einem Wurmloch oder Thera aus zu routen.",
     "searchPlaceholder": "Systemname suchen…",
     "onList": "auf Liste",
-    "noMatch": "Keine Systeme passen zu \"{{query}}\""
+    "noMatch": "Keine Systeme passen zu \"{{query}}\"",
+    "allMaps": "Über alle meine Karten routen",
+    "allMapsHint": "Entfernungen dürfen die Wurmlochketten jeder für dich sichtbaren Karte nutzen, nicht nur der geöffneten. Schalte dies aus, um nur über die Karte auf dem Bildschirm zu routen."
   },
   "commandPalette": {
     "placeholder": "Systeme und Karten suchen…",
@@ -617,8 +793,10 @@
     "collapseConfirmStrand": " Dein Roller wäre auf der Fern-Seite gestrandet.",
     "collapseConfirmHome": " Dein Roller endet auf der Heimat-Seite.",
     "rollIt": "Durchrollen",
-    "removeConnection": "Verbindung entfernen",
+    "removeConnection": "Nur Verbindung entfernen",
+    "removeConnectionAndSigs": "Verbindung und Signaturen entfernen",
     "brokenNotice": "Verbindung unterbrochen — die stützende Wurmloch-Sig wurde gelöscht. Bleibt auf der Karte, ist aber vom Routing in Quarantäne.",
+    "brokenNoticeRolled": "Verbindung kollabiert — der Rolling-Rechner hat genug Masse erfasst, um sie zu schließen. Bleibt auf der Karte, ist aber vom Routing in Quarantäne. Mach den letzten Durchgang rückgängig, falls das ein Versehen war.",
     "flagLabel": "Markierung",
     "flagAdd": "Markierung hinzufügen",
     "flagNotePlaceholder": "z. B. NICHT ROLLEN – Flotte im Anflug",
@@ -639,7 +817,9 @@
     "matchCount_other": "{{count}} Systeme passen",
     "clear": "Filter löschen",
     "holes": "Wurmlöcher",
-    "undivedWh": "Unerforscht"
+    "undivedWh": "Unerforscht",
+    "wormholeTip": "Systeme mit irgendeiner Wurmloch-Signatur, gescannt oder nicht, durchflogen oder nicht",
+    "undivedWhTip": "Systeme mit einem Loch, durch das noch niemand gesprungen ist"
   },
   "copyMap": {
     "title": "Karte kopieren",
@@ -740,8 +920,11 @@
     "optimizeConnections": "Verbindungen optimieren",
     "spreadNodes": "Knoten verteilen",
     "removeOrphans": "Verwaiste Systeme entfernen ({{count}})",
-    "removeOrphansConfirm": "{{count}} verwaiste(s) System(e) entfernen? Diese haben keine gültige Verbindung (keine oder nur unterbrochene). Heimat- und gesperrte Systeme bleiben erhalten. Dies kann rückgängig gemacht werden.",
+    "removeOrphansConfirm": "{{count}} verwaiste(s) System(e) entfernen? Diese haben keine gültige Verbindung (keine oder nur unterbrochene) oder sind durch eine unterbrochene Verbindung von der Heimat abgeschnitten. Heimat- und gesperrte Systeme bleiben erhalten. Dies kann rückgängig gemacht werden.",
+    "keyDeleteConfirmOne": "{{name}} löschen? Dies kann rückgängig gemacht werden.",
+    "keyDeleteConfirmMany": "{{count}} Systeme löschen? Dies kann rückgängig gemacht werden.",
     "removeStranded": "Von Heimat getrennte Systeme entfernen ({{count}})",
+    "removeStrandedNoHome": "Von Heimat getrennte Systeme entfernen (zuerst Heimat festlegen)",
     "removeStrandedConfirm": "{{count}} System(e) ohne Weg zurück nach {{home}} entfernen? Heimat- und gesperrte Systeme bleiben erhalten. Dies ist eine Massenlöschung — das Rückgängigmachen stellt sie einzeln wieder her, und nur die letzten 50 Löschungen werden vorgehalten.",
     "labels": "Labels",
     "customLabel": "Eigenes Label",
@@ -772,6 +955,65 @@
     "signInMore": "Melde dich an, um Kills, Signaturen, Strukturen, Aktivität, Souveränität und mehr zu sehen.",
     "addSystemHere": "System hier hinzufügen",
     "addSystemLimit": "System hinzufügen (Limit {{max}} erreicht)"
+  },
+  "dscan": {
+    "title": "D-Scan-Analyse",
+    "landingLink": "D-Scan-Analyse",
+    "intro": "Füge einen Richtungsscan oder eine Pilotenliste aus dem Local ein. Du bekommst eine Aufschlüsselung und einen Link, den 24 Stunden lang jeder öffnen kann.",
+    "placeholder": "D-Scan oder Local hier einfügen",
+    "analyse": "Analysieren",
+    "analysing": "Wird analysiert...",
+    "attachTo": "An {{system}} anhängen",
+    "newScan": "Neuer Scan",
+    "loading": "Scan wird geladen...",
+    "backToMap": "Zurück zur Karte",
+    "home": "Startseite",
+    "shareLink": "Link zu diesem Scan",
+    "copyLink": "Link kopieren",
+    "linkCopied": "Link kopiert",
+    "copyFailed": "Link konnte nicht kopiert werden",
+    "openInNewTab": "In neuem Tab öffnen",
+    "kindDscan": "Richtungsscan",
+    "kindLocal": "Local",
+    "scanned": "Gescannt {{ago}}",
+    "filterLabel": "Anzeigen",
+    "filterAll": "Alle",
+    "filterOnGrid": "Auf dem Grid",
+    "filterOffGrid": "Außerhalb des Grids",
+    "onGridHint": "Auf dem Grid heißt innerhalb von {{km}} km.",
+    "hullMass": "Rumpfmasse",
+    "noMassData": "Ohne Massedaten: {{n}}",
+    "total": "Gesamt",
+    "nothingInRange": "Nichts in diesem Bereich.",
+    "unknownGroup": "Unbekannt",
+    "pilots": "Piloten",
+    "alliances": "Allianzen",
+    "corps": "Corporations",
+    "notFound": "Nicht gefunden",
+    "notFoundHint": "Nicht gefundene Namen",
+    "noAlliance": "Keine Allianz",
+    "systemSection": "D-Scans",
+    "systemNone": "Keine Scans in den letzten 24 Stunden.",
+    "summaryDscan": "Schiffe: {{ships}} / Objekte: {{total}}",
+    "summaryLocal": "Local: {{n}} Piloten",
+    "sections": {
+      "ships": "Schiffe",
+      "structures": "Strukturen",
+      "deployables": "Deployables",
+      "drones": "Drohnen und Jäger",
+      "other": "Sonstiges"
+    },
+    "errors": {
+      "empty": "Nichts zu analysieren. Füge zuerst einen D-Scan oder eine Local-Liste ein.",
+      "unrecognised": "Das sieht weder nach einem D-Scan noch nach einer Local-Liste aus.",
+      "tooMany": "Der eingefügte Text ist zu lang.",
+      "lookupFailed": "Die Piloten konnten gerade nicht nachgeschlagen werden. Versuch es in einer Minute erneut.",
+      "rateLimited": "Zu viele Scans. Warte kurz und versuch es erneut.",
+      "failed": "Der eingefügte Text konnte nicht analysiert werden.",
+      "notFound": "Diesen Scan gibt es nicht.",
+      "expired": "Dieser Scan ist abgelaufen. Scans werden 24 Stunden aufbewahrt.",
+      "loadFailed": "Der Scan konnte nicht geladen werden."
+    }
   },
   "duration": {
     "seconds": "{{value}}s",
@@ -916,7 +1158,39 @@
     "noKillsOnRecord": "Keine Kills verzeichnet.",
     "noKillsNpc": "Keine Kills in den letzten 24h — {{count}} NPC-only ausgeblendet.",
     "showThem": "Anzeigen",
-    "loadMore": "Mehr laden ({{count}} verbleibend)"
+    "loadMore": "Mehr laden ({{count}} verbleibend)",
+    "scopeLabel": "Kills anzeigen für",
+    "scopeSystem": "Dieses System",
+    "scopeMap": "Ganze Karte",
+    "windowLabel": "Zeitraum",
+    "window": {
+      "1h": "1 Std.",
+      "24h": "24 Std.",
+      "7d": "7 T."
+    },
+    "showingOf": "{{shown}} von {{total}} Kills",
+    "tags": {
+      "gate": "Gate",
+      "hic": "HIC",
+      "dic": "Dictor",
+      "sb": "SB",
+      "npc": "NPC",
+      "solo": "Solo",
+      "ganked": "Gegankt",
+      "awox": "Awox",
+      "padding": "Padding"
+    },
+    "tagTips": {
+      "gate": "Am Stargate getötet",
+      "hic": "Ein Heavy Interdictor war auf der Killmail",
+      "dic": "Ein Interdictor war auf der Killmail",
+      "sb": "Durch eine Smartbomb getötet",
+      "npc": "Nur NPCs auf der Killmail",
+      "solo": "Ein Angreifer",
+      "ganked": "Durch einen Gank getötet: CONCORD war auf der Killmail",
+      "awox": "Von der eigenen Corp oder Allianz getötet",
+      "padding": "zKillboard markiert dies als Padding: ein wertloser Kill, um die Statistik aufzublähen"
+    }
   },
   "labelsDialog": {
     "title": "Eigene Labels",
@@ -963,7 +1237,7 @@
     "features": {
       "interactiveMap": {
         "title": "Interaktive Karte",
-        "desc": "Ziehe Systeme, zeichne Verbindungen, lege Wurmloch-Klasse / -Typ / -Status pro Verbindung fest. Raster-Einrasten und eine optionale Minikarte."
+        "desc": "Systeme ziehen, Verbindungen zeichnen, Wurmlochklasse / -typ / -status pro Verbindung festlegen. Am Raster einrasten und eine optionale Minikarte."
       },
       "seedRegion": {
         "title": "Karte aus einer Region erzeugen",
@@ -982,8 +1256,8 @@
         "desc": "Durchsuchbares Popover, um einer Verbindung den genauen Wurmlochtyp zuzuweisen. Die Static-Schnellinfo beim Überfahren zeigt Zielklasse, Masse und Lebensdauer."
       },
       "multiSelect": {
-        "title": "Mehrfachauswahl-Massenaktionen",
-        "desc": "Mit Shift-Klick mehrere Systeme oder Signaturen auswählen und dann in einer Aktion den Typ zuweisen, löschen oder umbenennen."
+        "title": "Massenaktionen per Mehrfachauswahl",
+        "desc": "Mit Umschalt- oder Cmd- / Strg-Klick mehrere Systeme oder Signaturen auswählen und dann in einem Schritt Typ zuweisen, löschen oder umbenennen."
       },
       "pngExport": {
         "title": "PNG-Export",
@@ -1023,7 +1297,7 @@
       },
       "crossMapSync": {
         "title": "Karten-übergreifende Synchronisierung",
-        "desc": "Dasselbe System auf mehreren Karten? Aktiviere die Option, und wenn du es auf einer Karte scannst, werden seine Signaturen und Anomalien auf dasselbe System auf deinen anderen Karten kopiert — persönliche Karten synchronisieren mit deinen anderen persönlichen Karten, Corp-Karten mit denen der Corp. Nicht-destruktiv: Es werden nur fehlende Einträge ergänzt und Lücken gefüllt, niemals bereits eingegebene Daten überschrieben oder etwas gelöscht."
+        "desc": "Dasselbe System auf mehreren Karten? Aktiviere die Option, und wenn du es auf einer Karte scannst, werden seine Signaturen und Anomalien auf dasselbe System auf deinen anderen Karten kopiert. Persönliche Karten synchronisieren mit deinen anderen persönlichen Karten (auch denen deiner Alts), Corp- oder Allianzkarten mit anderen derselben Art, bei denen die Synchronisierung eingeschaltet ist. Es werden nur fehlende Einträge ergänzt und Lücken gefüllt, niemals etwas überschrieben oder gelöscht."
       },
       "realtime": {
         "title": "Echtzeit-Zusammenarbeit",
@@ -1035,15 +1309,15 @@
       },
       "rbac": {
         "title": "Rollenbasierter Zugriff",
-        "desc": "Vier Stufen — readonly, edit, full, admin — steuern Corp-Karten-Aktionen. Persönliche Karten bleiben unabhängig von der Rolle deine."
+        "desc": "Nur lesen, Mitwirkender, Bearbeiten, Voll und Admin, auf Allianz-Installationen zusätzlich Allianz-Admin. Ein Mitwirkender hält Signaturen, Anomalien und Strukturen aktuell und kartiert die Kette, indem er sie fliegt, kann sie aber nicht von Hand umbauen. Persönliche Karten bleiben unabhängig von der Rolle deine."
       },
       "systemPanel": {
         "title": "System-Panel",
-        "desc": "Kacheln pro System für Signaturen, Strukturen, NPC-Stationen, Notizen, Killboard und Aktivitätsdiagramme. Die Kacheln sind per Drag-and-Drop umsortierbar und bleiben pro Benutzer erhalten."
+        "desc": "Karten pro System für Signaturen, Anomalien, Strukturen, NPC-Stationen, Notizen, Killboard, PvP-Aktivität, D-Scans und Aktivitätsdiagramme, mit Links zu Dotlan, zKillboard und anoik.is. Die Karten lassen sich per Drag-and-drop umsortieren, und die Reihenfolge wird pro Benutzer gespeichert."
       },
       "sigMgmt": {
         "title": "Signaturverwaltung",
-        "desc": "Füge direkt aus dem Sondenscanner ein. Verfolgt das Erstellungs- / Aktualisierungsalter pro Signatur, löscht beim erneuten Einfügen fehlende Sigs automatisch und unterstützt Massentyp-Zuweisung für die Mehrfachauswahl."
+        "desc": "Füge direkt aus dem Sondenscanner ein. Zeigt, wer jede Signatur gescannt hat und wie alt sie ist, kann Sigs, die beim erneuten Einfügen fehlen, nach einer Karenzzeit entfernen, und dupliziert nie eine Signatur, wenn zwei Piloten gleichzeitig einfügen. Kopiere aus jeder Zeile einen einfügefertigen Lesezeichennamen, in deinem eigenen Format oder dem der Karte."
       },
       "structImport": {
         "title": "Struktur-Import",
@@ -1055,15 +1329,15 @@
       },
       "activityCharts": {
         "title": "Aktivitätsdiagramme",
-        "desc": "24-Stunden-Rollverlauf von Sprüngen, Schiffs- / Pod-Kills und NPC-Kills pro System, stündlich aus ESI abgefragt. Der Poller speichert Daten für jedes K-Space-System — nicht nur für geöffnete — sodass die Diagramme sich füllen, sobald du ein neues System ansiehst."
+        "desc": "Gleitender 24-Stunden-Verlauf von Sprüngen, Schiffs- / Pod-Kills und NPC-Kills pro System, stündlich von ESI für jedes K-Space-System abgerufen. Zeige sie gestapelt in deiner eigenen Reihenfolge oder kombiniert auf einem gemeinsamen Achsensystem mit genauen Werten beim Überfahren."
       },
       "sovStation": {
         "title": "Souveränitäts- & Stationsdaten",
-        "desc": "Live-Sov-Infos zu Allianz / Corp / Fraktion und NPC-Stationsdienste, mit Wegpunkt- und Ziel-Aktionen im Spiel."
+        "desc": "Live-Souveränität von Allianz / Corp / Fraktion mit dem ADM des Hubs und seinem nächsten Verwundbarkeitsfenster, dazu NPC-Stationsdienste, mit Wegpunkt- und Zielaktionen im Spiel."
       },
       "killboard": {
         "title": "Killboard-Bereich",
-        "desc": "Aktuelle zKillboard-Aktivität pro System, wobei reine NPC-Kills standardmäßig ausgeblendet sind (umschaltbar). Zeilen färben sich rot, wenn ein feindlicher Akteur in der Kette ist oder ein Blauer getötet wird; blau, wenn ein Freundlicher punktet oder ein Feindlicher stirbt. Aktuelle Kills tauchen auch als Hervorhebungen auf der Karte auf."
+        "desc": "Aktuelle Kills aus zKillboard und dem Live-Feed für ein System oder deine ganze Karte, über die letzte Stunde, den letzten Tag oder die letzte Woche. Jeder Kill wird markiert, wenn er an einem Gate passiert ist oder ein HIC, Dictor oder Smartbomb beteiligt war. NPC-Kills sind standardmäßig ausgeblendet. Zeilen färben sich rot, wenn ein Feindlicher beteiligt ist oder ein Blauer stirbt, und blau, wenn ein Freundlicher punktet."
       },
       "effectDigest": {
         "title": "Ketten-Effektübersicht",
@@ -1074,8 +1348,8 @@
         "desc": "Deine EVE-Kontaktliste (persönlich, Corp und Allianz — bei der Anmeldung über ESI abgerufen und auf Anfrage erneut abrufbar) treibt eine kettenweite visuelle Ebene an. Sov-Halter zeigen inline P/C/A-Standing-Pillen; Strukturen, die über ihre EVE-Struktur-ID aufgelöst werden, färben sich nach dem Standing der Besitzer-Corp; Knoten von Sov-Halter-Systemen erhalten einen farbigen Halo, damit feindliches Territorium auf der Karte heraussticht."
       },
       "scout": {
-        "title": "Scout-Verbindungen",
-        "desc": "Öffentliche Eve-Scout-Verbindungen von Thera und Turnur werden in die Seitenleiste eingeblendet, sodass du direkt zu bekannten Löchern springen kannst."
+        "title": "Thera- & Turnur-Verbindungen",
+        "desc": "Die öffentlichen Thera- und Turnur-Verbindungen von Eve-Scout mit beiden Signatur-IDs und der Route über den Hub. Übernimm sie mit einem Klick auf deine Karte (Löcher, die eve-scout nicht mehr listet, werden aufgeräumt) und melde eines als kollabiert, damit die Routenplanung es nicht mehr nutzt."
       },
       "a0": {
         "title": "A0-Sonnenerkennung",
@@ -1099,11 +1373,11 @@
       },
       "discordNotif": {
         "title": "Discord-Benachrichtigungen",
-        "desc": "Schiebe Corp-Ketten-Intel in einen Discord-Kanal, damit Alarme auch ankommen, wenn niemand den Tab beobachtet. Wird serverseitig bei einem eingehenden K162 oder einer neuen Wurmlochverbindung ausgelöst, beschränkt auf Corp-Karten. Admins filtern im Admin-Panel, welche Regionen und Karten benachrichtigen. Best-effort und ratenbegrenzungsbewusst; Massenaktionen wie Regions-Seeding spammen den Kanal nie zu."
+        "desc": "Schicke Ketten-Intel in einen Discord-Kanal, damit Meldungen ankommen, auch wenn niemand auf den Tab schaut: neue Verbindungen und K162s, neue K-Space-Ausgänge mit ihrer Route, Kills in der Kette und besondere Kills, Löcher, die End-of-Life gehen, sowie neue Thera- und Turnur-Löcher. Admins wählen aus, für welche Karten und Regionen gepostet wird."
       },
       "routePlanner": {
         "title": "Routenplaner",
-        "desc": "Serverseitige BFS über Stargates plus deine Live-Kette, sodass eine Route durch einen Wurmlochsprung ein einziger Klick ist."
+        "desc": "Wähle zwei beliebige Systeme und erhalte eine Route über Stargates, deine Wurmlochketten, Thera, Turnur und Ansiblex-Brücken. Finde Systeme über den Alias, den du ihnen gegeben hast, und speichere die Routen, die du oft fliegst."
       },
       "locationTracking": {
         "title": "Standortverfolgung",
@@ -1127,7 +1401,7 @@
       },
       "killHighlights": {
         "title": "Hervorhebung aktueller Kills",
-        "desc": "Systeme mit Kills in der letzten Stunde erhalten einen farbigen Halo, sodass du frische Aktivität auf einen Blick über die ganze Kette siehst."
+        "desc": "Systeme mit Kills bekommen auf der Karte ein Schwert mit ihrer 24-Stunden-Killzahl, hell, wenn in dieser Stunde gekämpft wurde, und einen farbigen Schein für frische Aktivität in der ganzen Kette."
       },
       "userStats": {
         "title": "Benutzerstatistik-Fenster",
@@ -1142,8 +1416,8 @@
         "desc": "Die Landingpage bindet eine nicht editierbare Demo-Karte ein, damit Besucher sehen können, was das Tool kann, bevor sie sich anmelden."
       },
       "sidebar": {
-        "title": "Einklappbare Seitenleiste",
-        "desc": "Kartenoptionen, Verbindungen, Näherungswarnungen, Veraltete Systeme abblenden und Tastenkürzel lassen sich jeweils unabhängig auf- oder zuklappen. Der Zustand pro Abschnitt bleibt pro Browser über localStorage erhalten."
+        "title": "Wähle deine Panels",
+        "desc": "Jeder Abschnitt der Seitenleiste und jedes System-Panel lässt sich einklappen, umsortieren oder ganz ausschalten. Deine Auswahl wird in deinem Konto gespeichert und folgt dir auf einen anderen Rechner."
       },
       "colorVision": {
         "title": "Farbenblind-Modi",
@@ -1167,7 +1441,91 @@
       },
       "jumpPlanner": {
         "title": "Sprungplaner",
-        "desc": "Plane eine mehrstufige Capital-Sprungroute zwischen zwei beliebigen Low-/Null-Systemen. Wähle eine Schiffsklasse und deine Skills, entscheide dich für wenigste Sprünge oder wenigsten Treibstoff und sieh die Route mit Lichtjahren pro Sprung und einer Isotopen-Schätzung. Speichere und lade deine Routen."
+        "desc": "Plane eine mehrstufige Capital-Sprungroute zwischen zwei beliebigen Low-/Null-Systemen. Wähle eine Schiffsklasse und deine Skills, entscheide dich für wenigste Sprünge oder wenigsten Treibstoff und sieh die Route mit Lichtjahren pro Sprung, einer Isotopen-Schätzung, Sprungmüdigkeit und dem Reaktivierungs-Timer. Meide Systeme, füge Wegpunkte hinzu, nutze regionale Gates und speichere deine Routen."
+      },
+      "addConnect": {
+        "title": "Hinzufügen und verbinden in einem Schritt",
+        "desc": "Rechtsklicke auf ein System, um in einem Zug ein verbundenes System hinzuzufügen, oder wähle Mit System verbinden und klicke auf das andere Ende. Beim Hinzufügen wird dir zuerst das System angeboten, in dem du gerade bist, und ein Unbekannt-Platzhalter markiert ein Loch, das du noch nicht identifiziert hast."
+      },
+      "mapGlance": {
+        "title": "Die Karte auf einen Blick",
+        "desc": "Verbindungen zeigen ihren Zustand direkt an der Linie: Frigatten-Löcher sind gestrichelt, reduzierte und kritische Löcher haben einen farbigen Kern, und die Schiffsgröße steht neben dem Typ. Jedes System zeigt, wie viel davon gescannt ist, Statics erscheinen auch im Kompaktmodus, und beim Überfahren eines K-Space-Systems siehst du, wie viele Gate-Sprünge es von dir entfernt ist."
+      },
+      "regionBorders": {
+        "title": "Regionsgrenzen",
+        "desc": "Systeme mit einem Stargate in eine andere Region bekommen ein kleines Etikett mit deren Namen, sodass du siehst, wo du über eine Kette nach Providence oder Curse wechseln kannst, ohne das Nachbarsystem hinzuzufügen. Standardmäßig aus; schalte es in den Systemoptionen ein."
+      },
+      "layoutTools": {
+        "title": "Layout-Werkzeuge",
+        "desc": "Layout aufräumen ordnet Systeme in der Form ihrer echten Regionen an. Entwirren zieht verbundene Systeme in ordentliche Reihen und Spalten zusammen. Tore neu einstufen macht aus Wurmlochlinien, die eigentlich Stargates sind, Gate-Verbindungen. Gesperrte Systeme bleiben, wo du sie hingestellt hast."
+      },
+      "flagPresets": {
+        "title": "Flaggen-Vorlagen für Verbindungen",
+        "desc": "Speichere Symbol, Farbe und Namen als Vorlage und wende sie mit einem Klick auf eine Verbindung an. Corps und Allianzen können einen Standardsatz für alle veröffentlichen."
+      },
+      "mapBackup": {
+        "title": "Import und vollständige Backups",
+        "desc": "Übernimm eine Karte aus Pathfinder (Aliase, Intel-Markierungen, Masse und End-of-Life kommen mit) oder aus Tripwire (experimentell, mit Signaturen und Systemnotizen). Exportiere ein vollständiges JSON-Backup mit Signaturen, Anomalien, Strukturen sowie Masse und Lebensdauer jedes Lochs und importiere es wieder als exakte Kopie, die dir gehört."
+      },
+      "jumpConfirm": {
+        "title": "Sprünge tragen das Loch ein",
+        "desc": "Wenn du springst, ermittelt nexum, durch welche Signatur du gegangen bist, und trägt ein, wohin sie führt. Nachgefragt wird nur, wenn mehrere passen könnten. Der aktualisierte Lesezeichenname des Lochs landet in deiner Zwischenablage, bereit zum Einfügen im Spiel. Klonsprünge und Pod-Tode zeichnen keine falschen Verbindungen."
+      },
+      "sharing": {
+        "title": "Karten teilen",
+        "desc": "Teile eine Karte mit anderen Charakteren, deiner Corp oder deiner Allianz, oder erstelle einen schreibgeschützten Link, den jeder ohne Konto öffnen kann, mit Ablaufdatum und Auswahl, was Gäste sehen. Geteilte Karten zeigen, wem sie gehören, und du kannst eine Karte, die du nicht nutzt, verlassen oder ausblenden."
+      },
+      "mapHistory": {
+        "title": "Kartenverlauf",
+        "desc": "Jede Änderung am Aufbau einer Karte wird mit ihrem Urheber festgehalten: Systeme, Verbindungen, Signaturen, Ketten, Einstellungen, Freigaben und Zusammenführungen. 30 Tage lang aufbewahrt und für Eigentümer und Admins der Karte in der Kartenseitenleiste einsehbar."
+      },
+      "dscan": {
+        "title": "D-Scan- und Local-Analyse",
+        "desc": "Füge einen Directional Scan ein und erhalte Schiffe nach Klasse und Rumpf gruppiert, einen On-Grid- / Off-Grid-Filter, Strukturen mit ihrer Entfernung und die Gesamtmasse im Scan. Füge den Local-Chat ein und erhalte Piloten nach Allianz und Corp gruppiert. Jeder Scan bekommt einen Link, den jeder 24 Stunden lang öffnen kann, und einem System zugeordnete Scans erscheinen in dessen Panel. Kein Login nötig."
+      },
+      "pvpForecast": {
+        "title": "PvP-Aktivitätsprognose",
+        "desc": "Für jedes System 24 Balken, die zeigen, wie viel in jeder kommenden Stunde an diesem Wochentag normalerweise los ist, basierend auf den letzten 90 Tagen von zKillboard, mit der aktivsten Stunde benannt und einer Live-Zählung der letzten 24 Stunden. Zeiten erscheinen in deiner eigenen Zeitzone. Funktioniert auch im Wurmlochraum."
+      },
+      "holeState": {
+        "title": "Masse und Lebensdauer beim Scannen",
+        "desc": "Trage Masse (voll, unter 50 %, unter 10 %) und Lebensdauer (bis abgelaufen) eines Lochs direkt in der Signaturliste ein, bevor jemand hindurchgesprungen ist. Setze sie an einem Ende, und das andere Ende sowie die Linie auf der Karte ziehen nach."
+      },
+      "siteDetails": {
+        "title": "Site-Details auf einen Blick",
+        "desc": "Relic- und Data-Zeilen zeigen, ob die Site Kampf-NPCs spawnt, Event-Data-Sites zeigen ein Häkchen für sicheres Warpen, Ghost-Sites sind ein eigener Typ mit ihrer Stufe aus dem Scan, und Drifter-Löcher tragen ihr Ziel selbst ein."
+      },
+      "chainExits": {
+        "title": "Kettenausgänge",
+        "desc": "Eine Liste in der Werkzeugleiste mit jedem K-Space-System, das ein offenes Wurmloch in deiner Kette hat, mit der Route dorthin und zu deinen Lieblingssystemen über den Ausgang, den du nehmen würdest. Lass dich in der App oder in Discord benachrichtigen, wenn ein neuer Ausgang auftaucht: nur High-Sec, Low-Sec und besser oder jeder K-Space."
+      },
+      "closestSystems": {
+        "title": "Nächste Systeme",
+        "desc": "Ein Seitenpanel, das zeigt, wie weit Handelsknoten und deine eigene Systemliste entfernt sind, gezählt über Gates, deine Wurmlochketten, Thera und Turnur. Es kann jede Karte nutzen, die du siehst, oder nur die offene, und jeder Wurmlochsprung nennt die Karte, aus der er stammt."
+      },
+      "clones": {
+        "title": "Klon-Panel",
+        "desc": "Dein Medizinklon und deine Sprungklone mit dem System, in dem jeder sich befindet, ihren Implantaten sowie Schaltflächen für Ziel setzen und Wegpunkt. Benötigt den Klon-Scope."
+      },
+      "pilotsOnline": {
+        "title": "Piloten online",
+        "desc": "Auf Corp- und Allianz-Installationen siehst du, wer aus deiner Organisation in den letzten Minuten aktiv war, was er fliegt und wo. Jeder kann seine eigene Anwesenheit ausblenden."
+      },
+      "announcer": {
+        "title": "Sprachansage",
+        "desc": "Gesprochene Hinweise während du fliegst, von einer Stimme, die auf deinem eigenen Gerät läuft: Low-Sec und Null-Sec in Reichweite, Incursions, aktuelle Kills in der Nähe, sich verbindende Charaktere und neue Ketten, die andere hinzugefügt haben. Experimentell, nur auf Englisch."
+      },
+      "desktopAlerts": {
+        "title": "Desktop- und Tonbenachrichtigungen",
+        "desc": "Desktop-Benachrichtigungen und Töne für Kills in deiner Kette, Löcher, die End-of-Life gehen, neue K-Space-Ausgänge, Treffer der Beobachtungsliste und Bedrohungen in der Nähe, jeweils einzeln einschaltbar und mit einem gemeinsamen Lautstärkeregler. Nur Neues löst eine Meldung aus, nie zweimal dasselbe."
+      },
+      "multiDestination": {
+        "title": "Ziel für alle deine Charaktere",
+        "desc": "Setze ein Ziel oder füge einen Wegpunkt für alle Online-Charaktere deines Kontos auf einmal hinzu. Jeder plant seine eigene Route von dort, wo er gerade ist, und du siehst für jeden Charakter, was passiert ist."
+      },
+      "panelLayout": {
+        "title": "Panel-Layouts",
+        "desc": "Platziere die Panels unter oder neben der Karte, teile sie in bis zu drei größenveränderbare Spalten auf und wähle Komfortabel, Kompakt oder Dicht als Abstand. Blende ungenutzte Panels aus, löse sie als eigene Fenster ab, und dein Layout folgt deinem Konto auf jedes Gerät."
       }
     },
     "corpFeatures": {
@@ -1185,7 +1543,7 @@
       },
       "adminDash": {
         "title": "Admin-Dashboard",
-        "desc": "Eine dedizierte /admin-Seite mit vier Tabs: Benutzer, Karten, Berichte und Audit-Log. Admins erreichen sie über die Schaltfläche Verwaltung in der Toolbar."
+        "desc": "Eine eigene /admin-Seite mit Tabs für Benutzer, Zugang, Karten, Berichte, Audit-Log, Discord, Flaggen-Vorlagen und Standard-Layout. Admins erreichen sie über die Verwaltung-Schaltfläche in der Werkzeugleiste."
       },
       "userMgmt": {
         "title": "Benutzerverwaltung",
@@ -1222,11 +1580,27 @@
       "accessControl": {
         "title": "Benutzer-Zugriffskontrolle",
         "desc": "Bestimme, wer sich über deinen .env-Kern hinaus anmelden darf: eine DB-Zulassungsliste (aus CORP_ID/ALLIANCE_ID vorbefüllt) im Admin-Bereich, optionale automatische Aufnahme befreundeter Corps/Allianzen nach Standing (+5/+10) und eine Standing-Ansicht nach Stufe. Sitzungen werden live geprüft — Zugriff entziehen oder eine Corp verlassen meldet die Nutzer ab."
+      },
+      "invites": {
+        "title": "Einladungen mit Rolle",
+        "desc": "Setze einen Piloten auf die Zulassungsliste, bevor er sich je angemeldet hat, und wähle die Rolle, mit der er ankommt. Die Schaltfläche Einladung mailen öffnet eine fertig geschriebene EVE-Mail in deinem eigenen Client. DEFAULT_USER_ROLE legt die Rolle fest, mit der alle anderen starten."
+      },
+      "orgDefaults": {
+        "title": "Organisations-Standards",
+        "desc": "Übernimm deine eigene Panel-Anordnung als Start-Layout, das neue Mitglieder erben, und veröffentliche einen Standardsatz an Flaggen-Vorlagen für Verbindungen für alle."
+      },
+      "orgBranding": {
+        "title": "Dein Logo",
+        "desc": "Eine Instanz, die für eine Corp oder Allianz betrieben wird, zeigt deren Logo über der Login-Schaltfläche auf der Startseite und neben dem nexum-Logo in der Werkzeugleiste."
+      },
+      "prebuiltImages": {
+        "title": "Fertige Images",
+        "desc": "Jedes Release wird als sofort lauffähige Images in der GitHub Container Registry veröffentlicht, sodass ein Update nur ein docker compose pull ist. Backup- und Wiederherstellungsskripte kommen mit mehreren Instanzen auf einem Host zurecht."
       }
     },
     "forCorpsBody": "Betreibe Nexum als gemeinsames Deployment für deine Corp oder Allianz. Mitglieder erhalten für die Corp sichtbare Kettenkarten und private persönliche Karten in einem Tool, mit rollenbasierten Berechtigungen, Admin-Tools und Aktivitätsberichten pro Charakter.",
     "compareBody": "Sieh, wie sich Nexum gegen Pathfinder, Tripwire und Wanderer schlägt — Funktionen, Hosting und Kosten, direkt nebeneinander.",
-    "languagesBody": "Nexum ist vollständig in neun Sprachen übersetzt — und erkennt deine beim ersten Besuch automatisch anhand deines Browsers. Lieber eine andere? Wechsle jederzeit über die Sprachauswahl in der Symbolleiste.",
+    "languagesBody": "Nexum ist vollständig in zehn Sprachen übersetzt — und erkennt deine beim ersten Besuch automatisch anhand deines Browsers. Lieber eine andere? Wechsle jederzeit über die Sprachauswahl in der Symbolleiste.",
     "compareLink": "Nexum vs Pathfinder, Tripwire & Wanderer vergleichen →",
     "helpLink": "Neu hier? Lies die Anleitung →",
     "guidesLink": "Wurmloch-Leitfäden & Tutorials →",
@@ -1290,6 +1664,33 @@
     "lessThan1h": "< 1 Std",
     "broken": "Verbindung unterbrochen — die Wurmloch-Sig wurde gelöscht (Loch kollabiert)"
   },
+  "mapKey": {
+    "title": "Kartenlegende",
+    "close": "Kartenlegende schließen",
+    "lifetime": "Lebensdauer",
+    "fresh": "Wurmloch mit mehr als einem Tag Restzeit oder unbekannter Lebensdauer.",
+    "lessThan24h": "Weniger als ein Tag übrig.",
+    "lessThan4h": "Weniger als 4 Stunden übrig, mit Countdown.",
+    "lessThan1h": "Weniger als eine Stunde übrig, mit Countdown.",
+    "expired": "Laut nexums Uhr ist seine Zeit abgelaufen. Die Uhr startet beim Eintragen des Lochs und nimmt die volle Lebensdauer des Typs an – ein spät gefundenes Loch kann also früher sterben als angezeigt.",
+    "expiredKept": "Auf dieser Karte bleibt es, bis jemand seine Signatur entfernt (Veraltete Wurmlöcher automatisch entfernen ist aus).",
+    "expiredCutNow": "Auf dieser Karte wird es sofort getrennt und seine Signaturen entfernt.",
+    "expiredCutAfter": "Auf dieser Karte wird es {{time}} später getrennt und seine Signaturen entfernt (Kollaps-Verzögerung).",
+    "broken": "Getrennt: Die Signatur wurde entfernt oder die Zeit des Lochs ist abgelaufen. Bleibt sichtbar, damit die Kette nachvollziehbar ist, wird aber bei Routen ignoriert. Kommt zurück, wenn wieder eine Signatur dazu passt oder jemand hindurchspringt. „Verwaiste Systeme entfernen“ räumt Systeme ab, die nur noch solche Verbindungen haben.",
+    "massSize": "Typ, Größe und Masse",
+    "type": "Wurmlochtyp und das größte Schiff, das hindurchpasst. S und M sind hervorgehoben, weil sie einschränken, was du mitnehmen kannst.",
+    "frigate": "Kurze Striche: Loch nur für Fregatten.",
+    "massStable": "Masse über der Hälfte gemeldet.",
+    "massHalf": "Weniger als die Hälfte der Masse übrig (oranger Kern).",
+    "massCritical": "Weniger als 10 % der Masse übrig (roter Kern).",
+    "other": "Andere Verbindungen",
+    "gate": "Stargate.",
+    "jumpgate": "Ansiblex-Sprungbrücke.",
+    "cyno": "Cyno-Sprungroute mit Entfernung. Die Punkte zeigen, welche Schiffsklassen es mit deiner Jump Drive Calibration schaffen.",
+    "watch": "Leuchten: passt zu deiner Beobachtungsliste.",
+    "flag": "Von deiner Corp oder Allianz markiert. Für die Notiz darüberfahren.",
+    "highlight": "Verbindungen des Systems, über dem du schwebst oder das du ausgewählt hast."
+  },
   "mapNode": {
     "a0Sun": "A0-Sonne",
     "altLastKnown": "(zuletzt bekannt)",
@@ -1307,7 +1708,9 @@
     "jumps_one": "{{count}} Sprung",
     "jumps_other": "{{count}} Sprünge",
     "killsTooltip": "{{ships}} Schiff · {{pods}} Pod-Kills diese Stunde",
-    "killsTooltipHint": "CCP-Stundenzählung · Killmail evtl. noch nicht auf zKillboard",
+    "kills24h_one": "{{count}} Spielerkill in den letzten 24 Std.",
+    "kills24h_other": "{{count}} Spielerkills in den letzten 24 Std.",
+    "killsTooltipHint": "Aus dem Live-Kill-Feed und den stündlichen Zahlen von CCP",
     "recentKill": "Kill vor {{ago}} Min. ({{value}} ISK)",
     "scanned": "{{scanned}} von {{total}} Signaturen gescannt",
     "scoutConnectionsMulti": "{{names}}-Verbindungen",
@@ -1322,6 +1725,7 @@
     "suppressed": "Unterdrückt",
     "undivedUnknown": "unbekannt",
     "undivedWhTitle": "Unerforschtes Wurmloch",
+    "regionBorderTitle": "Stargate in eine andere Region: {{regions}}",
     "unknown": "Unbekannt"
   },
   "mapShares": {
@@ -1365,7 +1769,8 @@
     "shareCount": "Mit {{count}} teilen",
     "batchShared": "Karte mit {{count}} geteilt.",
     "batchPartial": "Mit {{shared}} geteilt; {{skipped}} übersprungen.",
-    "batchNone": "Konnte nicht teilen — {{count}} übersprungen."
+    "batchNone": "Konnte nicht teilen — {{count}} übersprungen.",
+    "optedOut": "{{count}} haben diese Karte aus ihrer eigenen Liste ausgeblendet. Sie haben weiterhin Zugriff — eine Corp- oder Allianz-Freigabe kann man nicht einzeln verlassen."
   },
   "mapSidebar": {
     "activityHint": "Graphen für Folgendes anzeigen:",
@@ -1416,6 +1821,8 @@
     "compact": "Kompakt",
     "connectionStyle": "Verbindungsstil",
     "connectionThickness": "Verbindungsstärke",
+    "linkSigIds": "Sig-IDs an Verbindungen",
+    "confirmKeyDelete": "Löschen per Entf/Rücktaste bestätigen",
     "copyFailed": "Kopieren fehlgeschlagen — bitte manuell markieren und kopieren",
     "copyLink": "Link kopieren",
     "corpSkipKspace": "K-Space nicht verfolgen (Corp/Allianz)",
@@ -1423,7 +1830,10 @@
     "createShareFailed": "Freigabe-Link konnte nicht erstellt werden",
     "createShareLink": "Freigabe-Link erstellen",
     "crossMapSync": "Systemdaten über meine Karten synchronisieren",
-    "crossMapSyncHelp": "Wenn du Signaturen und Anomalien an einem System hinzufügst oder bearbeitest, werden sie auf das gleiche System auf deinen anderen Karten kopiert (persönliche Karten mit deinen anderen persönlichen Karten; Corp-Karten mit den anderen Karten der Corp). Nicht-destruktiv: Es füllt nur fehlende oder leere Einträge — vorhandene Daten werden nie überschrieben oder gelöscht.",
+    "crossMapSyncHelp": "Wenn du Signaturen und Anomalien in einem System hinzufügst oder bearbeitest, werden sie in dasselbe System auf deinen anderen persönlichen Karten kopiert, auch auf die Karten deiner anderen Charaktere. Corp- und Allianzkarten haben einen eigenen Schalter. Nicht destruktiv: Es werden nur fehlende oder leere Einträge ergänzt — bereits eingegebene Daten werden nie überschrieben oder gelöscht.",
+    "crossMapSyncOrg": "Systemdaten mit anderen Karten synchronisieren",
+    "crossMapSyncCorpHelp": "Hier hinzugefügte oder bearbeitete Signaturen und Anomalien werden in dasselbe System auf den anderen Karten der Corp kopiert, bei denen dies ebenfalls aktiviert ist. Nicht destruktiv: Es werden nur fehlende oder leere Einträge ergänzt. Nur Besitzer/Admins können das ändern.",
+    "crossMapSyncAllianceHelp": "Hier hinzugefügte oder bearbeitete Signaturen und Anomalien werden in dasselbe System auf den anderen Karten der Allianz kopiert, bei denen dies ebenfalls aktiviert ist. Nicht destruktiv: Es werden nur fehlende oder leere Einträge ergänzt. Nur Allianz-Admins können das ändern.",
     "easyConnect": "Einfaches Verbinden",
     "edgeStyle": {
       "bezier": "Standard",
@@ -1513,12 +1923,19 @@
     "notifProximity": "Nahe Bedrohungen",
     "notifWatchlist": "Beobachtungslisten-Treffer",
     "notifExits": "K-Space-Ausgänge",
+    "notifKills": "Kills auf der Karte",
+    "notifEol": "End-of-Life-Löcher",
     "notifExitsMinSec": "Melden bei Ausgängen ab",
     "notifExitsOff": "Aus — nie melden",
     "notifExitsHiSec": "Nur Hi-Sec",
     "notifExitsLowSec": "Low-Sec und besser",
     "notifExitsAny": "Jeder K-Space",
     "notifExitsHint": "Meldet einmalig, wenn ein Ausgang mit mindestens dieser Sicherheit in der Kette auftaucht. Standardmäßig aus.",
+    "notifKillsWhich": "Welche Kills",
+    "notifKillsSpecial": "Nur besondere Kills",
+    "notifKillsBillion": "1 Mrd.+ ISK",
+    "notifKillsAll": "Jeder auf der Karte markierte Kill",
+    "notifKillsHint": "Besonders heißt: ein verlorenes Capital, 1 Mrd.+ ISK oder ein Dictor, HIC oder Smartbomb auf der Killmail. End-of-Life-Meldungen kommen, wenn jemand anderes ein Loch auf dieser Karte auf unter 4 Stunden oder unter 1 Stunde setzt.",
     "notifVolume": "Lautstärke für Warnungen & Ansagen — {{pct}} %",
     "openOptions": "Kartenoptionen",
     "optimizeConnections": "⟳ Verbindungen optimieren",
@@ -1563,6 +1980,14 @@
     "routePreference": "Routenpräferenz",
     "routeSecure": "Sicher",
     "routeShortcutNote": "Routen über ein Wurmloch, Thera, Turnur oder ein Sprungtor können nicht als spielinternes Ziel oder Wegpunkt gesetzt werden — Rechtsklick auf ein K-Space-System in der Route, um stattdessen dorthin zu navigieren.",
+    "routeAvoid": "Systeme meiden",
+    "routeAvoidAdd": "System zum Meiden hinzufügen",
+    "routeAvoidRemove": "{{name}} entfernen",
+    "routeAvoidHint": "Routen in nexum (nächste Systeme, Routenplaner, Sprunganzahlen) führen nie durch diese Systeme. Der Autopilot von EVE nutzt im Spiel seine eigene Meiden-Liste.",
+    "waypointSendTo": "Ziel geht an",
+    "waypointSendToMe": "Diesen Charakter",
+    "waypointSendToAllOnline": "Alle eingeloggten Charaktere",
+    "waypointSendToHint": "Gilt überall für „Ziel setzen“ und „Wegpunkt hinzufügen“. Jeder Charakter plant seine eigene Route von seinem Standort aus; nicht eingeloggte Charaktere werden übersprungen.",
     "routeShortest": "Kürzeste",
     "sections": {
       "mapOptions": "Kartenoptionen",
@@ -1584,6 +2009,7 @@
       "mergeMaps": "Karten zusammenführen",
       "liveSharing": "Live-Karten-Übertragung",
       "shareMap": "Karte teilen",
+      "auditLog": "Änderungsprotokoll",
       "shortcuts": "Tastenkürzel",
       "notifications": "Benachrichtigungen",
       "announcer": "Sprachansage",
@@ -1609,12 +2035,22 @@
     "showPatchNotes": "Patchnotes anzeigen",
     "showStaticWhs": "Statische WHs anzeigen",
     "showUndivedWhs": "Ungetauchte WHs zeigen",
+    "showRegionBorders": "Regionsgrenzen zeigen",
+    "showRegionBordersTooltip": "Markiert Systeme, deren Stargates in eine andere Region führen, mit dem Namen der Region. Das Nachbarsystem wird nicht zur Karte hinzugefügt.",
     "sigBookmark": "Wurmloch-Lesezeichen",
+    "k162Bookmark": "Ausgehendes Lesezeichen (nur K162)",
+    "k162BookmarkPlaceholder": "Leer: verwendet das Wurmloch-Lesezeichenformat",
+    "k162BookmarkHelp": "Wird statt des Wurmloch-Formats oben verwendet, aber nur für K162, wann immer ein Lesezeichenname kopiert wird (per Kopiersymbol oder nach einem Sprung). Es nutzt dieselben Tokens. Bleibt es leer, verwenden K162 das Wurmloch-Lesezeichenformat. Hat die Karte ein eigenes Wurmloch-Format, gilt dieses für jedes Loch, auch für K162.",
     "siteBookmark": "Site-Lesezeichen (relic / data / gas)",
     "siteBookmarkHelp": "Klicke in einer relic-, data- oder gas-Signaturzeile auf das Kopiersymbol für einen einfügefertigen Lesezeichennamen. Baue ihn mit diesen Tokens:",
+    "copyBookmarkOnJump": "Lesezeichennamen nach einem Sprung kopieren",
+    "copyBookmarkOnJumpHelp": "Wenn ein Sprung einträgt, wohin ein Loch führt, landet sein Lesezeichenname (im Format oben) in deiner Zwischenablage. Bist du gerade im Spiel, wird er kopiert, sobald du wieder in nexum klickst.",
     "skipKspace": "K-Space nicht verfolgen",
     "skipKspaceHint": "Wenn aktiv, wird nur das erste K-Space-System nach dem Sprung aus dem J-Space und das letzte vor dem Sprung zurück in den J-Space erfasst — alles dazwischen wird übersprungen. Nur HS/LS/NS; Pochven wird immer verfolgt.",
     "snapToGrid": "Am Raster ausrichten",
+    "gridStyle": "Rasterstil",
+    "gridStyleLines": "Linien",
+    "gridStyleDots": "Punkte",
     "spreadNodes": "⊞ Knoten verteilen",
     "spreadNodesTooltip": "Systemknoten anpassen, um Überlappungen zu vermeiden",
     "staleHint": "Systeme abblenden, die im gewählten Intervall nicht aktualisiert wurden, damit alte Kettenreste auf einen Blick erkennbar sind.",
@@ -1643,7 +2079,17 @@
     "wandererImported": "Aus Wanderer importiert: {{systems}} Systeme, {{connections}} Verbindungen ({{skipped}} übersprungen).",
     "working": "Arbeitet…",
     "panelColumns": "Panel-Spalten",
-    "panelColumnsTooltip": "Teilt die Bereiche des Panels in nebeneinanderliegende Spalten, sodass Notizen oder das Killboard neben den Signaturen statt darunter stehen."
+    "panelColumnsTooltip": "Teilt die Bereiche des Panels in nebeneinanderliegende Spalten, sodass Notizen oder das Killboard neben den Signaturen statt darunter stehen.",
+    "homeColor": "Farbe des Heimatsystems",
+    "hereColor": "Farbe für „Du bist hier“",
+    "herePulse": "Pulsieren bei „Du bist hier“",
+    "herePulseOptions": {
+      "off": "Aus (fester Ring)",
+      "subtle": "Dezent",
+      "normal": "Normal",
+      "strong": "Stark"
+    },
+    "resetColor": "Zurücksetzen"
   },
   "mass": {
     "billionKg": "{{value}} Mrd. kg",
@@ -1707,7 +2153,8 @@
     "killboard": "zKillboard",
     "activity": "Aktivität",
     "undock": "In ein schwebendes Fenster ablösen",
-    "redock": "Wieder andocken"
+    "redock": "Wieder andocken",
+    "pvp": "PvP-Aktivität"
   },
   "panes": {
     "noEveSystem": "Kein EVE-System verknüpft",
@@ -1738,12 +2185,25 @@
     "riskCritical": "Kritische Masse",
     "riskFrig": "Fregatten-Loch",
     "jspaceNoWaypoint": "Wurmloch-Systeme können nicht als Autopilot-Ziel gesetzt werden.",
-    "viaAnsiblex": "Ansiblex-Sprungtor"
+    "viaAnsiblex": "Ansiblex-Sprungtor",
+    "viaMap": "auf {{map}}"
   },
   "routeToast": {
     "destinationSet": "Ziel festgelegt auf {{system}}",
     "waypointAdded": "{{system}} erfolgreich zu den Wegpunkten hinzugefügt.",
-    "failed": "Wegpunkt konnte nicht gesetzt werden — ist dein Charakter online?"
+    "failed": "Wegpunkt konnte nicht gesetzt werden — ist dein Charakter online?",
+    "destinationSetFor_one": "Ziel {{system}} für {{count}} Charakter gesetzt",
+    "destinationSetFor_other": "Ziel {{system}} für {{count}} Charaktere gesetzt",
+    "waypointAddedFor_one": "{{system}} für {{count}} Charakter zu den Wegpunkten hinzugefügt",
+    "waypointAddedFor_other": "{{system}} für {{count}} Charaktere zu den Wegpunkten hinzugefügt",
+    "notSentTo": "Nicht gesendet an: {{list}}",
+    "noneSent": "Für keinen Charakter gesetzt: {{list}}",
+    "reason": {
+      "offline": "nicht eingeloggt",
+      "no_scope": "erneut einloggen, um Wegpunkte zu erlauben",
+      "token_expired": "erneut einloggen",
+      "esi_error": "EVE hat nicht geantwortet"
+    }
   },
   "scout": {
     "noConnections": "Keine {{system}}-Verbindungen.",
@@ -1757,11 +2217,21 @@
     "inSigHint": "Signatur-ID in {{system}} — das andere Ende des Lochs",
     "outSigHint": "Signatur-ID in {{system}} — das Ende, das du von hier aus anwarpst",
     "markExpired": "Dieses Loch als kollabiert melden",
-    "unmarkExpired": "Doch nicht kollabiert"
+    "unmarkExpired": "Doch nicht kollabiert",
+    "copyAll": "{{count}} auf die Karte",
+    "copyAllHint": "Signaturen für alle {{system}}-Verbindungen hinzufügen, deren System auf der Karte ist",
+    "copyOne": "Signaturen dieser Verbindung auf die Karte kopieren",
+    "copyNothing": "Nichts zu kopieren – diese Signaturen sind bereits auf der Karte",
+    "copyDone": "Signaturen: {{added}} hinzugefügt, {{updated}} aktualisiert",
+    "copyPartial": "{{added}} hinzugefügt, {{failed}} fehlgeschlagen",
+    "copyFailed": "Signaturen konnten nicht kopiert werden",
+    "copyDoneLinks": "Signaturen: {{added}} hinzugefügt, {{updated}} aktualisiert · {{links}} Verbindung(en) gezeichnet",
+    "copyDoneSwept": "Signaturen: {{added}} hinzugefügt, {{updated}} aktualisiert · {{removed}} kollabierte Löcher entfernt"
   },
   "session": {
     "idleLogout": "Wegen Inaktivität abgemeldet.",
     "ended": "Ihre Sitzung wurde beendet — bitte melden Sie sich erneut an.",
+    "reconnecting": "nexum ist gerade nicht erreichbar – neuer Versuch läuft. Deine Anmeldung bleibt bestehen.",
     "lockedTitle": "Pausiert",
     "lockedHint": "Du warst inaktiv, daher wurde die Karte pausiert. Deine Anmeldung ist noch aktiv.",
     "resumeAs": "Weiter als {{name}}",
@@ -1815,6 +2285,7 @@
     "pasteDifferentSystem": "Dein Charakter ist derzeit in {{current}}, aber du fügst Signaturen in {{selected}} ein. Fortfahren?",
     "loadFailed": "Signaturen konnten nicht geladen werden",
     "saveFailed": "Signatur konnte nicht gespeichert werden",
+    "duplicateId": "Signatur {{id}} existiert in diesem System bereits",
     "deleteFailed": "Signatur konnte nicht gelöscht werden",
     "deleteSelectedConfirm_one": "{{count}} ausgewählte Signatur löschen?",
     "deleteSelectedConfirm_other": "{{count}} ausgewählte Signaturen löschen?",
@@ -1828,6 +2299,9 @@
     "removeDelayInstant": "Sofort",
     "filterLabel": "Nach Typ filtern",
     "filterClear": "Zurücksetzen",
+    "drifterHole": "Drifter",
+    "drifterHoles": "Drifter",
+    "drifterChipHint": "Drifter-Löcher (im Scanner „Unidentified Wormhole“)",
     "noMatchFilter": "Keine Signaturen entsprechen dem Filter",
     "setTypeAria": "Typ für ausgewählte Signaturen festlegen",
     "setType": "Typ festlegen ({{count}})…",
@@ -1851,6 +2325,7 @@
     "colAge": "Alter",
     "colUpdated": "Aktualisiert",
     "columns": "Spalten",
+    "groupIcons": "Gruppe als Symbole",
     "namePlaceholder": "Seitenname",
     "colSafe": "Sicher",
     "safeYes": "Sicher — kein Kampf",
@@ -1944,6 +2419,11 @@
     "alliance": "Allianz",
     "corp": "Corp",
     "faction": "Fraktion",
+    "sovAdm": "ADM",
+    "sovAdmTip": "Activity Defense Multiplier (1–6): Je höher, desto länger braucht ein Angreifer, um den Sov-Hub einzunehmen.",
+    "sovVulnerability": "Verwundbar",
+    "sovVulnerableNow": "Jetzt, bis {{end}} EVE",
+    "sovVulnerableNext": "{{start}}–{{end}} EVE (in {{in}})",
     "personal": "Persönlich",
     "refreshStandings": "Standings jetzt von ESI aktualisieren (umgeht die 6h-TTL)",
     "standingsRefreshed": "Standings aktualisiert — {{personal}} persönlich · {{corp}} Corp · {{alliance}} Allianz-Kontakte",
@@ -1985,6 +2465,9 @@
     "discord": "Discord",
     "esiOffline": "ESI: Offline",
     "esiOnline": "ESI: Online",
+    "latency": "{{ms}} ms",
+    "nexumOffline": "Nexum: Nicht erreichbar",
+    "nexumOnline": "Nexum: Online",
     "getMoreMaps": "+ Mehr Karten erhalten",
     "help": "Hilfe & Anleitung",
     "lastKnownSystem": "Letztes bekanntes System",
@@ -2031,7 +2514,12 @@
     "trackJumpsTooltipOn": "Sprünge werden verfolgt — neue Systeme werden hinzugefügt, während du dich bewegst",
     "updateAvailable": "Update verfügbar",
     "updateAvailableVersion": "Update verfügbar: v{{version}}",
-    "userStats": "Benutzerstatistik"
+    "userStats": "Benutzerstatistik",
+    "hideThisMap": "Aus meiner Liste ausblenden",
+    "hideThisMapHint": "Entfernt diese Karte nur aus deinem Umschalter. Sie wurde mit deiner Corp oder Allianz geteilt, es gibt also keine persönliche Freigabe aufzugeben — für alle anderen bleibt sie. Du kannst sie hier wiederherstellen.",
+    "hiddenMaps": "Ausgeblendete Karten ({{count}})",
+    "unhideMap": "wiederherstellen",
+    "unhideMapHint": "Diese Karte wieder in deiner Liste anzeigen"
   },
   "units": {
     "jumps_one": "{{count}} Sprung",
@@ -2098,7 +2586,13 @@
   },
   "waypoint": {
     "setDestination": "Ziel festlegen",
-    "addWaypoint": "Wegpunkt hinzufügen"
+    "addWaypoint": "Wegpunkt hinzufügen",
+    "sendTo": "An Charaktere senden…",
+    "sendToTitle": "{{system}} senden an…",
+    "sendToHint": "Jeder Charakter plant seine eigene Route von seinem Standort aus. Nur eingeloggte Charaktere können es empfangen.",
+    "you": "du",
+    "offline": "offline",
+    "noneOnline": "Keiner deiner Charaktere ist eingeloggt."
   },
   "whChart": {
     "open": "⊟ Wurmloch-Referenz",
@@ -2139,7 +2633,24 @@
   },
   "exits": {
     "notifTitle": "K-Space-Ausgang",
-    "appeared": "{{name}} ({{security}}) ist in der Kette"
+    "appeared": "{{name}} ({{security}}) ist in der Kette",
+    "appearedMany_one": "{{count}} neuer K-Space-Ausgang in der Kette",
+    "appearedMany_other": "{{count}} neue K-Space-Ausgänge in der Kette"
+  },
+  "alerts": {
+    "killTitle": "Kill in {{system}}",
+    "killBody": "{{victim}} hat {{ship}} verloren ({{value}} ISK)",
+    "someone": "Jemand",
+    "aShip": "ein Schiff",
+    "special": {
+      "capital": "Capital",
+      "billion": "1 Mrd.+ ISK",
+      "dictor": "Dictor/HIC",
+      "smartbomb": "Smartbomb"
+    },
+    "eolTitle": "Wurmloch am Lebensende",
+    "eolBody4h": "{{a}} ↔ {{b}} ist End of Life (unter 4 Stunden)",
+    "eolBody1h": "{{a}} ↔ {{b}} hat weniger als 1 Stunde übrig"
   },
   "tripwire": {
     "title": "Aus Tripwire importieren (experimentell)",
@@ -2192,5 +2703,13 @@
     "max": "Bis zu {{count}} Vorlagen",
     "orgGroup": "Organisation",
     "mineGroup": "Meine"
+  },
+  "orgLogos": {
+    "alliance": "Allianzlogo",
+    "corp": "Corp-Logo"
+  },
+  "update": {
+    "available": "Eine neue Version von Nexum ist verfügbar.",
+    "reload": "Neu laden"
   }
 }

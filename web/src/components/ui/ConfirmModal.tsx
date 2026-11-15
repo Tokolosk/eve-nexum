@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { setSkipConfirm } from '../../utils/confirmPref';
+import { useEscapeClose } from '../../hooks/useEscapeClose';
 
 interface Props {
   message: string;
@@ -12,9 +13,13 @@ interface Props {
    *  — for serious non-delete actions like blocking a user. */
   danger?: boolean;
   showDontAskAgain?: boolean;
+  /** Where "don't ask again" is remembered, for a confirm with its own
+   *  setting. Defaults to the shared destructive-action preference. */
+  onDontAskAgain?: () => void;
 }
 
-export function ConfirmModal({ message, onConfirm, onCancel, confirmLabel, danger, showDontAskAgain = true }: Props) {
+export function ConfirmModal({ message, onConfirm, onCancel, confirmLabel, danger, showDontAskAgain = true, onDontAskAgain }: Props) {
+  useEscapeClose(onCancel);
   const { t } = useTranslation();
   const [dontShowAgain, setDontShowAgain] = useState(false);
 
@@ -24,7 +29,9 @@ export function ConfirmModal({ message, onConfirm, onCancel, confirmLabel, dange
   const label = confirmLabel ?? t('actions.delete');
 
   const handleConfirm = () => {
-    if (showDontAskAgain && dontShowAgain) setSkipConfirm(true);
+    if (showDontAskAgain && dontShowAgain) {
+      if (onDontAskAgain) onDontAskAgain(); else setSkipConfirm(true);
+    }
     onConfirm();
   };
 

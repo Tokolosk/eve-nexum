@@ -10,7 +10,8 @@ describe('settings allowlist', () => {
     for (const k of [
       'nexum.toolbar.order', 'nexum.minimap.position', 'nexum.panelSideBySide',
       'nexum.floatingPanels', 'nexum.sigPane.hiddenCols', 'nexum.anomPane.hiddenCols',
-      'nexum.sidebar.order', 'nexum.sig.bookmarkFormat', 'nexum.a11y.colorVision',
+      'nexum.sidebar.order', 'nexum.sig.bookmarkFormat', 'nexum.sig.k162BookmarkFormat',
+      'nexum.a11y.colorVision',
     ]) {
       expect(settingAllowed(k), k).toBe(true);
     }
@@ -29,6 +30,12 @@ describe('settings allowlist', () => {
     expect(settingAllowed('nexum.panel.collapsed.notes')).toBe(true);
     expect(settingAllowed('nexum.panel.collapsed.somethingAddedLater')).toBe(true);
     expect(settingAllowed('nexum.sysinfo.collapse.celestials')).toBe(true);
+  });
+
+  it('allows the killboard window/scope, the PvP timezone and copy-bookmark-on-jump', () => {
+    for (const k of ['nexum.killboard.window', 'nexum.killboard.scope', 'nexum.timeZone', 'nexum.sig.copyBookmarkOnJump']) {
+      expect(settingAllowed(k), k).toBe(true);
+    }
   });
 
   it('still refuses anything not asked for', () => {

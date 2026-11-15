@@ -226,6 +226,9 @@ export interface MapConnection {
    *  connection is kept on the map but quarantined — rendered severed and
    *  excluded from routing — so the chain is still traceable. */
   broken: boolean;
+  /** Set when the Thera/Turnur copy drew this hole, so its cleanup can tell
+   *  its own connections from hand-drawn ones. Null otherwise. */
+  scoutConnectionId?: string | null;
   /** Optional corp/alliance-shared flag: a single Phosphor icon export name
    *  (e.g. 'WarningIcon') shown as a badge on the edge, plus a free-text note
    *  revealed on hover — for intel like "DO NOT ROLL — fleet inbound". A new
@@ -263,6 +266,10 @@ export interface WormholeMap {
    *  no one on this map records K-space jumps, overriding each member's personal
    *  nexum.tracking.skipKspace. Only owner/admins can change it. */
   skipKspace?: boolean;
+  /** Corp/alliance maps only: opted in to cross-map sync. Sigs/anoms copy to
+   *  the same system on the org's other opted-in maps of the same kind. Only
+   *  owner/admins can change it. */
+  crossMapSync?: boolean;
   /** Lazy-removal maps only: hours an expired connection lingers before the
    *  lifetime sweep severs it and drops its backing sigs. Default 0.5 (30 min). */
   collapseGraceHours?: number;

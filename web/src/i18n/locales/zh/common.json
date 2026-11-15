@@ -12,6 +12,11 @@
   "account": {
     "switchCharacter": "切换角色",
     "addCharacter": "添加角色",
+    "shareSettings": "在角色间共享设置",
+    "shareSettingsHint": "开启后，此账号下的所有角色使用相同的设置（跳跃技能除外）。开启时会将最近修改过设置的角色的设置复制给其他角色。",
+    "shareSettingsFailed": "无法更改设置共享",
+    "installApp": "安装为应用",
+    "installAppHint": "在独立窗口中打开 Nexum，并在程序坞或任务栏中显示其图标。",
     "blocked": "已封禁",
     "characterAdded": "已添加 {{name}}",
     "switchTo": "切换到 {{name}}",
@@ -45,6 +50,28 @@
     "allHidden": "所有图表已隐藏。在地图选项 → 活动中开启它们。",
     "loading": "正在加载活动…",
     "peak": "峰值 {{value}}"
+  },
+  "pvp": {
+    "loading": "正在加载 PvP 活动…",
+    "loadFailed": "无法加载 PvP 活动。",
+    "noHistory": "暂无 PvP 记录。从现在起会记录此处的玩家击杀。",
+    "noneInDays_one": "过去 1 天此处没有击杀。",
+    "noneInDays_other": "过去 {{count}} 天此处没有击杀。",
+    "busiestNow": "当前最活跃（{{time}}）",
+    "busiestNext": "最活跃时段 {{time}}，{{n}} 小时后",
+    "quietAhead": "未来 24 小时较为平静",
+    "killsInDays": "{{days}} 天内 {{n}} 次",
+    "recent": "实时数据：过去 24 小时 {{n}} 次",
+    "chartLabel": "未来 24 小时按时段的玩家击杀",
+    "barTitle": "{{day}} {{time}}：{{n}}",
+    "now": "现在",
+    "noteZkill": "按星期和小时统计 zKillboard 过去 90 天的击杀，以 {{zone}} 显示。颜色越热通常越活跃。",
+    "noteLive": "无法连接 zKillboard，因此使用此处目前记录的击杀。",
+    "timesIn": "时区",
+    "zoneAuto": "本地（{{zone}}）",
+    "zoneUtc": "EVE 时间（UTC）",
+    "zoneSearch": "搜索时区",
+    "zoneNoMatches": "没有匹配的时区"
   },
   "addSystem": {
     "title": "添加星系",
@@ -225,11 +252,16 @@
         "24h": "过去 24 小时",
         "week": "过去一周",
         "month": "过去一月",
+        "quarter": "过去一季",
         "year": "过去一年"
       },
       "userFilters": {
         "all": "所有用户",
-        "logins": "登录",
+        "active": "活跃",
+        "inactive": "不活跃",
+        "new": "新用户",
+        "systemsAdded": "添加的星系",
+        "systemsDeleted": "删除的星系",
         "signatures": "信号",
         "structures": "建筑"
       },
@@ -270,6 +302,7 @@
           "hour24": "每小时信号数（过去 24 小时）",
           "dayWeek": "每日信号数（过去一周）",
           "dayMonth": "每日信号数（过去一月）",
+          "weekQuarter": "每周信号数（过去一季）",
           "monthYear": "每月信号数（过去一年）",
           "monthAll": "每月信号数（全部时间）"
         },
@@ -317,6 +350,10 @@
       "broadcastK162Hint": "开启后，被识别为 K162 的信号会在其目的地确定时发布到 Discord。默认关闭。",
       "broadcastExits": "播报 k-space 出口",
       "broadcastExitsHint": "开启后，凡是揭示出安全等级不低于下方设定的 k-space 出口的连接，都会发布一份路线摘要：出口、前往的路径和最近的贸易枢纽。默认关闭；无论是否开启，连接本身都会照常播报。",
+      "broadcastEol": "播报寿命将尽的虫洞",
+      "broadcastEolHint": "开启后，当飞行员将虫洞标记为寿命将尽（少于 4 小时或少于 1 小时）时，会发布到连接 Webhook。默认关闭。",
+      "broadcastThera": "播报通往 Thera 和 Turnur 的虫洞",
+      "broadcastTheraHint": "开启后，通往 Thera 或 Turnur 的新虫洞会作为 Thera/Turnur 提醒发布到连接 Webhook，即使上方的虫洞筛选会将其排除。默认关闭。",
       "webhooks": "Webhook",
       "webhooksHint": "通知发布的位置。为每个频道粘贴 Discord Webhook URL；留空则关闭该类型。",
       "connectionsWebhook": "连接（K162 + 新连接）",
@@ -337,7 +374,13 @@
       "colMap": "地图",
       "colExclude": "排除",
       "killWebhook": "击杀 Webhook",
-      "killMinIsk": "最低 ISK"
+      "killMinIsk": "最低 ISK",
+      "specialWebhook": "特殊击杀 Webhook",
+      "specialWebhookHint": "值得提醒的击杀，无论价值多少都会发布——例如发到开启提醒的频道。选择哪些算作特殊：",
+      "specialCapital": "旗舰",
+      "specialBillion": "10 亿+ ISK",
+      "specialDictor": "拦截舰 / 重拦",
+      "specialSmartbomb": "立体炸弹"
     },
     "roles": {
       "button": "角色说明？",
@@ -474,10 +517,141 @@
     "revokeFailed": "无法撤销密钥。请重试。",
     "disabled": "API 密钥已禁用"
   },
+  "audit": {
+    "title": "变更日志",
+    "titleFor": "变更日志 — {{name}}",
+    "hint": "最近 {{days}} 天的变更。移动星系和自动清理不会被记录。",
+    "sidebarHint": "谁在这张地图上添加、删除或修改了什么。",
+    "open": "打开变更日志",
+    "filter": "显示",
+    "empty": "暂无记录。",
+    "loading": "加载中…",
+    "loadMore": "加载更早记录",
+    "unknownPilot": "未知飞行员",
+    "viaApi": "API",
+    "on": "开",
+    "off": "关",
+    "cleared": "已清除",
+    "kind": {
+      "all": "全部变更",
+      "system": "星系",
+      "connection": "连接",
+      "signature": "信号",
+      "anomaly": "异常",
+      "structure": "建筑",
+      "chain": "链路",
+      "map": "地图设置",
+      "share": "共享"
+    },
+    "action": {
+      "system": {
+        "add": "添加了 {{subject}}",
+        "update": "修改了 {{subject}}",
+        "remove": "删除了 {{subject}}"
+      },
+      "connection": {
+        "add": "连接了 {{subject}}",
+        "update": "修改了 {{subject}}",
+        "remove": "断开了 {{subject}}"
+      },
+      "signature": {
+        "add": "添加了信号 {{subject}}",
+        "update": "修改了信号 {{subject}}",
+        "remove": "删除了信号 {{subject}}"
+      },
+      "anomaly": {
+        "add": "添加了异常 {{subject}}",
+        "update": "修改了异常 {{subject}}",
+        "remove": "删除了异常 {{subject}}"
+      },
+      "structure": {
+        "add": "添加了建筑 {{subject}}",
+        "update": "修改了建筑 {{subject}}",
+        "remove": "删除了建筑 {{subject}}"
+      },
+      "chain": {
+        "add": "保存了链路 {{subject}}",
+        "update": "修改了链路 {{subject}}",
+        "remove": "删除了链路 {{subject}}"
+      },
+      "map": {
+        "update": "修改了地图设置",
+        "merge": "合并了 {{subject}}",
+        "scoutCleanup": "清理了 {{subject}} 虫洞"
+      },
+      "share": {
+        "add": "与 {{subject}} 共享了地图",
+        "remove": "停止与 {{subject}} 共享",
+        "link": {
+          "create": "创建了直播链接",
+          "update": "修改了直播链接",
+          "revoke": "撤销了直播链接"
+        }
+      }
+    },
+    "field": {
+      "name": "名称",
+      "alias": "别名",
+      "notes": "备注",
+      "status": "状态",
+      "isHome": "家",
+      "locked": "锁定",
+      "intel": "情报",
+      "tag": "标记",
+      "labels": "标签",
+      "customLabels": "自定义标签",
+      "connectionType": "跳跃类型",
+      "massStatus": "质量",
+      "timeStatus": "寿命",
+      "size": "尺寸",
+      "type": "虫洞类型",
+      "massUsed": "已用质量",
+      "eolAt": "EOL 时间",
+      "lifetimeExpiresAt": "到期",
+      "broken": "已断开",
+      "flagIcon": "旗帜图标",
+      "flagNote": "旗帜备注",
+      "flagBlink": "旗帜闪烁",
+      "flagColor": "旗帜颜色",
+      "sourceSignatureId": "起点信号",
+      "targetSignatureId": "终点信号",
+      "sigId": "信号 ID",
+      "sigType": "分组",
+      "whType": "虫洞类型",
+      "whLeadsTo": "通往",
+      "ghostType": "幽灵站点",
+      "anomId": "异常 ID",
+      "anomType": "类型",
+      "structureType": "建筑类型",
+      "ownerCorp": "所有者",
+      "eveId": "EVE ID",
+      "systemIds": "星系",
+      "connectionIds": "连接",
+      "allowAsMergeSource": "合并来源",
+      "allowAsMergeDestination": "合并目标",
+      "lazyRemoveWormholes": "延迟移除虫洞",
+      "collapseGraceHours": "坍塌宽限（小时）",
+      "bookmarkFormat": "书签格式",
+      "siteBookmarkFormat": "站点书签格式",
+      "skipKspace": "跳过 K 空间",
+      "crossMapSync": "跨地图同步",
+      "expiryHours": "到期（小时）",
+      "includeSigs": "信号",
+      "includeBridges": "跳桥",
+      "includeNotes": "备注",
+      "includeStructures": "建筑",
+      "kind": "共享对象",
+      "canWrite": "可编辑",
+      "systems": "星系",
+      "connections": "连接",
+      "signatures": "信号",
+      "structures": "建筑"
+    }
+  },
   "chainExits": {
     "title": "链路出口",
     "noExits": "此链中没有 K空间出口。",
-    "hint": "当前地图上的 K空间星系，按安全等级分类。前往 Jita 的路线仅经星门 — 不计虫洞捷径。",
+    "hint": "地图上连有虫洞的 K空间星系，按安全等级分类。前往 Jita 的路线仅经星门 — 不计虫洞捷径。",
     "allExits": "所有 K-space 出口",
     "noFavourites": "还没有收藏的星系 — 在“最近星系”面板中添加。",
     "noRoute": "无路线",
@@ -530,7 +704,9 @@
     "signIn": "登录并在 K空间停靠以查看到各枢纽的跳数，或启用路线快捷方式选项以从虫洞或 Thera 计算路线。",
     "searchPlaceholder": "搜索星系名称…",
     "onList": "在列表中",
-    "noMatch": "没有星系匹配「{{query}}」"
+    "noMatch": "没有星系匹配「{{query}}」",
+    "allMaps": "跨所有地图计算路线",
+    "allMapsHint": "距离可以使用你能看到的任何地图上的虫洞链，而不仅是当前打开的地图。关闭后将只通过屏幕上的地图计算路线。"
   },
   "commandPalette": {
     "placeholder": "搜索星系和地图…",
@@ -617,8 +793,10 @@
     "collapseConfirmStrand": " 你的关洞船会被困在对侧。",
     "collapseConfirmHome": " 你的关洞船停在本侧。",
     "rollIt": "执行通过",
-    "removeConnection": "移除连接",
+    "removeConnection": "仅移除连接",
+    "removeConnectionAndSigs": "移除连接和信号",
     "brokenNotice": "连接已断开——支撑它的虫洞信号已被删除。保留在地图上，但已从路由中隔离。",
+    "brokenNoticeRolled": "连接已坍塌——滚洞计算器记录的质量已足以关闭它。保留在地图上，但已从路由中隔离。如果是误操作，请撤销上一次通过。",
     "flagLabel": "标记",
     "flagAdd": "添加标记",
     "flagNotePlaceholder": "例如：请勿滚洞 - 舰队即将抵达",
@@ -639,7 +817,9 @@
     "matchCount_other": "{{count}} 个星系匹配",
     "clear": "清除筛选",
     "holes": "虫洞",
-    "undivedWh": "未探索"
+    "undivedWh": "未探索",
+    "wormholeTip": "有任意虫洞信号的星系，无论是否已扫描、是否已跳过",
+    "undivedWhTip": "有尚未有人穿过的虫洞的星系"
   },
   "copyMap": {
     "title": "复制地图",
@@ -740,8 +920,11 @@
     "optimizeConnections": "优化连接",
     "spreadNodes": "散开节点",
     "removeOrphans": "移除孤立星系 ({{count}})",
-    "removeOrphansConfirm": "移除 {{count}} 个孤立星系？它们没有有效连接（没有连接，或只有断开的连接）。母星系和锁定星系将保留。此操作可撤销。",
+    "removeOrphansConfirm": "移除 {{count}} 个孤立星系？它们没有有效连接（没有连接，或只有断开的连接），或被断开的连接与母星系隔开。母星系和锁定星系将保留。此操作可撤销。",
+    "keyDeleteConfirmOne": "删除 {{name}}？此操作可撤销。",
+    "keyDeleteConfirmMany": "删除 {{count}} 个星系？此操作可撤销。",
     "removeStranded": "移除与母星系失联的星系 ({{count}})",
+    "removeStrandedNoHome": "移除与母星系失联的星系（请先设置母星系）",
     "removeStrandedConfirm": "移除 {{count}} 个无法返回 {{home}} 的星系？母星系和已锁定的星系会保留。这是批量删除——撤销会逐个恢复，且仅保留最近 50 次删除。",
     "labels": "标签",
     "customLabel": "自定义标签",
@@ -772,6 +955,65 @@
     "signInMore": "登录以查看击杀、信号、建筑、活动、主权等更多内容。",
     "addSystemHere": "在此添加星系",
     "addSystemLimit": "添加星系（已达 {{max}} 上限）"
+  },
+  "dscan": {
+    "title": "定向扫描分析",
+    "landingLink": "定向扫描分析",
+    "intro": "粘贴定向扫描结果或本地频道的飞行员列表。你会得到一份统计，以及一个在接下来 24 小时内任何人都能打开的链接。",
+    "placeholder": "在此粘贴定向扫描或本地列表",
+    "analyse": "分析",
+    "analysing": "正在分析...",
+    "attachTo": "附加到 {{system}}",
+    "newScan": "新扫描",
+    "loading": "正在加载扫描...",
+    "backToMap": "返回地图",
+    "home": "首页",
+    "shareLink": "此扫描的链接",
+    "copyLink": "复制链接",
+    "linkCopied": "链接已复制",
+    "copyFailed": "无法复制链接",
+    "openInNewTab": "在新标签页中打开",
+    "kindDscan": "定向扫描",
+    "kindLocal": "本地",
+    "scanned": "扫描于 {{ago}}",
+    "filterLabel": "显示",
+    "filterAll": "全部",
+    "filterOnGrid": "同屏",
+    "filterOffGrid": "非同屏",
+    "onGridHint": "同屏指 {{km}} km 以内。",
+    "hullMass": "船体质量",
+    "noMassData": "无质量数据：{{n}}",
+    "total": "总计",
+    "nothingInRange": "此范围内没有目标。",
+    "unknownGroup": "未知",
+    "pilots": "飞行员",
+    "alliances": "联盟",
+    "corps": "军团",
+    "notFound": "未找到",
+    "notFoundHint": "未找到的名字",
+    "noAlliance": "无联盟",
+    "systemSection": "定向扫描",
+    "systemNone": "过去 24 小时内没有扫描。",
+    "summaryDscan": "舰船：{{ships}} / 目标：{{total}}",
+    "summaryLocal": "本地：{{n}} 名飞行员",
+    "sections": {
+      "ships": "舰船",
+      "structures": "建筑",
+      "deployables": "可部署物",
+      "drones": "无人机和铁骑舰载机",
+      "other": "其他"
+    },
+    "errors": {
+      "empty": "没有可分析的内容。请先粘贴定向扫描或本地列表。",
+      "unrecognised": "这看起来不像定向扫描或本地列表。",
+      "tooMany": "粘贴的内容太长。",
+      "lookupFailed": "暂时无法查询这些飞行员。请一分钟后重试。",
+      "rateLimited": "扫描次数过多。请稍候再试。",
+      "failed": "无法分析粘贴的内容。",
+      "notFound": "此扫描不存在。",
+      "expired": "此扫描已过期。扫描会保留 24 小时。",
+      "loadFailed": "无法加载此扫描。"
+    }
   },
   "duration": {
     "seconds": "{{value}}s",
@@ -916,7 +1158,39 @@
     "noKillsOnRecord": "无击杀记录。",
     "noKillsNpc": "过去 24 小时内无击杀 — {{count}} 个纯 NPC 已隐藏。",
     "showThem": "显示它们",
-    "loadMore": "加载更多（剩余 {{count}}）"
+    "loadMore": "加载更多（剩余 {{count}}）",
+    "scopeLabel": "显示击杀范围",
+    "scopeSystem": "此星系",
+    "scopeMap": "整张地图",
+    "windowLabel": "时间范围",
+    "window": {
+      "1h": "1小时",
+      "24h": "24小时",
+      "7d": "7天"
+    },
+    "showingOf": "{{total}} 次击杀中的 {{shown}} 次",
+    "tags": {
+      "gate": "星门",
+      "hic": "HIC",
+      "dic": "拦截",
+      "sb": "SB",
+      "npc": "NPC",
+      "solo": "单杀",
+      "ganked": "Gank",
+      "awox": "内鬼",
+      "padding": "刷分"
+    },
+    "tagTips": {
+      "gate": "在星门处被击杀",
+      "hic": "击杀邮件中有重型拦截舰",
+      "dic": "击杀邮件中有拦截舰",
+      "sb": "被智能炸弹击杀",
+      "npc": "击杀邮件中只有 NPC",
+      "solo": "仅一名攻击者",
+      "ganked": "被 Gank 击杀：CONCORD 出现在击毁报告上",
+      "awox": "被自己的军团或联盟击杀",
+      "padding": "zKillboard 将其标记为刷分：用来刷战绩的无价值击杀"
+    }
   },
   "labelsDialog": {
     "title": "自定义标签",
@@ -983,7 +1257,7 @@
       },
       "multiSelect": {
         "title": "多选批量操作",
-        "desc": "Shift+点击选择多个星系或信号，然后在单次操作中批量指定类型、删除或重命名。"
+        "desc": "按住 Shift 或 Cmd / Ctrl 点击以选择多个星系或信号，然后在单次操作中批量指定类型、删除或重命名。"
       },
       "pngExport": {
         "title": "PNG 导出",
@@ -1011,7 +1285,7 @@
       },
       "crossMapSync": {
         "title": "跨地图同步",
-        "desc": "同一个星系出现在多个地图上？开启此选项后，在一个地图上扫描它，其信号与异常空间就会复制到你其他地图上的同一星系 — 个人地图与你的其他个人地图同步，军团地图与军团的地图同步。非破坏性：只会添加缺失的条目并填补空白，绝不覆盖你已输入的内容，也不会删除任何东西。"
+        "desc": "同一个星系出现在多个地图上？开启后，在一个地图上扫描它，其信号和异常空间就会复制到你其他地图上的同一星系。个人地图与你的其他个人地图同步（包括你小号的），军团或联盟地图与同类且已开启同步的其他地图同步。它只会添加缺失的条目并填补空白，绝不覆盖或删除任何内容。"
       },
       "realtime": {
         "title": "实时协作",
@@ -1023,15 +1297,15 @@
       },
       "rbac": {
         "title": "基于角色的访问",
-        "desc": "四个等级 — readonly、edit、full、admin — 管控军团地图操作。无论角色如何，个人地图始终属于你。"
+        "desc": "只读、贡献者、编辑、完全和管理员，在联盟部署中还有联盟管理员。贡献者负责保持信号、异常空间和建筑的更新，并通过实际飞行来绘制链条，但不能手动改动其结构。无论角色如何，个人地图始终属于你。"
       },
       "systemPanel": {
         "title": "星系面板",
-        "desc": "每星系的卡片，包含信号、建筑、NPC 空间站、笔记、killboard 和活动图表。卡片可通过拖放重新排序，并按用户保存。"
+        "desc": "每个星系的卡片，包含信号、异常空间、建筑、NPC 空间站、笔记、killboard、PvP 活动、定向扫描和活动图表，并附有 Dotlan、zKillboard 和 anoik.is 链接。卡片可通过拖放重新排序，并按用户保存。"
       },
       "sigMgmt": {
         "title": "信号管理",
-        "desc": "直接从探针扫描器粘贴。跟踪每个信号的创建 / 更新时长，自动删除重新粘贴中缺失的信号，并支持多选的批量类型指定。"
+        "desc": "直接从探针扫描器粘贴。显示每个信号由谁扫描及其存在时长，可在宽限期后移除重新粘贴中缺失的信号，两名飞行员同时粘贴时也绝不会重复信号。可从任意一行复制可直接粘贴的书签名称，使用你自己的格式或地图的格式。"
       },
       "structImport": {
         "title": "建筑导入",
@@ -1043,15 +1317,15 @@
       },
       "activityCharts": {
         "title": "活动图表",
-        "desc": "每星系跳跃、舰船 / 太空舱击杀和 NPC 击杀的 24 小时滚动历史，每小时从 ESI 轮询。轮询器为每个 K空间星系持久化数据 — 不仅是有人打开过的 — 因此你一查看新星系图表就会填充。"
+        "desc": "每个星系跳跃、舰船 / 太空舱击杀和 NPC 击杀的 24 小时滚动历史，每小时从 ESI 为每个 K空间星系轮询。可按你自己的顺序堆叠显示，或合并在同一组坐标轴上，悬停时显示精确数值。"
       },
       "sovStation": {
         "title": "主权与空间站数据",
-        "desc": "实时的联盟 / 军团 / 势力主权信息和 NPC 空间站服务，配有游戏内航路点和目的地操作。"
+        "desc": "实时的联盟 / 军团 / 势力主权信息，包括枢纽的 ADM 及其下一个易损窗口，以及 NPC 空间站服务，配有游戏内航路点和目的地操作。"
       },
       "killboard": {
         "title": "Killboard 面板",
-        "desc": "每星系最近的 zKillboard 活动，纯 NPC 击杀默认隐藏（可切换以包含）。当链中有敌对方或友军被杀时行会染红；当友军得手或敌方阵亡时染蓝。最近的击杀也会作为高亮浮现在地图上。"
+        "desc": "某个星系或你整张地图最近一小时、一天或一周内来自 zKillboard 和实时推送的击杀。发生在星门上或涉及 HIC、拦截舰或智能炸弹的击杀会被标记。NPC 击杀默认隐藏。涉及敌对方或蓝色友军阵亡时行会染红，友军得手时染蓝。"
       },
       "effectDigest": {
         "title": "全链效应摘要",
@@ -1062,8 +1336,8 @@
         "desc": "你的 EVE 联系人列表（个人、军团和联盟 — 登录时通过 ESI 获取，可按需重新拉取）驱动一个全链视觉层。主权持有者显示内联的 P/C/A 声望标记；通过其 EVE 建筑 ID 解析的建筑按所有者军团声望着色；主权持有星系的节点会获得彩色光环，使敌对领地在地图上一目了然。"
       },
       "scout": {
-        "title": "侦察连接",
-        "desc": "Thera 和 Turnur 的 Eve-Scout 公开连接会显示到侧栏，便于你直接跳向已知的洞。"
+        "title": "Thera 与 Turnur 连接",
+        "desc": "Eve-Scout 公开的 Thera 和 Turnur 连接，附有两端的信号 ID 以及经由枢纽的路线。一键将其复制到你的地图（eve-scout 不再列出的洞会被清理掉），并可将某个洞报告为已坍塌，使路线规划不再使用它。"
       },
       "a0": {
         "title": "A0 恒星检测",
@@ -1087,11 +1361,11 @@
       },
       "discordNotif": {
         "title": "Discord 通知",
-        "desc": "将军团链情报推送到 Discord 频道，即使无人盯着标签页警报也能送达。在收到入向 K162 或新虫洞连接时于服务器端触发，仅限军团地图。管理员从管理面板筛选哪些星域和地图通知。尽力而为且遵守速率限制；像星域生成这样的批量操作绝不会刷屏。"
+        "desc": "将链条情报推送到 Discord 频道，即使无人盯着标签页，警报也能送达：新连接和 K162、带路线的新 K空间出口、链条上的击杀和特殊击杀、进入寿命终结的洞，以及新的 Thera 和 Turnur 洞。管理员可选择哪些地图和星域发送通知。"
       },
       "routePlanner": {
         "title": "路线规划器",
-        "desc": "服务器端对星门加上你的实时链进行 BFS，因此一条穿过虫洞跳的路线只需一次点击。"
+        "desc": "选择任意两个星系，即可获得经由星门、你的虫洞链条、Thera、Turnur 和 Ansiblex 跳桥的路线。可通过你给星系起的别名查找星系，并保存你常飞的路线。"
       },
       "locationTracking": {
         "title": "位置跟踪",
@@ -1115,7 +1389,7 @@
       },
       "killHighlights": {
         "title": "最近击杀高亮",
-        "desc": "过去一小时内有击杀的星系会获得彩色光环，让你一眼看出整条链上的新鲜活动。"
+        "desc": "有击杀的星系会在地图上显示一把剑及其 24 小时击杀数，本小时内发生过战斗时会高亮显示，并以彩色光环标示整条链条上的新鲜活动。"
       },
       "userStats": {
         "title": "用户统计窗口",
@@ -1130,8 +1404,8 @@
         "desc": "首页挂载了一个不可编辑的演示地图，让访客在登录前就能看到该工具的功能。"
       },
       "sidebar": {
-        "title": "可折叠侧栏",
-        "desc": "地图选项、连接、接近警报、陈旧星系淡化和快捷键各自独立展开或折叠。每节状态通过 localStorage 按浏览器保存。"
+        "title": "自选面板",
+        "desc": "每个侧栏分区和星系面板都可以折叠、重新排序或完全关闭。你的选择会保存到你的账户，并跟随你到另一台电脑。"
       },
       "colorVision": {
         "title": "色盲模式",
@@ -1167,7 +1441,91 @@
       },
       "jumpPlanner": {
         "title": "跳跃规划器",
-        "desc": "在任意两个低安/零安星系之间规划多段旗舰跳跃路线。选择舰船类别和你的技能，选用最少跳数或最少燃料，查看以每段光年数标注的路线图和同位素估算。保存并重新加载你的路线。"
+        "desc": "在任意两个低安/零安星系之间规划多段旗舰跳跃路线。选择舰船类别和你的技能，选用最少跳数或最少燃料，查看标注每段光年数、同位素估算、跳跃疲劳和再激活计时的路线。可避开星系、添加航路点、使用星域星门，并保存你的路线。"
+      },
+      "addConnect": {
+        "title": "一步添加并连接",
+        "desc": "右键点击星系即可一次性添加一个相连的星系，或选择「连接到星系」再点击另一端。添加星系时会优先提供你所在的星系，而「未知」占位符则标记尚未识别的洞。"
+      },
+      "mapGlance": {
+        "title": "地图一目了然",
+        "desc": "连接线本身就显示其状态：小洞为虚线，失稳和危急的洞带有彩色线芯，舰船尺寸显示在类型旁边。每个星系都会显示已扫描的程度，固定洞在紧凑模式下也会显示，悬停在 K空间星系上会显示它距你多少次星门跳跃。"
+      },
+      "regionBorders": {
+        "title": "星域边界",
+        "desc": "拥有通往其他星域星门的星系会带有一个注明该星域的小标签，让你无需添加相邻星系就能看出链条从哪里可以进入 Providence 或 Curse。默认关闭；可在「星系选项」中开启。"
+      },
+      "layoutTools": {
+        "title": "布局工具",
+        "desc": "「整理布局」按星系所在真实星域的形状排列它们。「解开」将相连的星系拉拢成整齐的行与列。「重新分类星门」把实际上是星门的虫洞连线转换为星门连接。已锁定的星系会保持在你放置的位置。"
+      },
+      "flagPresets": {
+        "title": "连接标记预设",
+        "desc": "将图标、颜色和名称保存为预设，一键应用到连接上。军团和联盟可以为所有人发布一套标准预设。"
+      },
+      "mapBackup": {
+        "title": "导入与完整备份",
+        "desc": "从 Pathfinder 导入地图（别名、情报标记、质量和寿命终结状态一并带入），或从 Tripwire 导入（实验性，包含信号和星系笔记）。导出包含信号、异常空间、建筑以及每个洞的质量与寿命的完整 JSON 备份，并可将其导入为归你所有的精确副本。"
+      },
+      "jumpConfirm": {
+        "title": "跳跃自动填写洞",
+        "desc": "当你跳跃时，nexum 会判断你穿过的是哪个信号并设置它通往何处，只有在多个信号都可能符合时才会询问。该洞更新后的书签名称会复制到你的剪贴板，可直接在游戏中粘贴。克隆跳跃和太空舱被击毁不会画出虚假的连接。"
+      },
+      "sharing": {
+        "title": "地图共享",
+        "desc": "将地图共享给其他角色、你的军团或联盟，或创建一个无需账户即可打开的只读链接，可设置过期时间并选择访客能看到的内容。共享的地图会显示其所有者，你也可以退出或隐藏不使用的地图。"
+      },
+      "mapHistory": {
+        "title": "地图历史",
+        "desc": "地图布局的每次更改都会连同操作者一起记录：星系、连接、信号、链条、设置、共享和合并。保留 30 天，地图所有者和管理员可在地图侧栏中查看。"
+      },
+      "dscan": {
+        "title": "定向扫描与本地分析器",
+        "desc": "粘贴定向扫描结果，即可按类别和船体分组查看舰船，并提供网格内 / 网格外筛选、带距离的建筑以及扫描中的总质量。粘贴本地频道即可按联盟和军团分组查看飞行员。每次扫描都会生成一个任何人可在 24 小时内打开的链接，附加到星系的扫描会显示在其面板中。无需登录。"
+      },
+      "pvpForecast": {
+        "title": "PvP 活动预测",
+        "desc": "针对任意星系，用 24 根柱状图显示接下来每个小时在一周中这一天通常的繁忙程度，数据来自 zKillboard 最近 90 天，并标出最繁忙的时段和最近 24 小时的实时计数。时间以你自己的时区显示。在虫洞空间同样适用。"
+      },
+      "holeState": {
+        "title": "扫描时记录质量与寿命",
+        "desc": "在任何人跳过之前，就能直接从信号列表记录洞的质量（完整、低于 50%、低于 10%）和寿命（直至已过期）。在任意一端设置，另一端和地图上的连线都会同步一致。"
+      },
+      "siteDetails": {
+        "title": "站点详情一目了然",
+        "desc": "遗迹和数据站点行会显示该站点是否会刷出战斗，事件数据站点会显示可安全跃迁的勾选标记，幽灵站点作为单独类型并从扫描中读取其等级，Drifter 洞会自动填写其目的地。"
+      },
+      "chainExits": {
+        "title": "链条出口",
+        "desc": "工具栏中的列表，列出你链条上每个有开放虫洞的 K空间星系，并显示到每个出口的路线，以及经由你将离开的出口前往你收藏星系的路线。出现新出口时，可在应用内或 Discord 中收到警报：仅高安、低安及以上，或任意 K空间。"
+      },
+      "closestSystems": {
+        "title": "最近的星系",
+        "desc": "一个侧面板，显示贸易中心和你自己列表中的星系有多远，计算星门、你的虫洞链条、Thera 和 Turnur。它可以使用你能看到的所有地图或仅当前打开的地图，每一跳虫洞都会注明来自哪张地图。"
+      },
+      "clones": {
+        "title": "克隆面板",
+        "desc": "你的医疗克隆和跳跃克隆，以及各自所在的星系、植入体，并附有设置目的地和航路点按钮。需要克隆权限范围。"
+      },
+      "pilotsOnline": {
+        "title": "在线飞行员",
+        "desc": "在军团和联盟部署中，可以查看你组织中谁在最近几分钟内活跃、他们驾驶的舰船以及所在位置。任何人都可以隐藏自己的在线状态。"
+      },
+      "announcer": {
+        "title": "语音播报",
+        "desc": "飞行时的语音警报，由在你自己设备上运行的语音播报：低安和零安进入范围、入侵、附近的最近击杀、角色连接，以及他人添加的新链条。实验性功能，仅支持英语。"
+      },
+      "desktopAlerts": {
+        "title": "桌面与声音警报",
+        "desc": "针对链条上的击杀、进入寿命终结的洞、新的 K空间出口、关注列表匹配和附近威胁的桌面通知和声音，每项可单独开启，并共用一个音量控制。只有新内容才会提醒，同一项绝不会提醒两次。"
+      },
+      "multiDestination": {
+        "title": "为所有角色设置目的地",
+        "desc": "一次性为账户中所有在线角色设置目的地或添加航路点。每个角色从各自所在位置规划自己的路线，你可以看到每个角色的执行结果。"
+      },
+      "panelLayout": {
+        "title": "面板布局",
+        "desc": "将面板放在地图下方或旁边，最多拆分为三个可调整大小的列，并选择舒适、紧凑或密集间距。隐藏不使用的面板，将其弹出为独立窗口，你的布局会跟随你的账户到任何设备。"
       }
     },
     "corpFeatures": {
@@ -1185,7 +1543,7 @@
       },
       "adminDash": {
         "title": "管理仪表盘",
-        "desc": "一个专用的 /admin 页面，有四个标签页：用户、地图、报告和审计日志。管理员从工具栏的管理按钮进入。"
+        "desc": "一个专用的 /admin 页面，包含用户、访问、地图、报告、审计日志、Discord、标记预设和默认布局等标签页。管理员从工具栏的管理按钮进入。"
       },
       "userMgmt": {
         "title": "用户管理",
@@ -1222,11 +1580,27 @@
       "accessControl": {
         "title": "用户访问控制",
         "desc": "决定谁可以在 .env 核心之外登录：在管理区管理的数据库白名单（由 CORP_ID/ALLIANCE_ID 预填），可选按声望（+5/+10）自动接纳友好军团/联盟，以及按等级分组的声望查看器。会话实时重新校验——撤销访问或飞行员离开已接纳的军团都会将其登出。"
+      },
+      "invites": {
+        "title": "附带角色的邀请",
+        "desc": "在飞行员首次登录之前就将其加入允许列表，并选择他们加入时的角色。「邮件邀请」按钮会在你自己的客户端中打开一封已写好的 EVE 邮件。DEFAULT_USER_ROLE 设置其他所有人的初始角色。"
+      },
+      "orgDefaults": {
+        "title": "组织默认设置",
+        "desc": "将你自己的面板排列保存为新成员继承的初始布局，并为所有人发布一套标准的连接标记预设。"
+      },
+      "orgBranding": {
+        "title": "你的标志",
+        "desc": "为军团或联盟运行的实例会在首页的登录按钮上方以及工具栏中 nexum 标志旁显示其标志。"
+      },
+      "prebuiltImages": {
+        "title": "预构建镜像",
+        "desc": "每个版本都会以可直接运行的镜像发布到 GitHub Container Registry，因此更新只需执行 docker compose pull。备份和恢复脚本可处理同一主机上的多个实例。"
       }
     },
     "forCorpsBody": "将 Nexum 作为共享部署为你的军团或联盟运行。成员在一个工具中获得对军团可见的链地图和私密的个人地图，配有基于角色的权限、管理工具和按角色的活动报告。",
     "compareBody": "看看 Nexum 与 Pathfinder、Tripwire 和 Wanderer 的对比 — 功能、托管和成本，一目了然。",
-    "languagesBody": "Nexum 已完整翻译为九种语言——并会在您首次访问时根据浏览器自动检测您的语言。想用其他语言？随时可在工具栏的语言选择器中切换。",
+    "languagesBody": "Nexum 已完整翻译为十种语言——并会在您首次访问时根据浏览器自动检测您的语言。想用其他语言？随时可在工具栏的语言选择器中切换。",
     "compareLink": "对比 Nexum vs Pathfinder、Tripwire 和 Wanderer →",
     "helpLink": "新手？阅读使用指南 →",
     "guidesLink": "虫洞指南与教程 →",
@@ -1290,6 +1664,33 @@
     "lessThan1h": "< 1h",
     "broken": "连接已断开——虫洞信号已被删除（虫洞坍塌）"
   },
+  "mapKey": {
+    "title": "地图图例",
+    "close": "关闭地图图例",
+    "lifetime": "寿命",
+    "fresh": "剩余超过一天，或寿命未知的虫洞。",
+    "lessThan24h": "剩余不足一天。",
+    "lessThan4h": "剩余不足 4 小时，倒计时中。",
+    "lessThan1h": "剩余不足 1 小时，倒计时中。",
+    "expired": "按 nexum 的计时已到期。计时从虫洞被标记时开始，并假定该类型的完整寿命，因此发现较晚的虫洞可能比显示的更早消失。",
+    "expiredKept": "在此地图上，它会保留到有人删除其信号（自动移除过期虫洞已关闭）。",
+    "expiredCutNow": "在此地图上，它会立即被切断，其信号也会被删除。",
+    "expiredCutAfter": "在此地图上，它会在 {{time}} 后被切断，其信号也会被删除（坍缩宽限期）。",
+    "broken": "已切断：其信号已被删除，或虫洞时间已到。保留在图上以便追溯链路，但不参与路线计算。若再次有信号对应或有人跳过它，会自动恢复。“移除孤立星系”会清理只剩此类连接的星系。",
+    "massSize": "类型、尺寸与质量",
+    "type": "虫洞类型及可通过的最大舰船。S 和 M 会高亮，因为它们限制了你能带的船。",
+    "frigate": "短虚线：仅限护卫舰的虫洞。",
+    "massStable": "质量报告为一半以上。",
+    "massHalf": "剩余质量不足一半（橙色内芯）。",
+    "massCritical": "剩余质量不足 10%（红色内芯）。",
+    "other": "其他连接",
+    "gate": "星门。",
+    "jumpgate": "Ansiblex 跳桥。",
+    "cyno": "诱导跳跃路线及其距离。圆点表示按你的 Jump Drive Calibration 能到达的舰船类别。",
+    "watch": "发光：匹配你的关注列表。",
+    "flag": "由你的军团或联盟标记。悬停查看备注。",
+    "highlight": "你悬停或选中的星系的连接。"
+  },
   "mapNode": {
     "a0Sun": "A0 恒星",
     "altLastKnown": "（最后已知）",
@@ -1307,7 +1708,9 @@
     "jumps_one": "{{count}} 跳",
     "jumps_other": "{{count}} 跳",
     "killsTooltip": "本小时 {{ships}} 舰船 · {{pods}} 太空舱击杀",
-    "killsTooltipHint": "CCP 每小时统计 · 击杀报告可能尚未出现在 zKillboard",
+    "kills24h_one": "过去 24 小时 {{count}} 次玩家击杀",
+    "kills24h_other": "过去 24 小时 {{count}} 次玩家击杀",
+    "killsTooltipHint": "来自实时击杀数据和 CCP 的每小时统计",
     "recentKill": "{{ago}} 分钟前击杀 ({{value}} ISK)",
     "scanned": "已扫描 {{total}} 个信号中的 {{scanned}} 个",
     "scoutConnectionsMulti": "{{names}} 连接",
@@ -1322,6 +1725,7 @@
     "suppressed": "已镇压",
     "undivedUnknown": "未知",
     "undivedWhTitle": "未探索的虫洞",
+    "regionBorderTitle": "星门通往其他星域：{{regions}}",
     "unknown": "未知"
   },
   "mapShares": {
@@ -1365,7 +1769,8 @@
     "shareCount": "与 {{count}} 个共享",
     "batchShared": "已将地图共享给 {{count}} 个。",
     "batchPartial": "已共享 {{shared}} 个；跳过 {{skipped}} 个。",
-    "batchNone": "无法共享 — 跳过 {{count}} 个。"
+    "batchNone": "无法共享 — 跳过 {{count}} 个。",
+    "optedOut": "{{count}} 人已将此地图从自己的列表中隐藏。他们仍有访问权限——军团或联盟共享无法由个人退出。"
   },
   "mapSidebar": {
     "activityHint": "显示以下图表：",
@@ -1416,6 +1821,8 @@
     "compact": "紧凑",
     "connectionStyle": "连接样式",
     "connectionThickness": "连接粗细",
+    "linkSigIds": "连接上显示信号 ID",
+    "confirmKeyDelete": "按 Delete/Backspace 删除前确认",
     "copyFailed": "复制失败 — 请手动选择并复制",
     "copyLink": "复制链接",
     "corpSkipKspace": "不跟踪 K 空间（军团/联盟）",
@@ -1423,7 +1830,10 @@
     "createShareFailed": "创建共享链接失败",
     "createShareLink": "创建共享链接",
     "crossMapSync": "在我的地图之间同步星系数据",
-    "crossMapSyncHelp": "当你在某个星系添加或编辑信号与异常空间时，它们会被复制到你其他地图上的同一星系（个人地图与你的其他个人地图同步；军团地图与该军团的其他地图同步）。非破坏性：仅填充缺失或空白的条目，绝不覆盖你已输入的数据，也不会删除任何内容。",
+    "crossMapSyncHelp": "当你在某个星系中添加或编辑信号和异常时，会将其复制到你其他个人地图（包括你其他角色的地图）上的同一星系。军团和联盟地图有各自的开关。非破坏性：只会补充缺失或空白的条目——绝不会覆盖你已输入的数据或删除任何内容。",
+    "crossMapSyncOrg": "与其他地图同步星系数据",
+    "crossMapSyncCorpHelp": "在此添加或编辑的信号和异常，会复制到该军团其他同样开启此选项的地图上的同一星系。非破坏性：只会补充缺失或空白的条目。仅所有者/管理员可更改此项。",
+    "crossMapSyncAllianceHelp": "在此添加或编辑的信号和异常，会复制到该联盟其他同样开启此选项的地图上的同一星系。非破坏性：只会补充缺失或空白的条目。仅联盟管理员可更改此项。",
     "easyConnect": "便捷连接",
     "edgeStyle": {
       "bezier": "标准",
@@ -1513,12 +1923,19 @@
     "notifProximity": "邻近威胁",
     "notifWatchlist": "监视列表匹配",
     "notifExits": "k-space 出口",
+    "notifKills": "地图上的击杀",
+    "notifEol": "寿命将尽的虫洞",
     "notifExitsMinSec": "提醒的出口安全等级",
     "notifExitsOff": "关闭 — 从不提醒",
     "notifExitsHiSec": "仅高安",
     "notifExitsLowSec": "低安及以上",
     "notifExitsAny": "任意 k-space",
     "notifExitsHint": "当链上出现不低于该安全等级的出口时提醒一次。默认关闭。",
+    "notifKillsWhich": "哪些击杀",
+    "notifKillsSpecial": "仅特殊击杀",
+    "notifKillsBillion": "10 亿+ ISK",
+    "notifKillsAll": "地图上标记的所有击杀",
+    "notifKillsHint": "特殊指旗舰被击毁、价值 10 亿+ ISK，或击杀报告中有拦截舰、重拦或立体炸弹。当其他人将此地图上的虫洞标记为少于 4 小时或少于 1 小时时，会发出寿命将尽提醒。",
     "notifVolume": "提醒与语音播报音量 — {{pct}}%",
     "openOptions": "地图选项",
     "optimizeConnections": "⟳ 优化连接",
@@ -1563,6 +1980,14 @@
     "routePreference": "路线偏好",
     "routeSecure": "安全",
     "routeShortcutNote": "使用虫洞、Thera、Turnur 或跳跃门的路线无法设为游戏内目的地或途经点——右键点击路线中的已知空间星系以前往该处。",
+    "routeAvoid": "避开星系",
+    "routeAvoidAdd": "添加要避开的星系",
+    "routeAvoidRemove": "移除 {{name}}",
+    "routeAvoidHint": "nexum 中的路线（最近星系、路线规划、跳跃数）绝不会经过这些星系。EVE 的自动导航在游戏内使用其自己的避开列表。",
+    "waypointSendTo": "目的地发送给",
+    "waypointSendToMe": "当前角色",
+    "waypointSendToAllOnline": "所有在线角色",
+    "waypointSendToHint": "适用于所有“设为目的地”和“添加路径点”。每个角色从自己所在位置规划路线；未登录的角色会被跳过。",
     "routeShortest": "最短",
     "sections": {
       "mapOptions": "地图选项",
@@ -1584,6 +2009,7 @@
       "mergeMaps": "合并地图",
       "liveSharing": "实时地图广播",
       "shareMap": "共享地图",
+      "auditLog": "变更日志",
       "shortcuts": "快捷键",
       "notifications": "通知",
       "announcer": "语音播报",
@@ -1609,12 +2035,22 @@
     "showPatchNotes": "查看更新日志",
     "showStaticWhs": "显示固定虫洞",
     "showUndivedWhs": "显示未跳跃虫洞",
+    "showRegionBorders": "显示星域边界",
+    "showRegionBordersTooltip": "标记星门通往其他星域的星系，并显示该星域名称。相邻星系不会被添加到地图上。",
     "sigBookmark": "虫洞书签",
+    "k162Bookmark": "出口书签（仅 K162）",
+    "k162BookmarkPlaceholder": "留空：使用虫洞书签格式",
+    "k162BookmarkHelp": "仅对 K162 生效，在复制书签名称时（点击复制图标或跳跃后）代替上面的虫洞格式。可使用相同的变量。留空时，K162 使用虫洞书签格式。如果地图设置了自己的虫洞格式，则所有虫洞（包括 K162）都使用该格式。",
     "siteBookmark": "站点书签（relic / data / gas）",
     "siteBookmarkHelp": "在 relic、data 或 gas 信号行上，点击复制图标即可获得可粘贴的书签名称。使用以下标记来构建：",
+    "copyBookmarkOnJump": "跳跃后复制书签名称",
+    "copyBookmarkOnJumpHelp": "当一次跳跃填入虫洞的去向时，其书签名称（使用上方的格式）会复制到剪贴板。如果当时你在游戏中，则会在你点回 nexum 时立即复制。",
     "skipKspace": "不跟踪 K 空间",
     "skipKspaceHint": "开启后，仅记录你从 J 空间进入的第一个 K 空间星系，以及跳回 J 空间前的最后一个星系——中间经过的所有星系都会被跳过。仅限 HS/LS/NS；Pochven 始终会被跟踪。",
     "snapToGrid": "对齐网格",
+    "gridStyle": "网格样式",
+    "gridStyleLines": "线条",
+    "gridStyleDots": "圆点",
     "spreadNodes": "⊞ 分散节点",
     "spreadNodesTooltip": "调整星系节点以避免重叠",
     "staleHint": "将在选定间隔内未更新的星系视觉上淡化，以便一眼看出旧链残留。",
@@ -1643,7 +2079,17 @@
     "wandererImported": "已从 Wanderer 导入：{{systems}} 个星系，{{connections}} 条连接（跳过 {{skipped}} 个）。",
     "working": "处理中…",
     "panelColumns": "面板列数",
-    "panelColumnsTooltip": "将面板中的各个窗格拆分为并排的栏，使笔记或击杀板显示在信号旁边而非下方。"
+    "panelColumnsTooltip": "将面板中的各个窗格拆分为并排的栏，使笔记或击杀板显示在信号旁边而非下方。",
+    "homeColor": "母星系颜色",
+    "hereColor": "“你在这里”颜色",
+    "herePulse": "“你在这里”脉动",
+    "herePulseOptions": {
+      "off": "关闭（静态光环）",
+      "subtle": "轻微",
+      "normal": "正常",
+      "strong": "强烈"
+    },
+    "resetColor": "重置"
   },
   "mass": {
     "billionKg": "{{value}} 十亿 kg",
@@ -1707,7 +2153,8 @@
     "killboard": "zKillboard",
     "activity": "活动",
     "undock": "分离为浮动窗口",
-    "redock": "重新停靠"
+    "redock": "重新停靠",
+    "pvp": "PvP 活动"
   },
   "panes": {
     "noEveSystem": "未关联 EVE 星系",
@@ -1738,12 +2185,23 @@
     "riskCritical": "质量临界",
     "riskFrig": "护卫舰洞",
     "jspaceNoWaypoint": "虫洞星系无法设为自动驾驶目的地。",
-    "viaAnsiblex": "Ansiblex 跳跃门"
+    "viaAnsiblex": "Ansiblex 跳跃门",
+    "viaMap": "来自 {{map}}"
   },
   "routeToast": {
     "destinationSet": "目的地已设为 {{system}}",
     "waypointAdded": "{{system}} 已成功添加到航点。",
-    "failed": "设置航路点失败 — 你的角色在线吗？"
+    "failed": "设置航路点失败 — 你的角色在线吗？",
+    "destinationSetFor_other": "已为 {{count}} 个角色将目的地设为 {{system}}",
+    "waypointAddedFor_other": "已为 {{count}} 个角色将 {{system}} 加入路径点",
+    "notSentTo": "未发送给：{{list}}",
+    "noneSent": "未能为任何角色设置：{{list}}",
+    "reason": {
+      "offline": "未登录",
+      "no_scope": "请重新登录以允许设置路径点",
+      "token_expired": "请重新登录",
+      "esi_error": "EVE 没有响应"
+    }
   },
   "scout": {
     "noConnections": "没有 {{system}} 连接。",
@@ -1757,11 +2215,21 @@
     "inSigHint": "{{system}} 中的信号 ID —— 虫洞的另一端",
     "outSigHint": "{{system}} 中的信号 ID —— 从这里跃迁前往的一端",
     "markExpired": "报告该洞已坍塌",
-    "unmarkExpired": "其实没有坍塌"
+    "unmarkExpired": "其实没有坍塌",
+    "copyAll": "复制 {{count}} 项到地图",
+    "copyAllHint": "为地图上已有星系的所有 {{system}} 连接添加信号",
+    "copyOne": "将此连接的信号复制到地图",
+    "copyNothing": "没有可复制的内容 — 这些信号已在地图上",
+    "copyDone": "信号：新增 {{added}} 个，更新 {{updated}} 个",
+    "copyPartial": "已添加 {{added}} 个，{{failed}} 个失败",
+    "copyFailed": "无法复制信号",
+    "copyDoneLinks": "信号：新增 {{added}} 个，更新 {{updated}} 个 · 已绘制 {{links}} 条连接",
+    "copyDoneSwept": "信号：新增 {{added}} 个，更新 {{updated}} 个 · 已清理 {{removed}} 个已坍塌虫洞"
   },
   "session": {
     "idleLogout": "因长时间未操作已退出登录。",
     "ended": "您的会话已结束，请重新登录。",
+    "reconnecting": "暂时无法连接 nexum，正在重试。你的登录状态不受影响。",
     "lockedTitle": "已暂停",
     "lockedHint": "您处于空闲状态，地图已暂停。您的登录仍然有效。",
     "resumeAs": "以 {{name}} 继续",
@@ -1815,6 +2283,7 @@
     "pasteDifferentSystem": "你的角色当前在 {{current}}，但你正在将信号粘贴到 {{selected}}。继续吗？",
     "loadFailed": "加载信号失败",
     "saveFailed": "保存信号失败",
+    "duplicateId": "此星系中已存在信号 {{id}}",
     "deleteFailed": "删除信号失败",
     "deleteSelectedConfirm_one": "删除选定的 {{count}} 个信号？",
     "deleteSelectedConfirm_other": "删除选定的 {{count}} 个信号？",
@@ -1828,6 +2297,9 @@
     "removeDelayInstant": "立即",
     "filterLabel": "按类型筛选",
     "filterClear": "清除",
+    "drifterHole": "流浪者",
+    "drifterHoles": "流浪者",
+    "drifterChipHint": "流浪者虫洞（扫描器中的 \"Unidentified Wormhole\"）",
     "noMatchFilter": "没有信号符合筛选条件",
     "setTypeAria": "为选定信号设置类型",
     "setType": "设置类型（{{count}}）…",
@@ -1851,6 +2323,7 @@
     "colAge": "存在时长",
     "colUpdated": "更新时间",
     "columns": "列",
+    "groupIcons": "分组显示为图标",
     "namePlaceholder": "站点名称",
     "colSafe": "安全",
     "safeYes": "安全 — 无战斗",
@@ -1944,6 +2417,11 @@
     "alliance": "联盟",
     "corp": "军团",
     "faction": "势力",
+    "sovAdm": "ADM",
+    "sovAdmTip": "Activity Defense Multiplier（1–6）：数值越高，攻击方夺取主权枢纽所需的时间越长。",
+    "sovVulnerability": "易损时间",
+    "sovVulnerableNow": "现在，直到 EVE {{end}}",
+    "sovVulnerableNext": "EVE {{start}}–{{end}}（{{in}} 后）",
     "personal": "个人",
     "refreshStandings": "立即从 ESI 刷新声望（绕过 6 小时 TTL）",
     "standingsRefreshed": "声望已刷新 — {{personal}} 个人 · {{corp}} 军团 · {{alliance}} 联盟联系人",
@@ -1985,6 +2463,9 @@
     "discord": "Discord",
     "esiOffline": "ESI：离线",
     "esiOnline": "ESI：在线",
+    "latency": "{{ms}} 毫秒",
+    "nexumOffline": "Nexum：无法连接",
+    "nexumOnline": "Nexum：在线",
     "getMoreMaps": "+ 获取更多地图",
     "help": "帮助与使用指南",
     "lastKnownSystem": "最后已知星系",
@@ -2031,7 +2512,12 @@
     "trackJumpsTooltipOn": "正在跟踪跳跃 — 随着你移动会添加新星系",
     "updateAvailable": "有可用更新",
     "updateAvailableVersion": "有可用更新：v{{version}}",
-    "userStats": "用户统计"
+    "userStats": "用户统计",
+    "hideThisMap": "从我的列表中隐藏",
+    "hideThisMapHint": "仅将此地图从你的切换器中移除。它是共享给你的军团或联盟的，因此没有可放弃的个人授权——其他人仍可看到。你可以在这里恢复它。",
+    "hiddenMaps": "已隐藏的地图（{{count}}）",
+    "unhideMap": "恢复",
+    "unhideMapHint": "在你的列表中重新显示此地图"
   },
   "units": {
     "jumps_one": "{{count}} 跳",
@@ -2098,7 +2584,13 @@
   },
   "waypoint": {
     "setDestination": "设为目的地",
-    "addWaypoint": "添加航路点"
+    "addWaypoint": "添加航路点",
+    "sendTo": "发送给角色…",
+    "sendToTitle": "将 {{system}} 发送给…",
+    "sendToHint": "每个角色从自己所在位置规划路线。只有已登录的角色能收到。",
+    "you": "你",
+    "offline": "离线",
+    "noneOnline": "你的角色都没有登录。"
   },
   "whChart": {
     "open": "⊟ 虫洞参考",
@@ -2139,7 +2631,23 @@
   },
   "exits": {
     "notifTitle": "k-space 出口",
-    "appeared": "{{name}}（{{security}}）已出现在链上"
+    "appeared": "{{name}}（{{security}}）已出现在链上",
+    "appearedMany_other": "链上新增 {{count}} 个 K 空间出口"
+  },
+  "alerts": {
+    "killTitle": "{{system}} 发生击杀",
+    "killBody": "{{victim}} 损失了 {{ship}}（{{value}} ISK）",
+    "someone": "某人",
+    "aShip": "舰船",
+    "special": {
+      "capital": "旗舰",
+      "billion": "10 亿+ ISK",
+      "dictor": "拦截舰/重拦",
+      "smartbomb": "立体炸弹"
+    },
+    "eolTitle": "虫洞寿命将尽",
+    "eolBody4h": "{{a}} ↔ {{b}} 寿命将尽（少于 4 小时）",
+    "eolBody1h": "{{a}} ↔ {{b}} 剩余不到 1 小时"
   },
   "tripwire": {
     "title": "从 Tripwire 导入（实验性）",
@@ -2191,5 +2699,13 @@
     "max": "最多 {{count}} 个预设",
     "orgGroup": "组织",
     "mineGroup": "我的"
+  },
+  "orgLogos": {
+    "alliance": "联盟徽标",
+    "corp": "军团徽标"
+  },
+  "update": {
+    "available": "Nexum 有新版本可用。",
+    "reload": "重新加载"
   }
 }

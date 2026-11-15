@@ -12,6 +12,11 @@
   "account": {
     "switchCharacter": "Cambiar de personaje",
     "addCharacter": "Añadir personaje",
+    "shareSettings": "Compartir ajustes entre personajes",
+    "shareSettingsHint": "Si está activado, todos los personajes de esta cuenta usan los mismos ajustes, salvo las habilidades de salto. Al activarlo se copian los ajustes del personaje modificado más recientemente a los demás.",
+    "shareSettingsFailed": "No se pudo cambiar el uso compartido de ajustes",
+    "installApp": "Instalar como aplicación",
+    "installAppHint": "Abre Nexum en su propia ventana, con su propio icono en el Dock o la barra de tareas.",
     "blocked": "bloqueado",
     "characterAdded": "{{name}} añadido",
     "switchTo": "Cambiar a {{name}}",
@@ -45,6 +50,28 @@
     "allHidden": "Todos los gráficos ocultos. Actívalos en Opciones de mapa → Actividad.",
     "loading": "Cargando actividad…",
     "peak": "máx. {{value}}"
+  },
+  "pvp": {
+    "loading": "Cargando actividad PvP…",
+    "loadFailed": "No se pudo cargar la actividad PvP.",
+    "noHistory": "Aún no hay historial PvP. Las muertes de jugadores aquí se registran a partir de ahora.",
+    "noneInDays_one": "Ninguna muerte aquí en el último día.",
+    "noneInDays_other": "Ninguna muerte aquí en los últimos {{count}} días.",
+    "busiestNow": "Máxima actividad ahora ({{time}})",
+    "busiestNext": "Máxima actividad a las {{time}}, en {{n}} h",
+    "quietAhead": "Tranquilo durante las próximas 24 horas",
+    "killsInDays": "{{n}} en {{days}} d",
+    "recent": "Feed en vivo: {{n}} en las últimas 24 h",
+    "chartLabel": "Muertes de jugadores por hora del día para las próximas 24 horas",
+    "barTitle": "{{day}} {{time}}: {{n}}",
+    "now": "ahora",
+    "noteZkill": "Muertes por día de la semana y hora en los últimos 90 días de zKillboard, mostradas en {{zone}}. Las barras más cálidas suelen tener más actividad.",
+    "noteLive": "No se puede acceder a zKillboard, así que se usan las muertes registradas aquí hasta ahora.",
+    "timesIn": "Horas en",
+    "zoneAuto": "Local ({{zone}})",
+    "zoneUtc": "Hora de EVE (UTC)",
+    "zoneSearch": "Buscar zonas horarias",
+    "zoneNoMatches": "Ninguna zona horaria coincide"
   },
   "addSystem": {
     "title": "Añadir sistema",
@@ -225,11 +252,16 @@
         "24h": "Últimas 24 horas",
         "week": "Última semana",
         "month": "Último mes",
+        "quarter": "Último trimestre",
         "year": "Último año"
       },
       "userFilters": {
         "all": "Todos los usuarios",
-        "logins": "Accesos",
+        "active": "Activos",
+        "inactive": "Inactivos",
+        "new": "Usuarios nuevos",
+        "systemsAdded": "Sistemas añadidos",
+        "systemsDeleted": "Sistemas eliminados",
         "signatures": "Firmas",
         "structures": "Estructuras"
       },
@@ -270,6 +302,7 @@
           "hour24": "Firmas por hora (últimas 24 horas)",
           "dayWeek": "Firmas por día (última semana)",
           "dayMonth": "Firmas por día (último mes)",
+          "weekQuarter": "Firmas por semana (último trimestre)",
           "monthYear": "Firmas por mes (último año)",
           "monthAll": "Firmas por mes (todo el tiempo)"
         },
@@ -317,6 +350,10 @@
       "broadcastK162Hint": "Cuando está activo, una firma identificada como K162 se publica en Discord en cuanto se conoce su destino. Desactivado por defecto.",
       "broadcastExits": "Anunciar salidas a k-space",
       "broadcastExitsHint": "Cuando está activo, una conexión que revela una salida a k-space con la seguridad indicada abajo o superior publica un resumen de ruta: la salida, el camino hasta ella y el centro comercial más cercano. Desactivado por defecto; la conexión en sí se anuncia igualmente.",
+      "broadcastEol": "Anunciar agujeros al final de su vida",
+      "broadcastEolHint": "Si está activado, cuando un piloto marca un agujero de gusano como fin de vida (menos de 4 horas o menos de 1 hora) se publica en el webhook de conexiones. Desactivado por defecto.",
+      "broadcastThera": "Anunciar agujeros a Thera y Turnur",
+      "broadcastTheraHint": "Si está activado, un nuevo agujero a Thera o Turnur se publica en el webhook de conexiones como aviso de Thera/Turnur, aunque los filtros de agujeros de arriba lo excluyan. Desactivado por defecto.",
       "webhooks": "Webhooks",
       "webhooksHint": "Dónde se publican las notificaciones. Pega una URL de webhook de Discord para cada canal; deja un campo vacío para desactivar ese tipo.",
       "connectionsWebhook": "Conexiones (K162 + conexiones nuevas)",
@@ -337,7 +374,13 @@
       "colMap": "Mapa",
       "colExclude": "Excluir",
       "killWebhook": "Webhook de bajas",
-      "killMinIsk": "ISK mínimo"
+      "killMinIsk": "ISK mínimo",
+      "specialWebhook": "Webhook de kills especiales",
+      "specialWebhookHint": "Kills que merecen un aviso, publicados sea cual sea su valor — p. ej. en un canal con alertas. Elige cuáles cuentan:",
+      "specialCapital": "Capitales",
+      "specialBillion": "1B+ ISK",
+      "specialDictor": "Dictor / HIC",
+      "specialSmartbomb": "Smartbomb"
     },
     "roles": {
       "button": "¿Roles?",
@@ -474,10 +517,141 @@
     "revokeFailed": "No se pudo revocar la clave. Inténtalo de nuevo.",
     "disabled": "Claves API desactivadas"
   },
+  "audit": {
+    "title": "Registro de cambios",
+    "titleFor": "Registro de cambios — {{name}}",
+    "hint": "Cambios de los últimos {{days}} días. No se registra el movimiento de sistemas ni la limpieza automática.",
+    "sidebarHint": "Quién añadió, eliminó o cambió qué en este mapa.",
+    "open": "Abrir registro de cambios",
+    "filter": "Mostrar",
+    "empty": "Aún no hay nada registrado.",
+    "loading": "Cargando…",
+    "loadMore": "Cargar anteriores",
+    "unknownPilot": "Piloto desconocido",
+    "viaApi": "API",
+    "on": "activado",
+    "off": "desactivado",
+    "cleared": "borrado",
+    "kind": {
+      "all": "Todos los cambios",
+      "system": "Sistemas",
+      "connection": "Conexiones",
+      "signature": "Firmas",
+      "anomaly": "Anomalías",
+      "structure": "Estructuras",
+      "chain": "Cadenas",
+      "map": "Ajustes del mapa",
+      "share": "Compartir"
+    },
+    "action": {
+      "system": {
+        "add": "añadió {{subject}}",
+        "update": "cambió {{subject}}",
+        "remove": "eliminó {{subject}}"
+      },
+      "connection": {
+        "add": "conectó {{subject}}",
+        "update": "cambió {{subject}}",
+        "remove": "desconectó {{subject}}"
+      },
+      "signature": {
+        "add": "añadió la firma {{subject}}",
+        "update": "cambió la firma {{subject}}",
+        "remove": "eliminó la firma {{subject}}"
+      },
+      "anomaly": {
+        "add": "añadió la anomalía {{subject}}",
+        "update": "cambió la anomalía {{subject}}",
+        "remove": "eliminó la anomalía {{subject}}"
+      },
+      "structure": {
+        "add": "añadió la estructura {{subject}}",
+        "update": "cambió la estructura {{subject}}",
+        "remove": "eliminó la estructura {{subject}}"
+      },
+      "chain": {
+        "add": "guardó la cadena {{subject}}",
+        "update": "cambió la cadena {{subject}}",
+        "remove": "eliminó la cadena {{subject}}"
+      },
+      "map": {
+        "update": "cambió los ajustes del mapa",
+        "merge": "fusionó {{subject}}",
+        "scoutCleanup": "limpió los agujeros de {{subject}}"
+      },
+      "share": {
+        "add": "compartió el mapa con {{subject}}",
+        "remove": "dejó de compartir con {{subject}}",
+        "link": {
+          "create": "creó un enlace de difusión",
+          "update": "cambió el enlace de difusión",
+          "revoke": "revocó el enlace de difusión"
+        }
+      }
+    },
+    "field": {
+      "name": "Nombre",
+      "alias": "Alias",
+      "notes": "Notas",
+      "status": "Estado",
+      "isHome": "Base",
+      "locked": "Bloqueado",
+      "intel": "Inteligencia",
+      "tag": "Etiqueta",
+      "labels": "Etiquetas",
+      "customLabels": "Etiquetas propias",
+      "connectionType": "Tipo de salto",
+      "massStatus": "Masa",
+      "timeStatus": "Vida",
+      "size": "Tamaño",
+      "type": "Tipo de agujero",
+      "massUsed": "Masa usada",
+      "eolAt": "Hora EOL",
+      "lifetimeExpiresAt": "Caducidad",
+      "broken": "Roto",
+      "flagIcon": "Icono de bandera",
+      "flagNote": "Nota de bandera",
+      "flagBlink": "Bandera parpadeante",
+      "flagColor": "Color de bandera",
+      "sourceSignatureId": "Firma de origen",
+      "targetSignatureId": "Firma de destino",
+      "sigId": "ID de firma",
+      "sigType": "Grupo",
+      "whType": "Tipo de agujero",
+      "whLeadsTo": "Lleva a",
+      "ghostType": "Sitio fantasma",
+      "anomId": "ID de anomalía",
+      "anomType": "Tipo",
+      "structureType": "Tipo de estructura",
+      "ownerCorp": "Propietario",
+      "eveId": "ID de EVE",
+      "systemIds": "Sistemas",
+      "connectionIds": "Conexiones",
+      "allowAsMergeSource": "Origen de fusión",
+      "allowAsMergeDestination": "Destino de fusión",
+      "lazyRemoveWormholes": "Eliminación diferida de agujeros",
+      "collapseGraceHours": "Margen de colapso (horas)",
+      "bookmarkFormat": "Formato de marcadores",
+      "siteBookmarkFormat": "Formato de marcadores de sitios",
+      "skipKspace": "Omitir k-space",
+      "crossMapSync": "Sincronización entre mapas",
+      "expiryHours": "Caducidad (horas)",
+      "includeSigs": "Firmas",
+      "includeBridges": "Puentes",
+      "includeNotes": "Notas",
+      "includeStructures": "Estructuras",
+      "kind": "Compartido con",
+      "canWrite": "Puede editar",
+      "systems": "Sistemas",
+      "connections": "Conexiones",
+      "signatures": "Firmas",
+      "structures": "Estructuras"
+    }
+  },
   "chainExits": {
     "title": "Salidas de la cadena",
     "noExits": "No hay salidas de K-space en esta cadena.",
-    "hint": "Sistemas de K-space actualmente en el mapa, por clase de seguridad. La ruta a Jita es solo por puertas — los atajos por agujero de gusano no se cuentan.",
+    "hint": "Sistemas de K-space con un agujero de gusano en el mapa, por clase de seguridad. La ruta a Jita es solo por puertas — los atajos por agujero de gusano no se cuentan.",
     "allExits": "Todas las salidas a K-space",
     "noFavourites": "Aún no hay sistemas favoritos: añade algunos en el panel Sistemas cercanos.",
     "noRoute": "sin ruta",
@@ -530,7 +704,9 @@
     "signIn": "Inicia sesión y atraca en K-space para ver los saltos a los hubs, o activa las opciones de atajos de ruta para calcular rutas desde un agujero de gusano o Thera.",
     "searchPlaceholder": "Buscar nombre de sistema…",
     "onList": "en la lista",
-    "noMatch": "Ningún sistema coincide con «{{query}}»"
+    "noMatch": "Ningún sistema coincide con «{{query}}»",
+    "allMaps": "Calcular en todos mis mapas",
+    "allMapsHint": "Las distancias pueden usar las cadenas de agujeros de gusano de cualquier mapa que puedas ver, no solo el abierto. Desactívalo para enrutar únicamente por el mapa en pantalla."
   },
   "commandPalette": {
     "placeholder": "Buscar sistemas y mapas…",
@@ -617,8 +793,10 @@
     "collapseConfirmStrand": " Tu roller quedaría atrapado en el lado opuesto.",
     "collapseConfirmHome": " Tu roller termina en el lado de origen.",
     "rollIt": "Realizar la pasada",
-    "removeConnection": "Quitar conexión",
+    "removeConnection": "Quitar solo la conexión",
+    "removeConnectionAndSigs": "Quitar conexión y firmas",
     "brokenNotice": "Conexión rota — la firma de agujero de gusano que la sostenía fue eliminada. Se mantiene en el mapa pero en cuarentena del enrutamiento.",
+    "brokenNoticeRolled": "Conexión colapsada — la calculadora de rolling registró masa suficiente para cerrarla. Se mantiene en el mapa pero en cuarentena del enrutamiento. Deshaz el último paso si fue un error.",
     "flagLabel": "Marca",
     "flagAdd": "Añadir marca",
     "flagNotePlaceholder": "p. ej. NO ROLEAR – flota en camino",
@@ -639,7 +817,9 @@
     "matchCount_other": "{{count}} sistemas coinciden",
     "clear": "Limpiar filtro",
     "holes": "Agujeros de gusano",
-    "undivedWh": "Inexplorado"
+    "undivedWh": "Inexplorado",
+    "wormholeTip": "Sistemas con alguna firma de agujero de gusano, escaneada o no, cruzada o no",
+    "undivedWhTip": "Sistemas con un agujero que nadie ha cruzado todavía"
   },
   "copyMap": {
     "title": "Copiar mapa",
@@ -740,8 +920,11 @@
     "optimizeConnections": "Optimizar conexiones",
     "spreadNodes": "Distribuir nodos",
     "removeOrphans": "Eliminar sistemas huérfanos ({{count}})",
-    "removeOrphansConfirm": "¿Eliminar {{count}} sistema(s) huérfano(s)? No tienen ninguna conexión válida (ninguna, o solo rotas). Los sistemas de origen y bloqueados se conservan. Esto se puede deshacer.",
+    "removeOrphansConfirm": "¿Eliminar {{count}} sistema(s) huérfano(s)? No tienen ninguna conexión válida (ninguna, o solo rotas), o quedan aislados del sistema de origen por una conexión rota. Los sistemas de origen y bloqueados se conservan. Se puede deshacer.",
+    "keyDeleteConfirmOne": "¿Eliminar {{name}}? Esto se puede deshacer.",
+    "keyDeleteConfirmMany": "¿Eliminar {{count}} sistemas? Esto se puede deshacer.",
     "removeStranded": "Eliminar sistemas sin conexión al hogar ({{count}})",
+    "removeStrandedNoHome": "Eliminar sistemas sin conexión al hogar (primero define un hogar)",
     "removeStrandedConfirm": "¿Eliminar {{count}} sistema(s) sin ruta de vuelta a {{home}}? Se conservan el sistema hogar y los bloqueados. Es un borrado masivo: deshacer los restaura de uno en uno y solo se guardan las últimas 50 eliminaciones.",
     "labels": "Etiquetas",
     "customLabel": "Etiqueta personalizada",
@@ -772,6 +955,65 @@
     "signInMore": "Inicia sesión para ver kills, firmas, estructuras, actividad, soberanía y mucho más.",
     "addSystemHere": "Añadir sistema aquí",
     "addSystemLimit": "Añadir sistema (límite de {{max}} alcanzado)"
+  },
+  "dscan": {
+    "title": "Analizador de d-scan",
+    "landingLink": "Analizador de d-scan",
+    "intro": "Pega un escaneo direccional o una lista de pilotos del local. Obtendrás un desglose y un enlace que cualquiera puede abrir durante 24 horas.",
+    "placeholder": "Pega aquí un d-scan o el local",
+    "analyse": "Analizar",
+    "analysing": "Analizando...",
+    "attachTo": "Asociar a {{system}}",
+    "newScan": "Nuevo escaneo",
+    "loading": "Cargando escaneo...",
+    "backToMap": "Volver al mapa",
+    "home": "Inicio",
+    "shareLink": "Enlace a este escaneo",
+    "copyLink": "Copiar enlace",
+    "linkCopied": "Enlace copiado",
+    "copyFailed": "No se pudo copiar el enlace",
+    "openInNewTab": "Abrir en una pestaña nueva",
+    "kindDscan": "Escaneo direccional",
+    "kindLocal": "Local",
+    "scanned": "Escaneado {{ago}}",
+    "filterLabel": "Mostrar",
+    "filterAll": "Todo",
+    "filterOnGrid": "En grid",
+    "filterOffGrid": "Fuera de grid",
+    "onGridHint": "En grid significa a menos de {{km}} km.",
+    "hullMass": "Masa del casco",
+    "noMassData": "Sin datos de masa: {{n}}",
+    "total": "Total",
+    "nothingInRange": "Nada en este rango.",
+    "unknownGroup": "Desconocido",
+    "pilots": "Pilotos",
+    "alliances": "Alianzas",
+    "corps": "Corporaciones",
+    "notFound": "No encontrados",
+    "notFoundHint": "Nombres no encontrados",
+    "noAlliance": "Sin alianza",
+    "systemSection": "D-scans",
+    "systemNone": "No hay escaneos en las últimas 24 horas.",
+    "summaryDscan": "Naves: {{ships}} / objetos: {{total}}",
+    "summaryLocal": "Local: {{n}} pilotos",
+    "sections": {
+      "ships": "Naves",
+      "structures": "Estructuras",
+      "deployables": "Desplegables",
+      "drones": "Drones y cazas",
+      "other": "Otros"
+    },
+    "errors": {
+      "empty": "No hay nada que analizar. Pega primero un d-scan o una lista del local.",
+      "unrecognised": "Eso no parece un d-scan ni una lista del local.",
+      "tooMany": "El texto pegado es demasiado largo.",
+      "lookupFailed": "No se pudieron buscar esos pilotos ahora mismo. Inténtalo de nuevo en un minuto.",
+      "rateLimited": "Demasiados escaneos. Espera un momento y vuelve a intentarlo.",
+      "failed": "No se pudo analizar ese texto.",
+      "notFound": "Este escaneo no existe.",
+      "expired": "Este escaneo ha caducado. Los escaneos se guardan 24 horas.",
+      "loadFailed": "No se pudo cargar este escaneo."
+    }
   },
   "duration": {
     "seconds": "{{value}}s",
@@ -916,7 +1158,39 @@
     "noKillsOnRecord": "No hay kills registrados.",
     "noKillsNpc": "Sin kills en las últimas 24h — {{count}} solo de PNJ ocultos.",
     "showThem": "Mostrarlos",
-    "loadMore": "Cargar más ({{count}} restantes)"
+    "loadMore": "Cargar más ({{count}} restantes)",
+    "scopeLabel": "Mostrar muertes de",
+    "scopeSystem": "Este sistema",
+    "scopeMap": "Todo el mapa",
+    "windowLabel": "Periodo",
+    "window": {
+      "1h": "1 h",
+      "24h": "24 h",
+      "7d": "7 d"
+    },
+    "showingOf": "{{shown}} de {{total}} muertes",
+    "tags": {
+      "gate": "Puerta",
+      "hic": "HIC",
+      "dic": "Dictor",
+      "sb": "SB",
+      "npc": "NPC",
+      "solo": "Solo",
+      "ganked": "Gankeado",
+      "awox": "Awox",
+      "padding": "Padding"
+    },
+    "tagTips": {
+      "gate": "Muerto en una puerta estelar",
+      "hic": "Había un heavy interdictor en el killmail",
+      "dic": "Había un interdictor en el killmail",
+      "sb": "Muerto por una smartbomb",
+      "npc": "Solo NPC en el killmail",
+      "solo": "Un único atacante",
+      "ganked": "Destruido en un gank: CONCORD aparecía en el killmail",
+      "awox": "Destruido por su propia corporación o alianza",
+      "padding": "zKillboard lo marca como padding: una kill sin valor para inflar estadísticas"
+    }
   },
   "labelsDialog": {
     "title": "Etiquetas personalizadas",
@@ -963,7 +1237,7 @@
     "features": {
       "interactiveMap": {
         "title": "Mapa interactivo",
-        "desc": "Arrastra sistemas, traza conexiones, define la clase / tipo / estado del agujero de gusano por conexión. Ajuste a la cuadrícula y minimapa opcional."
+        "desc": "Arrastra sistemas, dibuja conexiones y asigna clase / tipo / estado de agujero de gusano a cada conexión. Ajuste a la cuadrícula y minimapa opcional."
       },
       "seedRegion": {
         "title": "Generar un mapa desde una región",
@@ -982,8 +1256,8 @@
         "desc": "Popover con búsqueda para asignar el tipo exacto de agujero de gusano a una conexión. La info rápida de statics al pasar el ratón muestra la clase de destino, la masa y la vida útil."
       },
       "multiSelect": {
-        "title": "Operaciones en lote por selección múltiple",
-        "desc": "Mayús+clic para seleccionar varios sistemas o firmas, luego asigna tipo, elimina o renombra en una sola acción."
+        "title": "Operaciones en lote con selección múltiple",
+        "desc": "Haz Mayús o Cmd / Ctrl-clic para seleccionar varios sistemas o firmas, y luego asigna el tipo, elimina o renombra en lote en una sola acción."
       },
       "pngExport": {
         "title": "Exportación a PNG",
@@ -1011,7 +1285,7 @@
       },
       "crossMapSync": {
         "title": "Sincronización entre mapas",
-        "desc": "¿Tienes el mismo sistema en varios mapas? Actívalo y, al escanearlo en un mapa, sus firmas y anomalías se copian al mismo sistema en tus otros mapas — los mapas personales se sincronizan con tus otros mapas personales, y los de corp con los de la corp. No destructivo: solo añade entradas que faltan y rellena huecos, nunca sobrescribe lo que ya has introducido ni borra nada."
+        "desc": "¿Tienes el mismo sistema en varios mapas? Actívalo y, al escanearlo en un mapa, sus firmas y anomalías se copian al mismo sistema en los demás. Los mapas personales se sincronizan con tus otros mapas personales (incluidos los de tus alts), y los mapas de corp o alianza con otros del mismo tipo que tengan la sincronización activada. Solo añade entradas que faltan y rellena huecos, nunca sobrescribe ni elimina nada."
       },
       "realtime": {
         "title": "Colaboración en tiempo real",
@@ -1023,15 +1297,15 @@
       },
       "rbac": {
         "title": "Acceso basado en roles",
-        "desc": "Cuatro niveles — readonly, edit, full, admin — que rigen las acciones sobre mapas de corp. Los mapas personales siguen siendo tuyos sea cual sea el rol."
+        "desc": "Solo lectura, colaborador, edición, completo y admin, más admin de alianza en instalaciones de alianza. Un colaborador mantiene al día firmas, anomalías y estructuras y mapea la cadena volándola, pero no puede remodelarla a mano. Los mapas personales siguen siendo tuyos sea cual sea el rol."
       },
       "systemPanel": {
         "title": "Panel de sistema",
-        "desc": "Tarjetas por sistema para firmas, estructuras, estaciones PNJ, notas, killboard y gráficos de actividad. Las tarjetas se reordenan arrastrando y soltando y se conservan por usuario."
+        "desc": "Tarjetas por sistema para firmas, anomalías, estructuras, estaciones de PNJ, notas, killboard, actividad PvP, d-scans y gráficos de actividad, con enlaces a Dotlan, zKillboard y anoik.is. Las tarjetas se reordenan arrastrando y soltando y se guardan por usuario."
       },
       "sigMgmt": {
         "title": "Gestión de firmas",
-        "desc": "Pega directamente desde el escáner de sondas. Hace seguimiento de la antigüedad de creación / actualización por firma, elimina automáticamente las firmas ausentes en un nuevo pegado y admite la asignación de tipo en lote para la selección múltiple."
+        "desc": "Pega directamente desde el escáner de sondas. Muestra quién escaneó cada firma y su antigüedad, puede eliminar las firmas que faltan en un nuevo pegado tras un periodo de gracia, y nunca duplica una firma cuando dos pilotos pegan a la vez. Copia desde cualquier fila un nombre de marcador listo para pegar, en tu propio formato o en el del mapa."
       },
       "structImport": {
         "title": "Importación de estructuras",
@@ -1043,15 +1317,15 @@
       },
       "activityCharts": {
         "title": "Gráficos de actividad",
-        "desc": "Historial móvil de 24 horas de saltos, kills de naves / cápsulas y kills de PNJ por sistema, consultado de la ESI cada hora. El recolector conserva los datos de cada sistema de K-space — no solo de los que alguien ha abierto — para que los gráficos se llenen en cuanto veas un sistema nuevo."
+        "desc": "Historial móvil de 24 horas de saltos, kills de naves / cápsulas y kills de PNJ por sistema, consultado de la ESI cada hora para todos los sistemas de k-space. Muéstralos apilados en tu propio orden, o combinados en un único par de ejes con valores exactos al pasar el ratón."
       },
       "sovStation": {
-        "title": "Datos de soberanía y de estación",
-        "desc": "Info de sov en vivo de alianza / corp / facción y servicios de estación PNJ, con acciones de punto de ruta y destino en el juego."
+        "title": "Datos de soberanía y estaciones",
+        "desc": "Soberanía de alianza / corp / facción en vivo con el ADM del hub y su próxima ventana de vulnerabilidad, además de los servicios de las estaciones de PNJ, con acciones de punto de ruta y destino en el juego."
       },
       "killboard": {
         "title": "Panel de killboard",
-        "desc": "Actividad reciente de zKillboard por sistema, con los kills solo de PNJ ocultos por defecto (alternable). Las filas se tiñen de rojo cuando un actor hostil está en la cadena o matan a un azul; de azul cuando un amigo puntúa o muere un hostil. Los kills recientes también resaltan en el mapa."
+        "desc": "Kills recientes de zKillboard y del feed en vivo para un sistema o todo tu mapa, en la última hora, día o semana. Cada kill se etiqueta cuando ocurrió en una puerta o involucró un HIC, un dictor o una smartbomb. Los kills de PNJ se ocultan por defecto. Las filas se tiñen de rojo cuando hay un hostil implicado o muere un azul, y de azul cuando un amigo puntúa."
       },
       "effectDigest": {
         "title": "Resumen de efectos de la cadena",
@@ -1062,8 +1336,8 @@
         "desc": "Tu lista de contactos de EVE (personal, corp y alianza — obtenida vía la ESI al iniciar sesión y reactualizable bajo demanda) impulsa una capa visual en toda la cadena. Los poseedores de sov muestran píldoras de standing P/C/A en línea; las estructuras resueltas por su ID de estructura de EVE se tiñen según el standing de la corp propietaria; los nodos de sistemas con sov reciben un halo de color para que el territorio hostil destaque en el mapa."
       },
       "scout": {
-        "title": "Conexiones de scout",
-        "desc": "Las conexiones públicas de Eve-Scout de Thera y Turnur aparecen en la barra lateral para que saltes directamente a agujeros conocidos."
+        "title": "Conexiones de Thera y Turnur",
+        "desc": "Las conexiones públicas de Thera y Turnur de Eve-Scout con ambos IDs de firma y la ruta a través del hub. Cópialas a tu mapa con un clic (los agujeros que eve-scout deja de listar se retiran), y marca una como colapsada para que las rutas dejen de usarla."
       },
       "a0": {
         "title": "Detección de soles A0",
@@ -1087,11 +1361,11 @@
       },
       "discordNotif": {
         "title": "Notificaciones de Discord",
-        "desc": "Envía la inteligencia de cadena de la corp a un canal de Discord para que las alertas lleguen aunque nadie esté mirando la pestaña. Se dispara en el servidor ante un K162 entrante o una nueva conexión de agujero de gusano, limitado a mapas de corp. Los admins filtran qué regiones y mapas notifican desde el panel de administración. Best-effort y consciente de los límites de tasa; las operaciones en lote como el sembrado de regiones nunca saturan el canal."
+        "desc": "Envía la inteligencia de la cadena a un canal de Discord para que las alertas lleguen aunque nadie esté mirando la pestaña: nuevas conexiones y K162, nuevas salidas a k-space con su ruta, kills en la cadena y kills especiales, agujeros que entran en fin de vida, y nuevos agujeros de Thera y Turnur. Los admins eligen qué mapas y regiones publican."
       },
       "routePlanner": {
         "title": "Planificador de rutas",
-        "desc": "BFS en el servidor sobre las puertas estelares más tu cadena en vivo, para que una ruta que pasa por un salto de agujero de gusano sea un solo clic."
+        "desc": "Elige dos sistemas cualesquiera y obtén una ruta por puertas estelares, tus cadenas de agujeros de gusano, Thera, Turnur y puentes Ansiblex. Busca sistemas por el alias que les diste y guarda las rutas que vuelas a menudo."
       },
       "locationTracking": {
         "title": "Seguimiento de ubicación",
@@ -1115,7 +1389,7 @@
       },
       "killHighlights": {
         "title": "Resaltado de kills recientes",
-        "desc": "Los sistemas con kills en la última hora reciben un halo de color para que veas de un vistazo la actividad fresca en toda la cadena."
+        "desc": "Los sistemas con kills muestran una espada en el mapa con su recuento de kills de 24 horas, brillante cuando ha habido combate en la última hora, y un halo de color para la actividad reciente en toda la cadena."
       },
       "userStats": {
         "title": "Ventana de estadísticas de usuario",
@@ -1130,8 +1404,8 @@
         "desc": "La página de inicio monta un mapa de demostración no editable para que los visitantes vean lo que hace la herramienta antes de iniciar sesión."
       },
       "sidebar": {
-        "title": "Barra lateral plegable",
-        "desc": "Opciones de mapa, Conexiones, Alertas de proximidad, Atenuar sistemas obsoletos y Atajos se despliegan o pliegan de forma independiente. El estado por sección se conserva por navegador vía localStorage."
+        "title": "Elige tus paneles",
+        "desc": "Cada sección de la barra lateral y cada panel de sistema se puede contraer, reordenar o desactivar por completo. Tus elecciones se guardan en tu cuenta y te acompañan a otro equipo."
       },
       "colorVision": {
         "title": "Modos para daltónicos",
@@ -1167,7 +1441,91 @@
       },
       "jumpPlanner": {
         "title": "Planificador de saltos",
-        "desc": "Traza una ruta de salto capital de varios saltos entre dos sistemas low/null. Elige una clase de nave y tus habilidades, opta por menos saltos o menos combustible, y ve la ruta trazada con años luz por salto y una estimación de isótopos. Guarda y recarga tus rutas."
+        "desc": "Traza una ruta de salto capital de varios saltos entre dos sistemas low/null cualesquiera. Elige una clase de nave y tus habilidades, opta por menos saltos o menos combustible, y ve la ruta con los años luz por salto, una estimación de isótopos, la fatiga de salto y el temporizador de reactivación. Evita sistemas, añade puntos de ruta, usa puertas regionales y guarda tus rutas."
+      },
+      "addConnect": {
+        "title": "Añade y conecta en un solo paso",
+        "desc": "Haz clic derecho en un sistema para añadir un sistema conectado de una vez, o elige Conectar con sistema y haz clic en el otro extremo. Al añadir uno, se ofrece primero el sistema en el que estás, y un marcador Desconocido señala un agujero que aún no has identificado."
+      },
+      "mapGlance": {
+        "title": "El mapa de un vistazo",
+        "desc": "Las conexiones muestran su estado en la propia línea: los agujeros de fragata van discontinuos, los reducidos y críticos llevan un núcleo de color, y el tamaño de nave aparece junto al tipo. Cada sistema muestra cuánto se ha escaneado, los statics se ven incluso en modo compacto, y al pasar el ratón por un sistema de k-space ves a cuántos saltos de puerta está de ti."
+      },
+      "regionBorders": {
+        "title": "Fronteras de región",
+        "desc": "Los sistemas con una puerta estelar hacia otra región llevan una pequeña etiqueta con su nombre, para que veas por dónde una cadena te permite cruzar a Providence o Curse sin añadir el sistema vecino. Desactivado por defecto; actívalo en Opciones de sistema."
+      },
+      "layoutTools": {
+        "title": "Herramientas de disposición",
+        "desc": "Ordenar disposición coloca los sistemas con la forma de sus regiones reales. Desenredar agrupa los sistemas enlazados en filas y columnas ordenadas. Reclasificar puertas convierte en conexiones de puerta las líneas de agujero de gusano que en realidad son puertas estelares. Los sistemas bloqueados se quedan donde los pusiste."
+      },
+      "flagPresets": {
+        "title": "Plantillas de marca de conexión",
+        "desc": "Guarda un icono, un color y un nombre como plantilla y aplícala a una conexión con un clic. Las corps y alianzas pueden publicar un conjunto estándar para todos."
+      },
+      "mapBackup": {
+        "title": "Importación y copias de seguridad completas",
+        "desc": "Trae un mapa desde Pathfinder (con alias, marcadores de inteligencia, masa y fin de vida) o desde Tripwire (experimental, con firmas y notas de sistema). Exporta una copia de seguridad JSON completa con firmas, anomalías, estructuras y la masa y vida de cada agujero, e impórtala de nuevo como una copia exacta de tu propiedad."
+      },
+      "jumpConfirm": {
+        "title": "Los saltos completan el agujero",
+        "desc": "Cuando saltas, nexum averigua por qué firma has pasado y fija adónde lleva, y solo pregunta cuando podría ser más de una. El nombre de marcador actualizado del agujero queda en tu portapapeles, listo para pegar en el juego. Los saltos de clon y las muertes de cápsula no dibujan conexiones falsas."
+      },
+      "sharing": {
+        "title": "Compartir mapas",
+        "desc": "Comparte un mapa con otros personajes, tu corp o tu alianza, o crea un enlace de solo lectura que cualquiera puede abrir sin cuenta, con caducidad y a tu elección lo que ven los invitados. Los mapas compartidos muestran quién es su propietario, y puedes abandonar u ocultar los que no uses."
+      },
+      "mapHistory": {
+        "title": "Historial del mapa",
+        "desc": "Cada cambio en la estructura de un mapa queda registrado con quién lo hizo: sistemas, conexiones, firmas, cadenas, ajustes, uso compartido y fusiones. Se conserva 30 días, y el propietario y los admins del mapa pueden consultarlo desde la barra lateral del mapa."
+      },
+      "dscan": {
+        "title": "Analizador de d-scan y local",
+        "desc": "Pega un escaneo direccional para ver las naves agrupadas por clase y casco, un filtro en grid / fuera de grid, las estructuras con su distancia y la masa total en el escaneo. Pega el chat local para ver los pilotos agrupados por alianza y corp. Cada escaneo tiene un enlace que cualquiera puede abrir durante 24 horas, y los escaneos asociados a un sistema aparecen en su panel. No hace falta iniciar sesión."
+      },
+      "pvpForecast": {
+        "title": "Previsión de actividad PvP",
+        "desc": "Para cualquier sistema, 24 barras que muestran cuánta actividad suele haber en cada una de las próximas horas ese día de la semana, a partir de los últimos 90 días de zKillboard, con la hora de más actividad indicada y un recuento en vivo de las últimas 24 horas. Las horas se muestran en tu propia zona horaria. También funciona en el espacio de agujeros de gusano."
+      },
+      "holeState": {
+        "title": "Masa y vida mientras escaneas",
+        "desc": "Registra la masa de un agujero (completa, menos del 50%, menos del 10%) y su vida (hasta caducado) directamente desde la lista de firmas, antes de que nadie lo haya saltado. Fíjalo en cualquiera de los extremos y el otro extremo y la línea del mapa se igualan."
+      },
+      "siteDetails": {
+        "title": "Detalles de sitios de un vistazo",
+        "desc": "Las filas de reliquias y datos indican si el sitio genera combate, los sitios de datos de eventos muestran una marca de warp seguro, los sitios fantasma tienen su propio tipo con el nivel leído del escaneo, y los agujeros Drifter rellenan su propio destino."
+      },
+      "chainExits": {
+        "title": "Salidas de la cadena",
+        "desc": "Una lista en la barra de herramientas con cada sistema de k-space con un agujero de gusano abierto en tu cadena, con la ruta a cada uno y a tus sistemas favoritos a través de la salida por la que saldrías. Recibe una alerta en la app o en Discord cuando aparece una salida nueva: solo high-sec, low-sec o mejor, o cualquier k-space."
+      },
+      "closestSystems": {
+        "title": "Sistemas más cercanos",
+        "desc": "Un panel lateral con la distancia a los hubs comerciales y a tu propia lista de sistemas, contando puertas, tus cadenas de agujeros de gusano, Thera y Turnur. Puede usar todos los mapas que puedes ver o solo el abierto, y cada salto por agujero de gusano indica el mapa del que procede."
+      },
+      "clones": {
+        "title": "Panel de clones",
+        "desc": "Tu clon médico y tus clones de salto con el sistema en el que está cada uno, sus implantes y botones para fijar destino y añadir punto de ruta. Requiere el permiso de clones."
+      },
+      "pilotsOnline": {
+        "title": "Pilotos conectados",
+        "desc": "En instalaciones de corp y alianza, ve quién de tu organización ha estado activo en los últimos minutos, qué pilota y dónde está. Cualquiera puede ocultar su propia presencia."
+      },
+      "announcer": {
+        "title": "Anunciador de voz",
+        "desc": "Alertas habladas mientras vuelas, con una voz que funciona en tu propio dispositivo: low-sec y null-sec dentro del alcance, incursiones, kills recientes cercanos, personajes que se conectan y nuevas cadenas añadidas por otros. Experimental, solo en inglés."
+      },
+      "desktopAlerts": {
+        "title": "Alertas de escritorio y sonido",
+        "desc": "Notificaciones de escritorio y sonidos para kills en tu cadena, agujeros que entran en fin de vida, nuevas salidas a k-space, coincidencias de la lista de vigilancia y amenazas cercanas, cada una activable por separado con un único control de volumen. Solo alertan las novedades, nunca el mismo elemento dos veces."
+      },
+      "multiDestination": {
+        "title": "Destino para todos tus personajes",
+        "desc": "Fija un destino o añade un punto de ruta para todos los personajes conectados de tu cuenta a la vez. Cada uno traza su propia ruta desde donde esté, y ves qué ha pasado con cada personaje."
+      },
+      "panelLayout": {
+        "title": "Disposición de paneles",
+        "desc": "Coloca los paneles debajo del mapa o a su lado, divídelos en hasta tres columnas redimensionables y elige un espaciado Cómodo, Compacto o Denso. Oculta los paneles que no uses, ábrelos en ventanas aparte, y tu disposición te sigue con tu cuenta a cualquier dispositivo."
       }
     },
     "corpFeatures": {
@@ -1185,7 +1543,7 @@
       },
       "adminDash": {
         "title": "Panel de administración",
-        "desc": "Una página /admin dedicada con cuatro pestañas: Usuarios, Mapas, Informes y Registro de auditoría. Los admins acceden a ella desde el botón Administración de la barra de herramientas."
+        "desc": "Una página /admin dedicada con pestañas para Usuarios, Acceso, Mapas, Informes, Registro de auditoría, Discord, Plantillas y Diseño por defecto. Los admins acceden a ella desde el botón Administración de la barra de herramientas."
       },
       "userMgmt": {
         "title": "Gestión de usuarios",
@@ -1222,11 +1580,27 @@
       "accessControl": {
         "title": "Control de acceso de usuarios",
         "desc": "Decide quién puede iniciar sesión más allá de tu núcleo .env: una lista de permitidos en BD (sembrada desde CORP_ID/ALLIANCE_ID) gestionada en el panel, admisión automática opcional de corps/alianzas amigas por standing (+5/+10) y un visor de standings agrupados por nivel. Las sesiones se revalidan en vivo: revocar acceso —o un piloto que deja una corp admitida— lo desconecta."
+      },
+      "invites": {
+        "title": "Invitaciones con rol",
+        "desc": "Añade a un piloto a la lista de permitidos antes de que haya iniciado sesión nunca y elige el rol con el que llega. Un botón Enviar invitación abre un EVE mail ya redactado en tu propio cliente. DEFAULT_USER_ROLE fija el rol con el que empiezan todos los demás."
+      },
+      "orgDefaults": {
+        "title": "Valores por defecto de la organización",
+        "desc": "Guarda tu propia disposición de paneles como diseño inicial que heredan los miembros nuevos, y publica un conjunto estándar de plantillas de marca de conexión para todos."
+      },
+      "orgBranding": {
+        "title": "Tu logotipo",
+        "desc": "Una instancia gestionada para una corp o alianza muestra su logotipo encima del botón de inicio de sesión en la página principal, y junto al logotipo de nexum en la barra de herramientas."
+      },
+      "prebuiltImages": {
+        "title": "Imágenes precompiladas",
+        "desc": "Cada versión se publica como imágenes listas para usar en GitHub Container Registry, así que actualizar es un docker compose pull. Los scripts de copia de seguridad y restauración gestionan varias instancias en un mismo host."
       }
     },
     "forCorpsBody": "Ejecuta Nexum como un despliegue compartido para tu corp o alianza. Los miembros obtienen mapas de cadena visibles para la corp y mapas personales privados en una sola herramienta, con permisos basados en roles, herramientas de administración e informes de actividad por personaje.",
     "compareBody": "Descubre cómo se compara Nexum con Pathfinder, Tripwire y Wanderer — funciones, alojamiento y coste, lado a lado.",
-    "languagesBody": "Nexum está totalmente traducido a nueve idiomas — y detecta el tuyo automáticamente desde tu navegador la primera vez que lo visitas. ¿Prefieres otro? Cámbialo cuando quieras desde el selector de idioma en la barra de herramientas.",
+    "languagesBody": "Nexum está totalmente traducido a diez idiomas — y detecta el tuyo automáticamente desde tu navegador la primera vez que lo visitas. ¿Prefieres otro? Cámbialo cuando quieras desde el selector de idioma en la barra de herramientas.",
     "compareLink": "Comparar Nexum vs Pathfinder, Tripwire y Wanderer →",
     "helpLink": "¿Nuevo por aquí? Lee la guía →",
     "guidesLink": "Guías y tutoriales de agujeros de gusano →",
@@ -1290,6 +1664,33 @@
     "lessThan1h": "< 1 h",
     "broken": "Conexión rota — la firma de agujero de gusano fue eliminada (agujero colapsado)"
   },
+  "mapKey": {
+    "title": "Leyenda del mapa",
+    "close": "Cerrar leyenda",
+    "lifetime": "Vida",
+    "fresh": "Agujero de gusano con más de un día por delante, o cuya vida se desconoce.",
+    "lessThan24h": "Queda menos de un día.",
+    "lessThan4h": "Quedan menos de 4 horas, con cuenta atrás.",
+    "lessThan1h": "Queda menos de una hora, con cuenta atrás.",
+    "expired": "Según el reloj de nexum se le acabó el tiempo. El reloj empieza cuando se mapea el agujero y supone la vida completa del tipo, así que un agujero encontrado tarde puede morir antes de lo indicado.",
+    "expiredKept": "En este mapa se queda hasta que alguien borre su firma («Eliminar automáticamente agujeros de gusano caducados» está desactivado).",
+    "expiredCutNow": "En este mapa se corta de inmediato y se borran sus firmas.",
+    "expiredCutAfter": "En este mapa se corta {{time}} después y se borran sus firmas (margen de colapso).",
+    "broken": "Cortado: se borró su firma o al agujero se le acabó el tiempo. Se mantiene para poder seguir la cadena, pero no cuenta para las rutas. Vuelve si una firma lo respalda de nuevo o alguien lo salta. «Eliminar sistemas huérfanos» quita los sistemas que solo tienen enlaces así.",
+    "massSize": "Tipo, tamaño y masa",
+    "type": "Tipo de agujero y la nave más grande que admite. S y M se resaltan porque limitan lo que puedes llevar.",
+    "frigate": "Guiones cortos: agujero solo para fragatas.",
+    "massStable": "Masa indicada por encima de la mitad.",
+    "massHalf": "Queda menos de la mitad de la masa (núcleo naranja).",
+    "massCritical": "Queda menos del 10 % de la masa (núcleo rojo).",
+    "other": "Otros enlaces",
+    "gate": "Puerta estelar.",
+    "jumpgate": "Puente de salto Ansiblex.",
+    "cyno": "Ruta de salto cyno, con su distancia. Los puntos muestran qué clases de nave llegan con tu Jump Drive Calibration.",
+    "watch": "Brillo: coincide con tu lista de vigilancia.",
+    "flag": "Marcado por tu corp o alianza. Pasa el ratón para ver la nota.",
+    "highlight": "Enlaces del sistema sobre el que pasas el ratón o que has seleccionado."
+  },
   "mapNode": {
     "a0Sun": "Sol A0",
     "altLastKnown": "(última conocida)",
@@ -1307,7 +1708,9 @@
     "jumps_one": "{{count}} salto",
     "jumps_other": "{{count}} saltos",
     "killsTooltip": "{{ships}} nave · {{pods}} cápsula destruidas esta hora",
-    "killsTooltipHint": "Recuento horario de CCP · puede que aún no esté en zKillboard",
+    "kills24h_one": "{{count}} muerte de jugador en las últimas 24 h",
+    "kills24h_other": "{{count}} muertes de jugadores en las últimas 24 h",
+    "killsTooltipHint": "Del feed de muertes en vivo y las cifras horarias de CCP",
     "recentKill": "Muerte hace {{ago}} min ({{value}} ISK)",
     "scanned": "{{scanned}} de {{total}} firmas escaneadas",
     "scoutConnectionsMulti": "Conexiones de {{names}}",
@@ -1322,6 +1725,7 @@
     "suppressed": "Suprimido",
     "undivedUnknown": "desconocido",
     "undivedWhTitle": "Agujero de gusano inexplorado",
+    "regionBorderTitle": "Puerta hacia otra región: {{regions}}",
     "unknown": "Desconocido"
   },
   "mapShares": {
@@ -1365,7 +1769,8 @@
     "shareCount": "Compartir con {{count}}",
     "batchShared": "Mapa compartido con {{count}}.",
     "batchPartial": "Compartido con {{shared}}; {{skipped}} omitido(s).",
-    "batchNone": "No se pudo compartir — {{count}} omitido(s)."
+    "batchNone": "No se pudo compartir — {{count}} omitido(s).",
+    "optedOut": "{{count}} han ocultado este mapa de su propia lista. Siguen teniendo acceso: un recurso compartido de corporación o alianza no se puede abandonar individualmente."
   },
   "mapSidebar": {
     "activityHint": "Mostrar gráficos de lo siguiente:",
@@ -1416,6 +1821,8 @@
     "compact": "Compacto",
     "connectionStyle": "Estilo de conexión",
     "connectionThickness": "Grosor de las conexiones",
+    "linkSigIds": "ID de firma en enlaces",
+    "confirmKeyDelete": "Confirmar al eliminar con Supr/Retroceso",
     "copyFailed": "Error al copiar — selecciona y copia manualmente",
     "copyLink": "Copiar enlace",
     "corpSkipKspace": "No seguir el K-space (corp/alianza)",
@@ -1423,7 +1830,10 @@
     "createShareFailed": "No se pudo crear el enlace de compartir",
     "createShareLink": "Crear enlace de compartir",
     "crossMapSync": "Sincronizar datos del sistema entre mis mapas",
-    "crossMapSyncHelp": "Cuando añades o editas firmas y anomalías en un sistema, se copian al mismo sistema en tus otros mapas (los mapas personales se sincronizan con tus otros mapas personales; los de corp con los demás mapas de la corp). No destructivo: solo rellena entradas que faltan o están vacías — nunca sobrescribe datos que ya hayas introducido ni borra nada.",
+    "crossMapSyncHelp": "Cuando añades o editas firmas y anomalías en un sistema, se copian al mismo sistema en tus otros mapas personales, incluidos los de tus otros personajes. Los mapas de corporación y de alianza tienen su propio interruptor. No destructivo: solo rellena entradas que faltan o están vacías — nunca sobrescribe ni borra datos que ya hayas introducido.",
+    "crossMapSyncOrg": "Sincronizar datos del sistema con otros mapas",
+    "crossMapSyncCorpHelp": "Las firmas y anomalías añadidas o editadas aquí se copian al mismo sistema en los demás mapas de la corporación que también tengan esto activado. No destructivo: solo rellena entradas que faltan o están vacías. Solo el propietario/los administradores pueden cambiarlo.",
+    "crossMapSyncAllianceHelp": "Las firmas y anomalías añadidas o editadas aquí se copian al mismo sistema en los demás mapas de la alianza que también tengan esto activado. No destructivo: solo rellena entradas que faltan o están vacías. Solo los administradores de la alianza pueden cambiarlo.",
     "easyConnect": "Conexión fácil",
     "edgeStyle": {
       "bezier": "Estándar",
@@ -1513,12 +1923,19 @@
     "notifProximity": "Amenazas de proximidad",
     "notifWatchlist": "Coincidencia de lista de seguimiento",
     "notifExits": "Salidas a k-space",
+    "notifKills": "Kills en el mapa",
+    "notifEol": "Agujeros al final de su vida",
     "notifExitsMinSec": "Avisar de salidas de",
     "notifExitsOff": "Desactivado — no avisar nunca",
     "notifExitsHiSec": "Solo alta seguridad",
     "notifExitsLowSec": "Baja seguridad o mejor",
     "notifExitsAny": "Cualquier k-space",
     "notifExitsHint": "Avisa una vez cuando aparece en la cadena una salida con al menos esta seguridad. Desactivado por defecto.",
+    "notifKillsWhich": "Qué kills",
+    "notifKillsSpecial": "Solo kills especiales",
+    "notifKillsBillion": "1B+ ISK",
+    "notifKillsAll": "Todos los kills marcados en el mapa",
+    "notifKillsHint": "Especial significa una capital perdida, 1B+ ISK, o un dictor, HIC o smartbomb en el killmail. Los avisos de fin de vida saltan cuando otra persona marca un agujero de este mapa con menos de 4 horas o menos de 1 hora.",
     "notifVolume": "Volumen de alertas y locutor — {{pct}} %",
     "openOptions": "Opciones de mapa",
     "optimizeConnections": "⟳ Optimizar conexiones",
@@ -1563,6 +1980,14 @@
     "routePreference": "Preferencia de ruta",
     "routeSecure": "Segura",
     "routeShortcutNote": "Las rutas que usan un agujero de gusano, Thera, Turnur o una puerta de salto no se pueden establecer como destino o punto de ruta en el juego; haz clic derecho en un sistema k-space de la ruta para ir a él.",
+    "routeAvoid": "Evitar sistemas",
+    "routeAvoidAdd": "Añadir un sistema a evitar",
+    "routeAvoidRemove": "Quitar {{name}}",
+    "routeAvoidHint": "Las rutas de nexum (sistemas más cercanos, planificador de rutas, número de saltos) nunca pasan por estos sistemas. El piloto automático de EVE mantiene su propia lista de evitación en el juego.",
+    "waypointSendTo": "El destino va a",
+    "waypointSendToMe": "Este personaje",
+    "waypointSendToAllOnline": "Todos los personajes conectados",
+    "waypointSendToHint": "Se aplica a Fijar destino y Añadir punto de ruta en todas partes. Cada personaje traza su propia ruta desde donde está; se omiten los que no están conectados.",
     "routeShortest": "Más corta",
     "sections": {
       "mapOptions": "Opciones de mapa",
@@ -1584,6 +2009,7 @@
       "mergeMaps": "Fusionar mapas",
       "liveSharing": "Transmisión de mapa en vivo",
       "shareMap": "Compartir mapa",
+      "auditLog": "Registro de cambios",
       "shortcuts": "Atajos",
       "notifications": "Notificaciones",
       "announcer": "Anuncios de voz",
@@ -1609,12 +2035,22 @@
     "showPatchNotes": "Ver notas de la versión",
     "showStaticWhs": "Mostrar WH estáticos",
     "showUndivedWhs": "Mostrar WHs sin explorar",
+    "showRegionBorders": "Mostrar fronteras de región",
+    "showRegionBordersTooltip": "Marca los sistemas cuyas puertas llevan a otra región, con el nombre de esa región. El sistema vecino no se añade al mapa.",
     "sigBookmark": "Marcador de agujero de gusano",
+    "k162Bookmark": "Marcador de salida (solo K162)",
+    "k162BookmarkPlaceholder": "Vacío: usa el formato de marcador de agujero de gusano",
+    "k162BookmarkHelp": "Se usa en lugar del formato de agujero de gusano de arriba, pero solo para los K162, cada vez que se copia un nombre de marcador (con el icono de copiar o tras un salto). Admite los mismos tokens. Si lo dejas vacío, los K162 usan el formato de marcador de agujero de gusano. Si el mapa tiene su propio formato de agujero de gusano, ese se usa para todos, K162 incluidos.",
     "siteBookmark": "Marcador de sitio (relic / data / gas)",
     "siteBookmarkHelp": "En una fila de firma relic, data o gas, haz clic en el icono de copiar para un nombre de marcador listo para pegar. Constrúyelo con estos tokens:",
+    "copyBookmarkOnJump": "Copiar el nombre del marcador tras un salto",
+    "copyBookmarkOnJumpHelp": "Cuando un salto rellena a dónde lleva un agujero, su nombre de marcador (con el formato de arriba) va a tu portapapeles. Si en ese momento estás en el juego, se copia en cuanto vuelvas a hacer clic en nexum.",
     "skipKspace": "No seguir el K-space",
     "skipKspaceHint": "Cuando está activado, solo registra el primer sistema K-space al que saltas desde el J-space y el último antes de volver a saltar al J-space, omitiendo todo lo que atraviesas por puertas en medio. Solo HS/LS/NS; Pochven siempre se rastrea.",
     "snapToGrid": "Ajustar a la cuadrícula",
+    "gridStyle": "Estilo de cuadrícula",
+    "gridStyleLines": "Líneas",
+    "gridStyleDots": "Puntos",
     "spreadNodes": "⊞ Separar nodos",
     "spreadNodesTooltip": "Ajustar los nodos de sistema para evitar solapamientos",
     "staleHint": "Atenúa visualmente los sistemas que no se han actualizado en el intervalo elegido, para detectar de un vistazo los restos de cadenas antiguas.",
@@ -1643,7 +2079,17 @@
     "wandererImported": "Importado desde Wanderer: {{systems}} sistemas, {{connections}} conexiones ({{skipped}} omitidos).",
     "working": "Procesando…",
     "panelColumns": "Columnas de paneles",
-    "panelColumnsTooltip": "Divide los paneles en columnas paralelas, para que las notas o el killboard queden junto a las firmas en lugar de debajo."
+    "panelColumnsTooltip": "Divide los paneles en columnas paralelas, para que las notas o el killboard queden junto a las firmas en lugar de debajo.",
+    "homeColor": "Color del sistema base",
+    "hereColor": "Color de «Estás aquí»",
+    "herePulse": "Pulso de «Estás aquí»",
+    "herePulseOptions": {
+      "off": "Desactivado (anillo fijo)",
+      "subtle": "Suave",
+      "normal": "Normal",
+      "strong": "Fuerte"
+    },
+    "resetColor": "Restablecer"
   },
   "mass": {
     "billionKg": "{{value}} mil M kg",
@@ -1707,7 +2153,8 @@
     "killboard": "zKillboard",
     "activity": "Actividad",
     "undock": "Desacoplar a una ventana flotante",
-    "redock": "Volver a acoplar"
+    "redock": "Volver a acoplar",
+    "pvp": "Actividad PvP"
   },
   "panes": {
     "noEveSystem": "Ningún sistema de EVE vinculado",
@@ -1738,12 +2185,25 @@
     "riskCritical": "Masa crítica",
     "riskFrig": "Agujero de fragata",
     "jspaceNoWaypoint": "Los sistemas de agujero de gusano no se pueden establecer como destino del piloto automático.",
-    "viaAnsiblex": "Puerta de salto Ansiblex"
+    "viaAnsiblex": "Puerta de salto Ansiblex",
+    "viaMap": "en {{map}}"
   },
   "routeToast": {
     "destinationSet": "Destino establecido en {{system}}",
     "waypointAdded": "{{system}} añadido a los puntos de ruta correctamente.",
-    "failed": "No se pudo establecer el punto de ruta — ¿está tu personaje en línea?"
+    "failed": "No se pudo establecer el punto de ruta — ¿está tu personaje en línea?",
+    "destinationSetFor_one": "Destino fijado en {{system}} para {{count}} personaje",
+    "destinationSetFor_other": "Destino fijado en {{system}} para {{count}} personajes",
+    "waypointAddedFor_one": "{{system}} añadido a los puntos de ruta de {{count}} personaje",
+    "waypointAddedFor_other": "{{system}} añadido a los puntos de ruta de {{count}} personajes",
+    "notSentTo": "No enviado a: {{list}}",
+    "noneSent": "No se pudo fijar para ningún personaje: {{list}}",
+    "reason": {
+      "offline": "no conectado",
+      "no_scope": "vuelve a iniciar sesión para permitir puntos de ruta",
+      "token_expired": "vuelve a iniciar sesión",
+      "esi_error": "EVE no respondió"
+    }
   },
   "scout": {
     "noConnections": "No hay conexiones de {{system}}.",
@@ -1757,11 +2217,21 @@
     "inSigHint": "ID de firma en {{system}}: el extremo lejano del agujero",
     "outSigHint": "ID de firma en {{system}}: el extremo al que warpeas desde aquí",
     "markExpired": "Informar de que este agujero ha colapsado",
-    "unmarkExpired": "No ha colapsado"
+    "unmarkExpired": "No ha colapsado",
+    "copyAll": "Copiar {{count}} al mapa",
+    "copyAllHint": "Añade las firmas de cada conexión de {{system}} cuyo sistema esté en el mapa",
+    "copyOne": "Copiar las firmas de esta conexión al mapa",
+    "copyNothing": "Nada que copiar: esas firmas ya están en el mapa",
+    "copyDone": "Firmas: {{added}} añadidas, {{updated}} actualizadas",
+    "copyPartial": "{{added}} añadidas, {{failed}} fallidas",
+    "copyFailed": "No se pudieron copiar las firmas",
+    "copyDoneLinks": "Firmas: {{added}} añadidas, {{updated}} actualizadas · {{links}} conexión(es) creada(s)",
+    "copyDoneSwept": "Firmas: {{added}} añadidas, {{updated}} actualizadas · {{removed}} agujero(s) colapsado(s) eliminados"
   },
   "session": {
     "idleLogout": "Sesión cerrada por inactividad.",
     "ended": "Tu sesión ha finalizado: inicia sesión de nuevo.",
+    "reconnecting": "No se puede conectar con nexum ahora mismo; seguimos intentándolo. Tu sesión sigue activa.",
     "lockedTitle": "En pausa",
     "lockedHint": "Estuviste inactivo, así que el mapa se pausó. Tu sesión sigue activa.",
     "resumeAs": "Continuar como {{name}}",
@@ -1815,6 +2285,7 @@
     "pasteDifferentSystem": "Tu personaje está actualmente en {{current}}, pero estás pegando firmas en {{selected}}. ¿Continuar?",
     "loadFailed": "No se pudieron cargar las firmas",
     "saveFailed": "No se pudo guardar la firma",
+    "duplicateId": "La firma {{id}} ya existe en este sistema",
     "deleteFailed": "No se pudo eliminar la firma",
     "deleteSelectedConfirm_one": "¿Eliminar {{count}} firma seleccionada?",
     "deleteSelectedConfirm_other": "¿Eliminar {{count}} firmas seleccionadas?",
@@ -1828,6 +2299,9 @@
     "removeDelayInstant": "Inmediato",
     "filterLabel": "Filtrar por tipo",
     "filterClear": "Limpiar",
+    "drifterHole": "Drifter",
+    "drifterHoles": "Drifter",
+    "drifterChipHint": "Agujeros Drifter (\"Unidentified Wormhole\" en el escáner)",
     "noMatchFilter": "Ninguna firma coincide con el filtro",
     "setTypeAria": "Establecer el tipo de las firmas seleccionadas",
     "setType": "Establecer tipo ({{count}})…",
@@ -1851,6 +2325,7 @@
     "colAge": "Antigüedad",
     "colUpdated": "Actualizado",
     "columns": "Columnas",
+    "groupIcons": "Grupo como iconos",
     "namePlaceholder": "Nombre del sitio",
     "colSafe": "Seguro",
     "safeYes": "Seguro — sin combate",
@@ -1944,6 +2419,11 @@
     "alliance": "Alianza",
     "corp": "Corp",
     "faction": "Facción",
+    "sovAdm": "ADM",
+    "sovAdmTip": "Activity Defense Multiplier (1–6): cuanto más alto, más tiempo necesita un atacante para capturar el hub de soberanía.",
+    "sovVulnerability": "Vulnerable",
+    "sovVulnerableNow": "Ahora, hasta las {{end}} EVE",
+    "sovVulnerableNext": "{{start}}–{{end}} EVE (en {{in}})",
     "personal": "Personal",
     "refreshStandings": "Actualizar standings desde la ESI ahora (omite el TTL de 6 h)",
     "standingsRefreshed": "Standings actualizados — {{personal}} personales · {{corp}} corp · {{alliance}} contactos de alianza",
@@ -1985,6 +2465,9 @@
     "discord": "Discord",
     "esiOffline": "ESI: Desconectado",
     "esiOnline": "ESI: En línea",
+    "latency": "{{ms}} ms",
+    "nexumOffline": "Nexum: Inaccesible",
+    "nexumOnline": "Nexum: En línea",
     "getMoreMaps": "+ Obtener más mapas",
     "help": "Ayuda y guía",
     "lastKnownSystem": "Último sistema conocido",
@@ -2031,7 +2514,12 @@
     "trackJumpsTooltipOn": "Siguiendo saltos — se añaden nuevos sistemas a medida que te mueves",
     "updateAvailable": "Actualización disponible",
     "updateAvailableVersion": "Actualización disponible: v{{version}}",
-    "userStats": "Estadísticas de usuario"
+    "userStats": "Estadísticas de usuario",
+    "hideThisMap": "Ocultar de mi lista",
+    "hideThisMapHint": "Quita este mapa solo de tu selector. Se compartió con tu corporación o alianza, así que no hay un acceso personal al que renunciar: los demás lo conservan. Puedes restaurarlo aquí.",
+    "hiddenMaps": "Mapas ocultos ({{count}})",
+    "unhideMap": "restaurar",
+    "unhideMapHint": "Volver a mostrar este mapa en tu lista"
   },
   "units": {
     "jumps_one": "{{count}} salto",
@@ -2098,7 +2586,13 @@
   },
   "waypoint": {
     "setDestination": "Establecer destino",
-    "addWaypoint": "Añadir punto de ruta"
+    "addWaypoint": "Añadir punto de ruta",
+    "sendTo": "Enviar a personajes…",
+    "sendToTitle": "Enviar {{system}} a…",
+    "sendToHint": "Cada personaje traza su propia ruta desde donde está. Solo los personajes conectados pueden recibirlo.",
+    "you": "tú",
+    "offline": "desconectado",
+    "noneOnline": "Ninguno de tus personajes está conectado."
   },
   "whChart": {
     "open": "⊟ Referencia de agujeros de gusano",
@@ -2139,7 +2633,24 @@
   },
   "exits": {
     "notifTitle": "Salida a k-space",
-    "appeared": "{{name}} ({{security}}) está en la cadena"
+    "appeared": "{{name}} ({{security}}) está en la cadena",
+    "appearedMany_one": "{{count}} nueva salida a k-space en la cadena",
+    "appearedMany_other": "{{count}} nuevas salidas a k-space en la cadena"
+  },
+  "alerts": {
+    "killTitle": "Kill en {{system}}",
+    "killBody": "{{victim}} perdió {{ship}} ({{value}} ISK)",
+    "someone": "Alguien",
+    "aShip": "una nave",
+    "special": {
+      "capital": "Capital",
+      "billion": "1B+ ISK",
+      "dictor": "Dictor/HIC",
+      "smartbomb": "Smartbomb"
+    },
+    "eolTitle": "Agujero de gusano al final de su vida",
+    "eolBody4h": "{{a}} ↔ {{b}} está al final de su vida (menos de 4 horas)",
+    "eolBody1h": "A {{a}} ↔ {{b}} le queda menos de 1 hora"
   },
   "tripwire": {
     "title": "Importar desde Tripwire (experimental)",
@@ -2192,5 +2703,13 @@
     "max": "Hasta {{count}} plantillas",
     "orgGroup": "Organización",
     "mineGroup": "Mías"
+  },
+  "orgLogos": {
+    "alliance": "Logo de la alianza",
+    "corp": "Logo de la corporación"
+  },
+  "update": {
+    "available": "Hay una nueva versión de Nexum disponible.",
+    "reload": "Recargar"
   }
 }

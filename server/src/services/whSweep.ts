@@ -3,6 +3,7 @@ import { config } from '../config.js';
 import { createLogger } from '../utils/logger.js';
 import { publishToMap } from './mapEvents.js';
 import { whLifetimeHours } from '../data/whLifetimes.js';
+import { linksLeftOrphaned, type DeletedSig, type LinkRow } from './mapWrite.js';
 
 const log = createLogger('whSweep');
 
@@ -22,29 +23,34 @@ interface CandidateRow {
 }
 
 interface SysRow  { id: string; name: string; systemClass: string }
-interface ConnRow { id: string; sourceId: string; targetId: string; type: string | null; connectionType: string; broken: boolean }
+interface ConnRow {
+  id: string; sourceId: string; targetId: string; type: string | null; connectionType: string; broken: boolean;
+  sourceSigId: string | null; targetSigId: string | null;
+}
 interface SigRow  { systemId: string; whType: string; whLeadsTo: string }
 
 /**
- * Does any sig on either endpoint of `conn` back it — i.e. point at the
- * opposite system by class or name? Mirrors the client's heuristic in
- * utils/whAutoDetect.ts so live edits and the sweep agree on what "backs" a
- * connection.
+ * Is `conn` still tied to a sig that survived the sweep, on either end — its
+ * backing signature, or a sig pinned to the opposite system by name? Same rule
+ * as the delete path (linksLeftOrphaned).
+ *
+ * A sig that only leads to the opposite system's CLASS doesn't count: that's a
+ * different hole. The far end's own H296 -> C5 static kept a dead link between
+ * two C5s live.
  */
 function isBacked(
   conn: ConnRow,
   sigsBySystem: Map<string, SigRow[]>,
   systemsById: Map<string, SysRow>,
+  gone: ReadonlySet<string>,
 ): boolean {
+  if (conn.sourceSigId && !gone.has(conn.sourceSigId)) return true;
+  if (conn.targetSigId && !gone.has(conn.targetSigId)) return true;
   for (const [near, far] of [[conn.sourceId, conn.targetId], [conn.targetId, conn.sourceId]] as const) {
-    const other = systemsById.get(far);
-    if (!other) continue;
-    const oc = other.systemClass.toUpperCase();
-    const on = (other.name ?? '').toUpperCase();
+    const on = (systemsById.get(far)?.name ?? '').toUpperCase();
+    if (!on) continue;
     for (const sig of sigsBySystem.get(near) ?? []) {
-      if (!sig.whType || !sig.whLeadsTo) continue;
-      const target = sig.whLeadsTo.toUpperCase();
-      if (target === oc || target === on) return true;
+      if (sig.whType && sig.whLeadsTo.toUpperCase() === on) return true;
     }
   }
   return false;
@@ -97,9 +103,12 @@ async function sweepMap(mapId: string, expired: CandidateRow[]): Promise<void> {
     // are serialised by node-pg anyway and the parallel form is deprecated (pg@9).
     const sysRes = await client.query<SysRow>(
       `SELECT id, name, system_class AS "systemClass" FROM map_systems WHERE map_id = $1`, [mapId]);
+    // Read before the delete: the signature ids are ON DELETE SET NULL, so
+    // afterwards we couldn't tell which links the aged sigs were backing.
     const connRes = await client.query<ConnRow>(
       `SELECT id, source_id AS "sourceId", target_id AS "targetId", wh_type AS "type",
-              connection_type AS "connectionType", broken
+              connection_type AS "connectionType", broken,
+              source_signature_id AS "sourceSigId", target_signature_id AS "targetSigId"
          FROM map_connections WHERE map_id = $1`, [mapId]);
 
     await client.query(`DELETE FROM map_signatures WHERE id = ANY($1::uuid[])`, [expiredIds]);
@@ -118,10 +127,40 @@ async function sweepMap(mapId: string, expired: CandidateRow[]): Promise<void> {
       if (list) list.push(sig); else sigsBySystem.set(sig.systemId, [sig]);
     }
 
-    brokenIds = connRes.rows
-      .filter((c) => c.connectionType === 'standard' && !c.broken)
-      .filter((c) => wasBackedByDeleted(c, expired, systemsById))
-      .filter((c) => !isBacked(c, sigsBySystem, systemsById))
+    // Every sig left in the systems that lost one, typed or not: a sig pinned
+    // to a system by name still holds that link open.
+    const affected = [...new Set(expired.map((e) => e.systemId))];
+    const leftRes = await client.query<DeletedSig & { systemId: string }>(
+      `SELECT system_id AS "systemId", sig_id AS "sigId", name,
+              COALESCE(wh_type, '') AS "whType", COALESCE(wh_leads_to, '') AS "whLeadsTo"
+         FROM map_signatures WHERE system_id = ANY($1::uuid[])`, [affected]);
+
+    const goneIds = new Set(expiredIds);
+    const live = connRes.rows.filter((c) => c.connectionType === 'standard' && !c.broken);
+    // The type match alone missed untyped links: a hole whose code never made
+    // it onto the line kept showing live after its sig was swept. So also use
+    // the delete path's rules, which follow the link's own backing signature
+    // and a leads-to naming the far system.
+    const orphaned = new Set(live.filter((c) => wasBackedByDeleted(c, expired, systemsById)).map((c) => c.id));
+    for (const sysId of affected) {
+      const links: LinkRow[] = [];
+      for (const c of live) {
+        if (c.sourceId !== sysId && c.targetId !== sysId) continue;
+        const other = systemsById.get(c.sourceId === sysId ? c.targetId : c.sourceId);
+        links.push({ id: c.id, sourceId: c.sourceId, type: c.type, sourceSigId: c.sourceSigId, targetSigId: c.targetSigId,
+                     otherName: other?.name ?? '', otherClass: other?.systemClass ?? '' });
+      }
+      if (!links.length) continue;
+      const left = leftRes.rows.filter((r) => r.systemId === sysId);
+      for (const d of expired) {
+        if (d.systemId !== sysId) continue;
+        const gone: DeletedSig = { sigId: '', name: '', whType: d.whType ?? '', whLeadsTo: d.whLeadsTo ?? '' };
+        for (const id of linksLeftOrphaned(sysId, d.id, gone, links, left, goneIds)) orphaned.add(id);
+      }
+    }
+    brokenIds = live
+      .filter((c) => orphaned.has(c.id))
+      .filter((c) => !isBacked(c, sigsBySystem, systemsById, goneIds))
       .map((c) => c.id);
 
     if (brokenIds.length > 0) {

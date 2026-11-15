@@ -1,6 +1,8 @@
 # Nexum
 
-**Nexum is a free, open-source, self-hosted wormhole mapping tool for EVE Online — an alternative to [Pathfinder](https://github.com/exodus4d/pathfinder) and Tripwire.** Track systems, signatures, structures, kills, and live activity across your chain; calculate wormhole rolls; and coordinate your corporation in J-space in real time. Logs in with EVE Online SSO and runs anywhere Docker does.
+**Nexum is a free, open-source, self-hosted wormhole mapping tool for EVE Online.  #1 for features and usability — an alternative to [Wandered](https://github.com/open-wanderer/wanderer) [Pathfinder](https://github.com/exodus4d/pathfinder) and Tripwire.** Track systems, signatures, structures, kills, and live activity across your chain; calculate wormhole rolls; and coordinate your corporation in J-space in real time. Logs in with EVE Online SSO and runs anywhere Docker does.
+
+** Unlike others, no paywall.  This is 100% free, no adverts, no patron and no feature lock
 
 > **Live demo:** [eve-nexum.com](https://eve-nexum.com) — a read-only demo map is viewable without logging in.
 >
@@ -168,7 +170,7 @@ Open <http://localhost> and click **Log in with EVE Online**. That's it.
 - **Demo map** — the landing page mounts a non-editable demo map so visitors can see what the tool does before logging in.
 - **Collapsible sidebar** — Map Options, Connections, Proximity Alerts, Stale System Fade, and Shortcuts each expand or collapse independently. Per-section open/closed state persists per browser via `localStorage`.
 - **European date format** — DD-MM-YYYY everywhere a date is displayed (chart axes, relative-time fallbacks for events older than a month). ISO timestamps are still used in CSV exports for spreadsheet sortability.
-- **Multi-lingual** — the entire UI is translated into nine languages: English, Deutsch, Français, Español, Português, 简体中文, 한국어, 日本語, and Русский. The language is auto-detected from the browser (regional locales like `es-MX` or `en-GB` map to the base language) and can be changed any time from the in-app language switcher; the choice persists per browser. The public landing and comparison pages are localised too.
+- **Multi-lingual** — the entire UI is translated into ten languages: English, Deutsch, Nederlands, Français, Español, Português, 简体中文, 한국어, 日本語, and Русский. The language is auto-detected from the browser (regional locales like `es-MX` or `en-GB` map to the base language) and can be changed any time from the in-app language switcher; the choice persists per browser. The public landing and comparison pages are localised too.
 
 ### For corporations & alliances
 
@@ -671,6 +673,7 @@ Flags recent high-value kills on your mapped systems and feeds a **Kill Log** pa
 | `KILL_FEED_CONTACT` | — | A reachable contact (email or URL) — it builds the zKillboard `User-Agent`. Required by zKill fair-use; a blank UA is Cloudflare-blocked. |
 | `KILL_FEED_MIN_ISK` | `50000000` | Only kills at or above this ISK value are flagged, logged, and buffered. |
 | `KILL_FEED_RECENT_SECONDS` | `900` (15 min) | How long a node stays flagged after a kill lands there. |
+| `KILL_FEED_MAX_LAG_SECONDS` | `3600` (1 h) | A killmail that reaches the feed more than this long after the kill (e.g. a backlog replay) still goes in the Kill Log, but doesn't flag its node or post to Discord. |
 | `KILL_FEED_BACKFILL_SECONDS` | `10800` (3 h) | How long the in-memory buffer retains kills — i.e. how far back the Kill Log shows on open. |
 
 Fair-use: the consumer is a single poller that stays under zKill's 15 req/s limit and waits ~10 s between checks when the feed is caught up. The Kill Log **backfill is served entirely from the in-memory buffer** — no per-system zKillboard requests — but it therefore only contains kills seen **since the server started**, filling in over the first few hours of uptime. On boot the consumer logs `[killFeed] live kill feed enabled …` (or `disabled …`), plus a periodic heartbeat and a line per forwarded kill (`… | grep killFeed`).
@@ -686,21 +689,24 @@ Pulling a new Nexum release into a running instance:
 
 #### Backup & restore
 
-Two scripts under `scripts/` handle the Postgres database for a docker-compose deployment. Both read `PG_USER` / `PG_DB` from your `.env`, so they stay in sync with the running stack. Paths are configurable via env vars (`NEXUM_PROJECT_DIR`, `NEXUM_BACKUP_DIR`, `NEXUM_KEEP`, `NEXUM_FORCE`).
+Two scripts under `scripts/` handle the Postgres database for a docker-compose deployment. Both read the database name and user from the running postgres container, so they match the stack wherever its config lives (`.env` or a secrets manager). Settings are env vars (`NEXUM_BACKUP_DIR`, `NEXUM_KEEP`, `NEXUM_PROJECT_DIR(S)`, `NEXUM_FORCE`).
 
-**Backup** — `scripts/backup-db.sh` runs `pg_dump`, gzips it, writes atomically, and prunes to the last `NEXUM_KEEP` (default 7). Safe under cron:
+**Backup** — `scripts/backup-db.sh` runs `pg_dump` for one or more instances, gzips each dump, writes it atomically, and prunes to the last `NEXUM_KEEP` (default 7) per instance. Each instance gets its own folder under `NEXUM_BACKUP_DIR`, named after its compose project (`COMPOSE_PROJECT_NAME`, else the directory name). One instance failing doesn't stop the others; the script exits non-zero if any failed. Safe under cron:
 ```bash
-# one-off
+# one-off, one instance (NEXUM_PROJECT_DIR, default /opt/eve-nexum)
 ./scripts/backup-db.sh
-# daily at 05:00, as the user that owns the compose project
-0 5 * * *  /opt/eve-nexum/scripts/backup-db.sh >> /var/log/nexum-backup.log 2>&1
+# several instances: pass their compose directories
+./scripts/backup-db.sh /opt/eve-nexum /opt/nexum-gsf /opt/nexum-kf
+# daily at 05:00, as the user that owns the compose projects
+0 5 * * *  /opt/eve-nexum/scripts/backup-db.sh /opt/eve-nexum /opt/nexum-gsf >> /var/log/nexum-backup.log 2>&1
 ```
 
-**Restore** — `scripts/restore-db.sh` restores a dump (a given file, or the most recent in `NEXUM_BACKUP_DIR`). It's **destructive** (the dumps are `--clean --if-exists`, so it drops & recreates the dumped objects), so it prompts for confirmation and stops the server for the duration:
+**Restore** — `scripts/restore-db.sh` restores a dump into the instance in `NEXUM_PROJECT_DIR` (a given file, or that instance's most recent backup). It's **destructive** (the dumps are `--clean --if-exists`, so it drops & recreates the dumped objects), so it prompts for confirmation and stops the server for the duration:
 ```bash
-./scripts/restore-db.sh                                   # newest backup
-./scripts/restore-db.sh /var/backups/nexum/nexum-2026-06-02.sql.gz
-NEXUM_FORCE=1 ./scripts/restore-db.sh <file>              # skip the prompt (cron/automation)
+./scripts/restore-db.sh                                             # newest backup for /opt/eve-nexum
+NEXUM_PROJECT_DIR=/opt/nexum-gsf ./scripts/restore-db.sh            # newest backup for another instance
+./scripts/restore-db.sh /var/backups/nexum/eve-nexum/nexum-2026-06-02.sql.gz
+NEXUM_FORCE=1 ./scripts/restore-db.sh <file>                        # skip the prompt (cron/automation)
 ```
 
 The dump includes the EVE SDE tables (systems, stargates, dogma, …) alongside your user data — simplest and self-contained. The app schema applies on the next server boot and the SDE re-seeds if missing, so a restore heals itself even against a newer build.

@@ -1,5 +1,13 @@
-import { Router } from 'express';
+import express, { Router } from 'express';
 import { esiFetch } from '../utils/esi.js';
+import { getScoutConnections } from './scout.js';
+
+// How long a hole must have been missing from the eve-scout feed before the
+// copy button's cleanup will remove the rows it wrote for it. The feed lists a
+// hole until somebody reports it collapsed, so absence is usually real -- but a
+// single stale or partial read would otherwise delete live holes out of a
+// chain, and carrying a dead hole for an hour is much cheaper than that.
+const SCOUT_GRACE_MINUTES = 60;
 import type { Request, Response } from 'express';
 import { db } from '../db.js';
 import { requireAuth } from '../middleware/requireAuth.js';
@@ -10,6 +18,7 @@ import { decryptToken } from '../utils/tokenCrypto.js';
 import { createLogger } from '../utils/logger.js';
 import { resolveOwnerId } from '../utils/owner.js';
 import { mapCapFor, countPersonalMaps, mapAllowanceFor } from '../services/mapAllowance.js';
+import { parseMapBackup, restoreMapBackup, buildMapBackup, BackupError } from '../services/mapBackup.js';
 import { resolveEntityNames } from '../services/entityNames.js';
 import { audit } from '../services/audit.js';
 import { publishToMap } from '../services/mapEvents.js';
@@ -20,19 +29,21 @@ import { sdeSystemFacts } from '../services/sdeFacts.js';
 import { contributorIsAtSystem, contributorMayLinkSystems } from '../services/contributorMovement.js';
 import { listConnectionJumps, recordConnectionJump, setConnectionJumpHot, clearConnectionJumps } from '../services/connectionJumps.js';
 import {
-  createSignature, updateSignature, deleteSignature,
+  createSignature, updateSignature, deleteSignature, DuplicateSignatureError,
   createAnomaly, updateAnomaly, deleteAnomaly,
   createStructure, updateStructure, deleteStructure,
 } from '../services/mapWrite.js';
 import { reportPresence, removePresence } from '../services/presence.js';
 import { copyMap } from '../services/mapCopy.js';
-import { notifyDiscord, k162Embed, connectionEmbed, chainEmbed, kspaceExitEmbed } from '../services/discord.js';
+import { notifyDiscord, k162Embed, connectionEmbed, chainEmbed, kspaceExitEmbed, eolEmbed, theraEmbed } from '../services/discord.js';
 import { shortestRoutes } from '../services/routeGraph.js';
 import { whSizeForCode } from './wormholes.js';
 import { effectiveExpiryMs, lifeBucket } from '../data/whLifetimes.js';
 import { buildKillRow } from '../services/killFeed.js';
 import { recentKillsForSystems } from '../services/killBuffer.js';
+import { storedKills, windowSeconds } from './killboard.js';
 import { twNotesBySystem } from '../utils/tripwireNotes.js';
+import { recordMapAudit, auditActor, systemLabel, connectionLabel, chainLabel, MAP_AUDIT_RETENTION_DAYS } from '../services/mapAudit.js';
 
 const log = createLogger('maps');
 const discordLog = createLogger('discord');
@@ -338,6 +349,12 @@ const pendingK162 = new Map<string, PendingK162>();
 // Personal maps never notify, so we skip them without a DB round-trip.
 function hasOrg(meta: MapMeta): boolean { return meta.corpId != null || meta.allianceId != null; }
 
+/** True when this signature write came from the Thera/Turnur copy button,
+ *  identified by the provenance id that button stamps on every row it writes. */
+function fromScoutFeed(scoutConnectionId: unknown): boolean {
+  return typeof scoutConnectionId === 'string' && scoutConnectionId.length > 0;
+}
+
 export function dispatchK162(meta: MapMeta, sigId: string, systemId: string, actor: string | null): void {
   if (!hasOrg(meta)) {
     discordLog.info(`K162 detected (system ${systemId}) but not sending — personal map (no corp/alliance)`);
@@ -380,6 +397,8 @@ const DISCORD_SETTINGS_COLS = `
   COALESCE(cds.notify_chains, ads.notify_chains, TRUE)          AS "notifyChains",
   COALESCE(cds.notify_k162,   ads.notify_k162,   FALSE)         AS "notifyK162",
   COALESCE(cds.notify_exits,  ads.notify_exits,  FALSE)         AS "notifyExits",
+  COALESCE(cds.notify_eol,    ads.notify_eol,    FALSE)         AS "notifyEol",
+  COALESCE(cds.notify_thera,  ads.notify_thera,  FALSE)         AS "notifyThera",
   COALESCE(cds.connections_webhook, ads.connections_webhook)    AS "connectionsWebhook",
   COALESCE(cds.chains_webhook,      ads.chains_webhook)         AS "chainsWebhook",
   COALESCE(cds.exits_min_security,  ads.exits_min_security, 0.45) AS "exitsMinSecurity"`;
@@ -697,6 +716,56 @@ function kspaceHubEve(r: {
   return null;
 }
 
+// Which end of a connection is Thera or Turnur, if either: the hub's name and
+// the system on the other side. Turnur is classed low-sec in the SDE, so it's
+// recognised by name.
+function theraSide(r: {
+  a: string; b: string; classA: string; classB: string; regionA: string | null; regionB: string | null;
+}): { hub: string; other: string; otherClass: string; otherRegion: string | null } | null {
+  const isHub = (name: string, cls: string) => cls === 'Thera' || name === 'Thera' || name === 'Turnur';
+  if (isHub(r.a, r.classA)) return { hub: r.a, other: r.b, otherClass: r.classB, otherRegion: r.regionB };
+  if (isHub(r.b, r.classB)) return { hub: r.b, other: r.a, otherClass: r.classA, otherRegion: r.regionA };
+  return null;
+}
+
+// A pilot just marked a wormhole end of life (or less). Tells the org's
+// connections channel, when it has asked for EOL pings. Same gates as the
+// new-connection broadcast: org map, not excluded, region filter, wormholes only.
+const EOL_STATUSES = new Set(['eol', 'lessThan4h', 'lessThan1h']);
+const EOL_LABEL: Record<string, string> = { eol: 'Under 4 hours', lessThan4h: 'Under 4 hours', lessThan1h: 'Under 1 hour' };
+function maybeBroadcastEol(meta: MapMeta, mapId: string, connId: string, status: string, actor: string | null): void {
+  if (!hasOrg(meta)) return;
+  db.query<{
+    connType: string; whType: string | null; a: string; b: string; regionA: string | null; regionB: string | null;
+    mapName: string; mapEnabled: boolean; allRegions: boolean; regions: string[];
+    connectionsWebhook: string | null; notifyEol: boolean;
+  }>(
+    `SELECT c.connection_type AS "connType", c.wh_type AS "whType",
+            a.name AS a, b.name AS b, a.region_name AS "regionA", b.region_name AS "regionB",
+            m.name AS "mapName", m.discord_notify AS "mapEnabled",
+            ${DISCORD_SETTINGS_COLS}
+       FROM map_connections c
+       JOIN maps m ON m.id = c.map_id
+       JOIN map_systems a ON a.id = c.source_id
+       JOIN map_systems b ON b.id = c.target_id
+       ${DISCORD_SETTINGS_JOIN}
+      WHERE c.id = $1 AND c.map_id = $2`,
+    [connId, mapId],
+  ).then(({ rows }) => {
+    const r = rows[0];
+    if (!r || r.connType !== 'standard') return;
+    if (!r.connectionsWebhook || !r.notifyEol) return;
+    if (!r.mapEnabled) { discordLog.info(`EOL ${r.a} <-> ${r.b} suppressed — map "${r.mapName}" is excluded from Discord`); return; }
+    if (!regionAllowed(r.allRegions, r.regions, [r.regionA, r.regionB])) {
+      discordLog.info(`EOL ${r.a} <-> ${r.b} suppressed — neither region (${r.regionA ?? '?'} / ${r.regionB ?? '?'}) in the org filter`);
+      return;
+    }
+    notifyDiscord(r.connectionsWebhook, eolEmbed({
+      a: r.a, b: r.b, whType: r.whType, status: EOL_LABEL[status] ?? status, mapName: r.mapName, actor,
+    }));
+  }).catch((e) => discordLog.warn(`EOL dispatch query failed: ${(e as Error).message}`));
+}
+
 // Broadcast a wormhole connection — at most once per connection. Keyed on the
 // connection id (not just its endpoints) so it can be re-checked whenever the
 // connection changes: created by a jump (sig already present), created manually
@@ -712,7 +781,7 @@ function maybeBroadcastConnection(meta: MapMeta, mapId: string, connId: string, 
     eveA: number | null; eveB: number | null; secA: number | null; secB: number | null; homeA: boolean; homeB: boolean;
     mapName: string; mapEnabled: boolean; allRegions: boolean; regions: string[];
     whTypes: string[]; whClasses: string[]; whSizes: string[]; connectionsWebhook: string | null; exitsMinSecurity: number;
-    notifyExits: boolean;
+    notifyExits: boolean; notifyThera: boolean;
   }>(
     `SELECT c.source_id AS "sourceId", c.target_id AS "targetId", c.connection_type AS "connType",
             c.discord_notified AS "notified", c.discord_notified_known AS "notifiedKnown", c.size, c.wh_type AS "whType",
@@ -767,6 +836,24 @@ function maybeBroadcastConnection(meta: MapMeta, mapId: string, connId: string, 
     // Already announced this hole and its type is still unknown — wait for a real
     // code before pinging again.
     if (r.notified && !known) return;
+    // A hole into Thera or Turnur, when the org asked for those: announced as
+    // such, whatever the wormhole filters below say.
+    const hubSide = theraSide(r);
+    if (hubSide && r.notifyThera) {
+      const claimed = await db.query(
+        `UPDATE map_connections
+            SET discord_notified = TRUE, discord_notified_known = discord_notified_known OR $2
+          WHERE id = $1 AND (discord_notified = FALSE OR (discord_notified_known = FALSE AND $2))`,
+        [connId, known]);
+      if (claimed.rowCount === 0) return;
+      const size = known ? ((await whSizeForCode(code)) ?? r.size ?? null) : null;
+      notifyDiscord(r.connectionsWebhook, theraEmbed({
+        hub: hubSide.hub, other: hubSide.other, otherClass: hubSide.otherClass, otherRegion: hubSide.otherRegion,
+        whType: ev.whType || r.whType, size: size ? (SIZE_LABEL[size] ?? size) : null,
+        mapName: r.mapName, actor,
+      }));
+      return;
+    }
     // Wormhole filters (dest class = the "to" end; size from the type).
     if (!whTypeAllows(r.whTypes, ev.whType)) {
       discordLog.info(`connection ${r.a} <-> ${r.b} suppressed — hole type "${ev.whType || '?'}" not in the org's type filter`);
@@ -1410,7 +1497,13 @@ mapsRouter.post('/from-region', async (req, res) => {
 });
 
 // POST /api/maps/import
-mapsRouter.post('/import', async (req, res) => {
+// A full backup can run past the app-wide 2 MB body limit, so this route reads
+// its own body (index.ts skips it), with a larger cap. It sits behind the
+// router's requireAuth, the origin guard and the rate limiter, so only a
+// signed-in user can send one.
+const importBodyParser = express.json({ limit: '8mb', inflate: false });
+
+mapsRouter.post('/import', importBodyParser, async (req, res) => {
   const importBody     = req.body as Record<string, unknown>;
   const isAllianceImport = config.allianceMode && importBody.isAllianceMap === true;
   const isCorpImport     = !isAllianceImport && (config.corpMode || config.allianceMode) && importBody.isCorpMap === true;
@@ -1459,149 +1552,62 @@ mapsRouter.post('/import', async (req, res) => {
     }
   }
 
-  const { name, systems = [], connections = [], skipKspace } = req.body as {
-    name?: string;
-    systems?: Array<Record<string, unknown>>;
-    connections?: Array<Record<string, unknown>>;
-    skipKspace?: boolean;
-  };
-
-  if (!Array.isArray(systems) || !Array.isArray(connections)) {
-    res.status(400).json({ error: 'systems and connections must be arrays' });
-    return;
+  // Untrusted file: parseMapBackup checks every field and drops what it can't
+  // use; only a file that isn't a map at all, or is over the limits, fails.
+  let backup: ReturnType<typeof parseMapBackup>;
+  try {
+    backup = parseMapBackup(importBody);
+  } catch (err) {
+    if (err instanceof BackupError) { res.status(err.status).json({ error: err.message }); return; }
+    throw err;
   }
-  if (systems.length > MAX_IMPORT_SYSTEMS) {
-    res.status(413).json({ error: `Too many systems (max ${MAX_IMPORT_SYSTEMS})` });
-    return;
-  }
-  if (connections.length > MAX_IMPORT_CONNECTIONS) {
-    res.status(413).json({ error: `Too many connections (max ${MAX_IMPORT_CONNECTIONS})` });
-    return;
-  }
+  const skipKspace = importBody.skipKspace === true;
 
   const client = await db.connect();
   try {
     await client.query('BEGIN');
 
-    const importName = String(name ?? 'Imported Map').slice(0, MAX_MAP_NAME_LEN);
+    const importName = backup.name.slice(0, MAX_MAP_NAME_LEN);
     const ownerId = await resolveOwnerId(req);
     // K-space tracking policy only applies to corp/alliance maps; false otherwise.
-    const importSkipKspace = skipKspace === true && (isCorpImport || isAllianceImport);
+    const importSkipKspace = skipKspace && (isCorpImport || isAllianceImport);
+    // The importer owns the new map, so its own behaviour settings come across.
+    const { settings } = backup;
     const mapRes = await client.query<{ id: string }>(
-      `INSERT INTO maps (user_id, owner_id, name, corp_id, alliance_id, skip_kspace) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+      `INSERT INTO maps (user_id, owner_id, name, corp_id, alliance_id, skip_kspace,
+                         lazy_remove_wormholes, collapse_grace_hours, bookmark_format, site_bookmark_format)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, COALESCE($8, 0.5), $9, $10) RETURNING id`,
       [req.session.userId, ownerId, importName,
        isCorpImport ? (req.session.userCorpId ?? null) : null,
        isAllianceImport ? (req.session.userAllianceId ?? null) : null,
-       importSkipKspace],
+       importSkipKspace, settings.lazyRemoveWormholes, settings.collapseGraceHours,
+       settings.bookmarkFormat, settings.siteBookmarkFormat],
     );
     const mapId = mapRes.rows[0].id;
-
-    // Remap old system UUIDs → fresh ones to avoid any collisions on re-import.
-    // Build the rows up first, then bulk-insert in one round-trip each.
-    // Dedupe input by eve_system_id — a legacy export may carry the same
-    // K-space system twice. First occurrence wins; later refs get aliased
-    // to the same new UUID so connections that pointed at the duplicate
-    // re-attach correctly to the survivor.
-    const idMap = new Map<string, string>();
-    if (systems.length > 0) {
-      // Batch-resolve names → eve_system_id for any row that arrived without
-      // an ID. One SELECT amortised over the whole import beats N round-trips.
-      const namesNeedingResolve = [...new Set(
-        systems
-          .filter((s) => s.eveSystemId == null && typeof s.name === 'string' && s.name)
-          .map((s) => s.name as string),
-      )];
-      const nameToId = new Map<string, number>();
-      if (namesNeedingResolve.length > 0) {
-        const { rows } = await client.query<{ id: number; name: string }>(
-          `SELECT id, name FROM solar_systems WHERE name = ANY($1::text[])`,
-          [namesNeedingResolve],
-        );
-        for (const r of rows) nameToId.set(r.name, r.id);
-      }
-
-      const eveToNewId = new Map<number, string>();
-      const sysCols = 15;
-      const sysPlaceholders: string[] = [];
-      const sysValues: unknown[] = [];
-      for (const sys of systems) {
-        const eveId = (sys.eveSystemId as number | null | undefined)
-          ?? (typeof sys.name === 'string' ? nameToId.get(sys.name) ?? null : null);
-        if (eveId != null && eveToNewId.has(eveId)) {
-          // Already inserted for this map — alias the old UUID to the winner.
-          idMap.set(String(sys.id), eveToNewId.get(eveId)!);
-          continue;
-        }
-        const newId = crypto.randomUUID();
-        idMap.set(String(sys.id), newId);
-        if (eveId != null) eveToNewId.set(eveId, newId);
-        const pos = (sys.position as { x: number; y: number }) ?? { x: 0, y: 0 };
-        const base = sysValues.length;
-        sysPlaceholders.push(`(${Array.from({ length: sysCols }, (_, i) => `$${base + i + 1}`).join(',')})`);
-        sysValues.push(
-          newId, mapId, eveId, sys.name, sys.systemClass,
-          sys.effect ?? 'none', sys.statics ?? [], sys.regionName ?? null, sys.npcType ?? null,
-          pos.x, pos.y, sys.status ?? 'unknown', sys.isHome ?? false, sys.locked ?? false, sys.notes ?? '',
-        );
-      }
-      if (sysPlaceholders.length > 0) {
-        await client.query(
-          `INSERT INTO map_systems
-             (id, map_id, eve_system_id, name, system_class, effect, statics, region_name, npc_type,
-              position_x, position_y, status, is_home, locked, notes)
-           VALUES ${sysPlaceholders.join(',')}`,
-          sysValues,
-        );
-      }
-    }
-
-    // After eve_system_id dedup above, two distinct old UUIDs may alias to
-    // the same new UUID. Drop self-loops, and dedupe by undirected pair so
-    // we don't insert two connections between the same pair of nodes.
-    const seenPair = new Set<string>();
-    const validConns = connections
-      .map((conn) => {
-        const srcId = idMap.get(String(conn.sourceId));
-        const tgtId = idMap.get(String(conn.targetId));
-        if (!srcId || !tgtId || srcId === tgtId) return null;
-        const key = srcId < tgtId ? `${srcId}|${tgtId}` : `${tgtId}|${srcId}`;
-        if (seenPair.has(key)) return null;
-        seenPair.add(key);
-        return { conn, srcId, tgtId };
-      })
-      .filter((c): c is { conn: Record<string, unknown>; srcId: string; tgtId: string } => c !== null);
-
-    if (validConns.length > 0) {
-      const connCols = 10;
-      const connPlaceholders: string[] = [];
-      const connValues: unknown[] = [];
-      for (const { conn, srcId, tgtId } of validConns) {
-        const base = connValues.length;
-        connPlaceholders.push(`(${Array.from({ length: connCols }, (_, i) => `$${base + i + 1}`).join(',')})`);
-        connValues.push(
-          crypto.randomUUID(), mapId, srcId, tgtId,
-          conn.sourceHandle ?? null, conn.targetHandle ?? null,
-          conn.connectionType ?? 'standard', conn.massStatus ?? null,
-          conn.timeStatus ?? null, conn.size ?? 'large',
-        );
-      }
-      await client.query(
-        `INSERT INTO map_connections
-           (id, map_id, source_id, target_id, source_handle, target_handle,
-            connection_type, mass_status, time_status, size)
-         VALUES ${connPlaceholders.join(',')}`,
-        connValues,
-      );
-    }
+    const imported = await restoreMapBackup(client, mapId, backup, req.session.userId!);
 
     await client.query('COMMIT');
-    res.status(201).json({ id: mapId });
+    res.status(201).json({ id: mapId, imported });
   } catch (err) {
     await client.query('ROLLBACK');
     throw err;
   } finally {
     client.release();
   }
+});
+
+// GET /api/maps/:mapId/export -- a full backup of the map (see
+// services/mapBackup.ts): systems, connections with their clocks and flags,
+// signatures, anomalies and structures. Anyone who can open the map can back
+// it up; shares, share links, saved routes and jump history stay behind.
+mapsRouter.get('/:mapId/export', async (req, res) => {
+  const { mapId } = req.params;
+  if (!UUID_RE.test(mapId)) { res.status(404).json({ error: 'Map not found' }); return; }
+  const access = await getMapAccess(mapId, req);
+  if (!access) { res.status(404).json({ error: 'Map not found' }); return; }
+  const backup = await buildMapBackup(mapId);
+  if (!backup) { res.status(404).json({ error: 'Map not found' }); return; }
+  res.json(backup);
 });
 
 // ── Wanderer import ─────────────────────────────────────────────────────────
@@ -2155,7 +2161,8 @@ mapsRouter.post('/import/tripwire', async (req, res) => {
     if (sigPh.length > 0) {
       await client.query(
         `INSERT INTO map_signatures (id, system_id, sig_id, sig_type, name, created_by_user_id)
-         VALUES ${sigPh.join(',')}`,
+         VALUES ${sigPh.join(',')}
+         ON CONFLICT (system_id, UPPER(sig_id)) WHERE sig_id <> '' DO NOTHING`,
         sigVals,
       );
     }
@@ -2504,7 +2511,8 @@ mapsRouter.post('/:mapId/merge', async (req, res) => {
       if (sigPh.length > 0) {
         await client.query(
           `INSERT INTO map_signatures (system_id, sig_id, sig_type, name, notes, wh_type, wh_leads_to, ghost_type, created_by_user_id, from_merge)
-           VALUES ${sigPh.join(',')}`, sigVals,
+           VALUES ${sigPh.join(',')}
+           ON CONFLICT (system_id, UPPER(sig_id)) WHERE sig_id <> '' DO NOTHING`, sigVals,
         );
       }
     }
@@ -2591,6 +2599,12 @@ mapsRouter.post('/:mapId/merge', async (req, res) => {
     // re-fetch rather than streaming hundreds of deltas. The initiator already
     // reloads in the merge modal, so it's echo-suppressed.
     publishToMap(destId, { type: 'map.resync', actor: req.get('x-client-id') ?? null });
+    recordMapAudit(req, destId, {
+      action: 'map.merge', targetId: sourceId, subject: srcMeta.name,
+      details: { values: {
+        systems: addedSystems, connections: addedConnections, signatures: addedSignatures, structures: addedStructures,
+      } },
+    });
 
     res.json({
       added:   { systems: addedSystems, connections: addedConnections, signatures: addedSignatures, structures: addedStructures },
@@ -2628,15 +2642,15 @@ mapsRouter.get('/:mapId/events', async (req, res) => {
   const access = await getMapAccess(mapId, req);
   if (!access) { res.status(404).json({ error: 'Map not found' }); return; }
   // Shared with the API-key stream at /api/v1/maps/:id/events.
-  streamMapEvents(req, res, mapId);
+  streamMapEvents(req, res, mapId, req.session.userId);
 });
 
 // GET /api/maps/:mapId/kills/backfill — recent high-value kills in the map's
 // systems, to seed the kill-log panel on open. Served from the in-memory buffer
 // the live feed fills (services/killBuffer) — no zKillboard REST calls, so it's
 // instant and scales to any map size. Access-checked. Returns KillRow[]
-// newest-first. (The buffer only holds kills since the server booted, so right
-// after a restart the log fills in as the feed runs.)
+// newest-first. (After a restart the feed replays the last few hours from
+// R2Z2, so the log refills within minutes.)
 mapsRouter.get('/:mapId/kills/backfill', async (req, res) => {
   const { mapId } = req.params;
   const access = await getMapAccess(mapId, req);
@@ -2650,9 +2664,28 @@ mapsRouter.get('/:mapId/kills/backfill', async (req, res) => {
   const systemIds = new Set(rows.map((r) => r.eveSystemId));
   if (!systemIds.size) { res.json([]); return; }
 
-  const buffered = recentKillsForSystems(systemIds, 200);
+  // The buffer holds every kill; the kill log shows the notable ones.
+  const buffered = recentKillsForSystems(systemIds, 200, config.killFeed.minValueIsk);
   const kills = await Promise.all(buffered.map(buildKillRow));
   res.json(kills);
+});
+
+// GET /api/maps/:mapId/kills?window=1h|24h|7d — every kill in the map's
+// systems in the window, newest first (up to 200), with the system each was
+// in, for the killboard's whole-map view. Served from the live feed's week of
+// stored kills, so one query covers a map of any size -- no zKillboard request
+// per system. Access-checked.
+mapsRouter.get('/:mapId/kills', async (req, res) => {
+  const { mapId } = req.params;
+  const access = await getMapAccess(mapId, req);
+  if (!access) { res.status(404).json({ error: 'Map not found' }); return; }
+  const { rows } = await db.query<{ eveSystemId: number }>(
+    `SELECT DISTINCT eve_system_id AS "eveSystemId"
+       FROM map_systems WHERE map_id = $1 AND eve_system_id IS NOT NULL`,
+    [mapId],
+  );
+  const secs = windowSeconds(req.query.window);
+  res.json(await storedKills(rows.map((r) => r.eveSystemId), Date.now() - secs * 1000, 200, { systemNames: true }));
 });
 
 // DELETE /api/maps/:mapId/presence — drop this viewer from the roster now.
@@ -2731,9 +2764,10 @@ mapsRouter.post('/:mapId/presence', async (req, res) => {
 // toggle merge-source eligibility (corp maps, full/admin only)
 mapsRouter.patch('/:mapId', async (req, res) => {
   const { mapId } = req.params;
-  const { name, locked, allowAsMergeSource, allowAsMergeDestination, lazyRemoveWormholes, collapseGraceHours, bookmarkFormat, siteBookmarkFormat, skipKspace } = req.body as {
+  const { name, locked, allowAsMergeSource, allowAsMergeDestination, lazyRemoveWormholes, collapseGraceHours, bookmarkFormat, siteBookmarkFormat, skipKspace, crossMapSync } = req.body as {
     name?: string; locked?: boolean; allowAsMergeSource?: boolean; allowAsMergeDestination?: boolean;
     lazyRemoveWormholes?: boolean; collapseGraceHours?: number; bookmarkFormat?: string | null; siteBookmarkFormat?: string | null; skipKspace?: boolean;
+    crossMapSync?: boolean;
   };
 
   const access = await requireMapWrite(res, mapId, req);
@@ -2806,6 +2840,20 @@ mapsRouter.patch('/:mapId', async (req, res) => {
     }
     sets.push(`skip_kspace = $${vals.length + 1}`); vals.push(skipKspace === true);
   }
+  // Cross-map sync opt-in -- corp/alliance maps only, gated like the K-space
+  // policy above. Personal maps sync on the owner's own nexum.crossMapSync
+  // setting instead (see services/crossMapSync.ts).
+  if (crossMapSync !== undefined) {
+    if (access.corpId === null && access.allianceId === null) {
+      res.status(400).json({ error: 'Only corp/alliance maps have a cross-map sync setting' }); return;
+    }
+    const role = req.session.role ?? 'readonly';
+    const allianceScoped = access.allianceId !== null;
+    if (allianceScoped ? !isAllianceAdmin(role) : !isAdmin(role)) {
+      res.status(403).json({ error: allianceScoped ? 'Alliance admin access required' : 'Admin access required' }); return;
+    }
+    sets.push(`cross_map_sync = $${vals.length + 1}`); vals.push(crossMapSync === true);
+  }
   // Lazy WH-removal opt-in: a plain per-map behaviour toggle any editor can set
   // (no corp/admin gate). The sweep itself runs server-side on this cadence.
   if (lazyRemoveWormholes !== undefined) {
@@ -2874,11 +2922,19 @@ mapsRouter.patch('/:mapId', async (req, res) => {
       ...(allowAsMergeSource !== undefined ? { allowAsMergeSource: allowAsMergeSource === true } : {}),
       ...(allowAsMergeDestination !== undefined ? { allowAsMergeDestination: allowAsMergeDestination === true } : {}),
       ...(skipKspace !== undefined ? { skipKspace: skipKspace === true } : {}),
+      ...(crossMapSync !== undefined ? { crossMapSync: crossMapSync === true } : {}),
       ...(lazyRemoveWormholes !== undefined ? { lazyRemoveWormholes: lazyRemoveWormholes === true } : {}),
       ...(normalizedGrace !== undefined ? { collapseGraceHours: normalizedGrace } : {}),
       ...(normalizedBookmarkFmt !== undefined ? { bookmarkFormat: normalizedBookmarkFmt } : {}),
       ...(normalizedSiteBookmarkFmt !== undefined ? { siteBookmarkFormat: normalizedSiteBookmarkFmt } : {}),
     });
+    const settings = {
+      name, locked, allowAsMergeSource, allowAsMergeDestination, lazyRemoveWormholes,
+      collapseGraceHours: normalizedGrace, bookmarkFormat: normalizedBookmarkFmt,
+      siteBookmarkFormat: normalizedSiteBookmarkFmt, skipKspace, crossMapSync,
+    };
+    const values = Object.fromEntries(Object.entries(settings).filter(([, v]) => v !== undefined));
+    recordMapAudit(req, mapId, { action: 'map.update', targetId: mapId, details: { fields: Object.keys(values), values } });
   }
   res.json({ ok: true });
 });
@@ -3003,6 +3059,7 @@ mapsRouter.post('/:mapId/systems', async (req, res) => {
       // Push to other viewers of this map (live sync). actor = originating
       // client → echo-suppressed.
       publishToMap(mapId, { type: 'system.add', actor: req.get('x-client-id') ?? null, system });
+      recordMapAudit(req, mapId, { action: 'system.add', targetId: id, subject: systemLabel({ name: r.name as string, alias: r.alias as string | null }) });
     }
   } catch (err) {
     console.error(err);
@@ -3139,12 +3196,18 @@ mapsRouter.patch('/:mapId/systems/:systemId', async (req, res) => {
   if (!access) return;
 
   // Append last_activity_at = NOW() to mark this system as active.
-  await db.query(
-    `UPDATE map_systems SET ${sets.join(', ')}, last_activity_at = NOW() WHERE id = $${vals.length + 1} AND map_id = $${vals.length + 2}`,
+  const { rows: updated } = await db.query<{ name: string; alias: string | null }>(
+    `UPDATE map_systems SET ${sets.join(', ')}, last_activity_at = NOW() WHERE id = $${vals.length + 1} AND map_id = $${vals.length + 2}
+     RETURNING name, alias`,
     [...vals, systemId, mapId],
   );
   await touchMap(mapId);
   publishToMap(mapId, { type: 'system.update', actor: req.get('x-client-id') ?? null, id: systemId, updates });
+  // Moving a node isn't a change worth auditing; anything else on the row is.
+  const changed = Object.keys(updates).filter((k) => k !== 'position');
+  if (updated.length && changed.length) {
+    recordMapAudit(req, mapId, { action: 'system.update', targetId: systemId, subject: systemLabel(updated[0]), details: { fields: changed } });
+  }
   res.json({ ok: true });
 });
 
@@ -3152,13 +3215,16 @@ mapsRouter.delete('/:mapId/systems/:systemId', async (req, res) => {
   const { mapId, systemId } = req.params;
   const access = await requireMapWrite(res, mapId, req);
   if (!access) return;
-  const { rowCount } = await db.query(`DELETE FROM map_systems WHERE id = $1 AND map_id = $2`, [systemId, mapId]);
-  if ((rowCount ?? 0) > 0) {
+  const { rows: removed } = await db.query<{ name: string; alias: string | null }>(
+    `DELETE FROM map_systems WHERE id = $1 AND map_id = $2 RETURNING name, alias`, [systemId, mapId],
+  );
+  if (removed.length > 0) {
     db.query(
       `INSERT INTO user_events (user_id, event_type, map_id) VALUES ($1, 'system_delete', $2)`,
       [req.session.userId, mapId],
     ).catch(console.error);
     publishToMap(mapId, { type: 'system.remove', actor: req.get('x-client-id') ?? null, id: systemId });
+    recordMapAudit(req, mapId, { action: 'system.remove', targetId: systemId, subject: systemLabel(removed[0]) });
   }
   await touchMap(mapId);
   res.json({ ok: true });
@@ -3168,7 +3234,7 @@ mapsRouter.delete('/:mapId/systems/:systemId', async (req, res) => {
 
 mapsRouter.post('/:mapId/connections', async (req, res) => {
   const { mapId } = req.params;
-  const { id, sourceId, targetId, sourceHandle, targetHandle, connectionType, massStatus, timeStatus, size, sourceEveId, targetEveId } = req.body;
+  const { id, sourceId, targetId, sourceHandle, targetHandle, connectionType, massStatus, timeStatus, size, type, scoutConnectionId, sourceEveId, targetEveId } = req.body;
 
   const access = await requireMapWrite(res, mapId, req, true);
   if (!access) return;
@@ -3240,14 +3306,22 @@ mapsRouter.post('/:mapId/connections', async (req, res) => {
 
   let inserted = 0;
   try {
+    // `type` (the wormhole code) is accepted on create as well as on update.
+    // It used to be update-only on the reasoning that a fresh connection
+    // carries no type yet -- true when a hole is drawn by hand or by a jump,
+    // but not when it is copied from eve-scout, which knows the code up front.
+    // Patching it afterwards is not an option: this POST is deferred until
+    // both endpoints exist, so a follow-up PATCH can overtake it and be lost.
     const ins = await db.query(
       `INSERT INTO map_connections
          (id, map_id, source_id, target_id, source_handle, target_handle,
-          connection_type, mass_status, time_status, size)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+          connection_type, mass_status, time_status, size, wh_type, scout_connection_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
        ON CONFLICT (id) DO NOTHING`,
       [id, mapId, sourceId, targetId, sourceHandle ?? null, targetHandle ?? null,
-       effectiveType, massStatus ?? null, timeStatus ?? null, size ?? 'large'],
+       effectiveType, massStatus ?? null, timeStatus ?? null, size ?? 'large',
+       typeof type === 'string' && type.trim() ? type.trim().toUpperCase() : null,
+       typeof scoutConnectionId === 'string' && scoutConnectionId ? scoutConnectionId : null],
     );
     inserted = ins.rowCount ?? 0;
   } catch (err) {
@@ -3276,6 +3350,11 @@ mapsRouter.post('/:mapId/connections', async (req, res) => {
   // the later type PATCH from sig auto-detect fires it instead.
   if (inserted > 0 && effectiveType === 'standard') {
     maybeBroadcastConnection(access, mapId, id, req.session.characterName ?? null);
+  }
+  if (inserted > 0) {
+    connectionLabel(mapId, String(sourceId), String(targetId))
+      .then((label) => recordMapAudit(req, mapId, { action: 'connection.add', targetId: id, subject: label, details: { values: { connectionType: effectiveType } } }))
+      .catch(console.error);
   }
   // Return the resolved type so the originating client can reflect an
   // auto-classified gate without waiting for a reload.
@@ -3784,6 +3863,10 @@ mapsRouter.post('/:mapId/untangle-layout', async (req, res) => {
   }
 });
 
+// Connection fields whose new value goes in the audit entry (short enums and
+// codes); the rest are listed by name only.
+const AUDITED_CONNECTION_VALUES = new Set(['connectionType', 'massStatus', 'timeStatus', 'size', 'type', 'broken']);
+
 mapsRouter.patch('/:mapId/connections/:connectionId', async (req, res) => {
   const { mapId, connectionId } = req.params;
 
@@ -3824,6 +3907,17 @@ mapsRouter.patch('/:mapId/connections/:connectionId', async (req, res) => {
     if (v !== null && (typeof v !== 'string' || !VALID.includes(v))) {
       res.status(400).json({ error: 'invalid timeStatus' }); return;
     }
+  }
+  // Whether a pilot is marking the hole end of life just now, rather than it
+  // already being EOL. Read before the auto-bucketing below, which can set
+  // timeStatus itself, so only an explicit mark counts.
+  let markedEol = false;
+  if (typeof updates.timeStatus === 'string' && EOL_STATUSES.has(updates.timeStatus)) {
+    const prev = await db.query<{ timeStatus: string | null }>(
+      `SELECT time_status AS "timeStatus" FROM map_connections WHERE id = $1 AND map_id = $2`,
+      [connectionId, mapId],
+    );
+    markedEol = prev.rows.length > 0 && !EOL_STATUSES.has(prev.rows[0].timeStatus ?? '');
   }
   if ('lifetimeExpiresAt' in updates) {
     const v = updates.lifetimeExpiresAt;
@@ -3912,17 +4006,36 @@ mapsRouter.patch('/:mapId/connections/:connectionId', async (req, res) => {
 
   if (!sets.length) { res.status(400).json({ error: 'Nothing to update' }); return; }
 
-  await db.query(
-    `UPDATE map_connections SET ${sets.join(', ')} WHERE id = $${vals.length + 1} AND map_id = $${vals.length + 2}`,
+  const { rows: updatedConn } = await db.query<{ sourceId: string; targetId: string }>(
+    `UPDATE map_connections SET ${sets.join(', ')} WHERE id = $${vals.length + 1} AND map_id = $${vals.length + 2}
+     RETURNING source_id AS "sourceId", target_id AS "targetId"`,
     [...vals, connectionId, mapId],
   );
   await touchMap(mapId);
   publishToMap(mapId, { type: 'connection.update', actor: req.get('x-client-id') ?? null, id: connectionId, updates });
+  // What the caller asked to change — not the fields derived from it above, and
+  // not the handles, which only re-route the line.
+  const changed = Object.keys(req.body as Record<string, unknown>)
+    .filter((k) => k in colMap && k !== 'sourceHandle' && k !== 'targetHandle');
+  if (updatedConn.length && changed.length) {
+    const values: Record<string, unknown> = {};
+    for (const k of changed) if (AUDITED_CONNECTION_VALUES.has(k)) values[k] = updates[k];
+    const { sourceId, targetId } = updatedConn[0];
+    connectionLabel(mapId, sourceId, targetId)
+      .then((label) => recordMapAudit(req, mapId, { action: 'connection.update', targetId: connectionId, subject: label, details: { fields: changed, values } }))
+      .catch(console.error);
+  }
   // A wormhole type was just filled in — e.g. sig auto-detect labelling a
   // manually-drawn connection once its hole is scanned. Re-check the broadcast;
   // it's deduped, so a connection already announced won't fire again.
   if (typeof updates.type === 'string' && updates.type.trim() !== '') {
     maybeBroadcastConnection(access, mapId, connectionId, req.session.characterName ?? null);
+  }
+  if (markedEol) {
+    // For the in-app EOL notification, which the regular update can't drive:
+    // the lifetime sweep re-buckets holes as they age, and that isn't news.
+    publishToMap(mapId, { type: 'connection.eol', actor: req.get('x-client-id') ?? null, id: connectionId, timeStatus: updates.timeStatus });
+    maybeBroadcastEol(access, mapId, connectionId, updates.timeStatus as string, req.session.characterName ?? null);
   }
   res.json({ ok: true });
 });
@@ -3931,9 +4044,19 @@ mapsRouter.delete('/:mapId/connections/:connectionId', async (req, res) => {
   const { mapId, connectionId } = req.params;
   const access = await requireMapWrite(res, mapId, req);
   if (!access) return;
-  await db.query(`DELETE FROM map_connections WHERE id = $1 AND map_id = $2`, [connectionId, mapId]);
+  const { rows: removedConn } = await db.query<{ sourceId: string; targetId: string }>(
+    `DELETE FROM map_connections WHERE id = $1 AND map_id = $2
+     RETURNING source_id AS "sourceId", target_id AS "targetId"`,
+    [connectionId, mapId],
+  );
   await touchMap(mapId);
   publishToMap(mapId, { type: 'connection.remove', actor: req.get('x-client-id') ?? null, id: connectionId });
+  if (removedConn.length) {
+    // The systems are still there, so the label reads as it did.
+    connectionLabel(mapId, removedConn[0].sourceId, removedConn[0].targetId)
+      .then((label) => recordMapAudit(req, mapId, { action: 'connection.remove', targetId: connectionId, subject: label }))
+      .catch(console.error);
+  }
   res.json({ ok: true });
 });
 
@@ -4073,6 +4196,10 @@ mapsRouter.post('/:mapId/routes', async (req, res) => {
       // Notify Discord that a chain was saved (corp/alliance maps only; gated by
       // the org's settings). Best-effort — never blocks or fails the save.
       if (inserted) dispatchChainSaved(access, mapId, route, req.session.characterName ?? null);
+      if (inserted) {
+        return chainLabel(mapId, route.name, route.systemIds)
+          .then((label) => recordMapAudit(req, mapId, { action: 'chain.add', targetId: id, subject: label }));
+      }
     }).catch(console.error);
   res.status(201).json({ ok: true });
 });
@@ -4091,12 +4218,18 @@ mapsRouter.patch('/:mapId/routes/:routeId', async (req, res) => {
     if (key in updates) { sets.push(`${col} = $${vals.length + 1}`); vals.push(updates[key]); }
   }
   if (!sets.length) { res.status(400).json({ error: 'Nothing to update' }); return; }
-  await db.query(
-    `UPDATE map_routes SET ${sets.join(', ')}, updated_at = NOW() WHERE id = $${vals.length + 1} AND map_id = $${vals.length + 2}`,
+  const { rows: updatedRoute } = await db.query<{ name: string; systemIds: string[] }>(
+    `UPDATE map_routes SET ${sets.join(', ')}, updated_at = NOW() WHERE id = $${vals.length + 1} AND map_id = $${vals.length + 2}
+     RETURNING name, system_ids AS "systemIds"`,
     [...vals, routeId, mapId],
   );
   await touchMap(mapId);
   publishToMap(mapId, { type: 'route.update', actor: req.get('x-client-id') ?? null, id: routeId, updates });
+  if (updatedRoute.length) {
+    chainLabel(mapId, updatedRoute[0].name, updatedRoute[0].systemIds)
+      .then((label) => recordMapAudit(req, mapId, { action: 'chain.update', targetId: routeId, subject: label, details: { fields: Object.keys(updates).filter((k) => k in colMap) } }))
+      .catch(console.error);
+  }
   res.json({ ok: true });
 });
 
@@ -4128,9 +4261,17 @@ mapsRouter.delete('/:mapId/routes/:routeId', async (req, res) => {
   const { mapId, routeId } = req.params;
   const access = await requireMapContentWrite(res, mapId, req);
   if (!access) return;
-  await db.query(`DELETE FROM map_routes WHERE id = $1 AND map_id = $2`, [routeId, mapId]);
+  const { rows: removedRoute } = await db.query<{ name: string; systemIds: string[] }>(
+    `DELETE FROM map_routes WHERE id = $1 AND map_id = $2 RETURNING name, system_ids AS "systemIds"`,
+    [routeId, mapId],
+  );
   await touchMap(mapId);
   publishToMap(mapId, { type: 'route.remove', actor: req.get('x-client-id') ?? null, id: routeId });
+  if (removedRoute.length) {
+    chainLabel(mapId, removedRoute[0].name, removedRoute[0].systemIds)
+      .then((label) => recordMapAudit(req, mapId, { action: 'chain.remove', targetId: routeId, subject: label }))
+      .catch(console.error);
+  }
   res.json({ ok: true });
 });
 
@@ -4150,13 +4291,25 @@ mapsRouter.post('/:mapId/systems/:systemId/signatures', async (req, res) => {
   if (!access) return;
   if (!(await verifySystemInMap(res, systemId, mapId))) return;
   const { sigId = '', sigType = 'unknown', name = '', notes = '', whType = '', whLeadsTo = '', ghostType = '', massStatus = '', timeStatus = '' } = req.body as Record<string, string>;
+  // Read separately so widening the cast doesn't make every field nullable.
+  const scoutConnectionId = (req.body as { scoutConnectionId?: unknown }).scoutConnectionId;
   const me = authUser(req);
-  const row = await createSignature(
-    mapId, systemId, { sigId, sigType, name, notes, whType, whLeadsTo, ghostType, massStatus, timeStatus },
-    { userId: me.userId, clientId: req.get('x-client-id') ?? null },
+  const { row, inserted } = await createSignature(
+    mapId, systemId, { sigId, sigType, name, notes, whType, whLeadsTo, ghostType, massStatus, timeStatus,
+      scoutConnectionId: typeof scoutConnectionId === 'string' && scoutConnectionId ? scoutConnectionId : null },
+    { userId: me.userId, clientId: req.get('x-client-id') ?? null, audit: auditActor(req) },
   );
-  if ((whType ?? '').toUpperCase() === 'K162') dispatchK162(access, row.id, systemId, me.characterName);
-  res.status(201).json(row);
+  // A K162 copied from the Thera/Turnur feed is bookkeeping, not a sighting:
+  // the hole was already on a public listing and the pilot is looking at the
+  // row as they press the button. Half of a bulk copy is K162 by definition
+  // (every hole is K162 at one end), so dispatching here would fire a notice
+  // per connection. Suppressed on provenance, like the other bulk writes.
+  // A create that landed on an existing row (someone else pasted it first) is
+  // not a new K162 sighting -- that notice, if any, went out with the first.
+  if (inserted && !fromScoutFeed(scoutConnectionId) && (whType ?? '').toUpperCase() === 'K162') {
+    dispatchK162(access, row.id, systemId, me.characterName);
+  }
+  res.status(inserted ? 201 : 200).json(row);
 });
 
 mapsRouter.patch('/:mapId/systems/:systemId/signatures/:sigId', async (req, res) => {
@@ -4167,12 +4320,24 @@ mapsRouter.patch('/:mapId/systems/:systemId/signatures/:sigId', async (req, res)
 
   const updates = req.body as Record<string, unknown>;
   const me = authUser(req);
-  const { dispatchK162: shouldDispatch, flushK162: shouldFlush } = await updateSignature(
-    mapId, systemId, sigId, updates, { userId: me.userId, clientId: req.get('x-client-id') ?? null },
-  );
+  let result;
+  try {
+    result = await updateSignature(
+      mapId, systemId, sigId, updates, { userId: me.userId, clientId: req.get('x-client-id') ?? null, audit: auditActor(req) },
+    );
+  } catch (err) {
+    if (err instanceof DuplicateSignatureError) { res.status(409).json({ error: 'duplicate_sig', message: err.message }); return; }
+    throw err;
+  }
+  const { dispatchK162: shouldDispatch, flushK162: shouldFlush } = result;
   // Discord notice fires once on a transition into K162; flush any pending
   // notice the moment the leads-to is known. (Both decided inside updateSignature.)
-  if (shouldDispatch) dispatchK162(access, sigId, systemId, me.characterName);
+  // See the POST above for why a feed-sourced K162 does not notify. A flush
+  // still runs: it only releases a notice an earlier, human K162 already
+  // queued, and that one is worth sending once its destination is known.
+  if (shouldDispatch && !fromScoutFeed(updates.scoutConnectionId)) {
+    dispatchK162(access, sigId, systemId, me.characterName);
+  }
   if (shouldFlush) flushK162(sigId);
   res.json({ ok: true });
 });
@@ -4182,7 +4347,7 @@ mapsRouter.delete('/:mapId/systems/:systemId/signatures/:sigId', async (req, res
   const access = await requireMapContentWrite(res, mapId, req);
   if (!access) return;
   if (!(await verifySystemInMap(res, systemId, mapId))) return;
-  await deleteSignature(mapId, systemId, sigId, { userId: authUser(req).userId, clientId: req.get('x-client-id') ?? null });
+  await deleteSignature(mapId, systemId, sigId, { userId: authUser(req).userId, clientId: req.get('x-client-id') ?? null, audit: auditActor(req) });
   res.json({ ok: true });
 });
 
@@ -4190,6 +4355,82 @@ mapsRouter.delete('/:mapId/systems/:systemId/signatures/:sigId', async (req, res
 // content anywhere in the chain without opening every system's sig pane —
 // powers the watchlist (wh_type matching) and the content filter (sig type +
 // name). Returns only the (systemId, sigType, name, whType) tuple per sig.
+// Clean up after the Thera/Turnur copy button: drop the rows it wrote for
+// holes the feed no longer lists, and sever the connections behind them.
+//
+// Server-side on purpose. It reads the feed itself rather than taking a list
+// of live ids from the caller, so a stale or doctored client cannot talk the
+// server into deleting a chain.
+mapsRouter.post('/:mapId/scout-cleanup', async (req, res) => {
+  const { mapId } = req.params;
+  const access = await requireMapContentWrite(res, mapId, req);
+  if (!access) return;
+
+  const hub = String((req.body as { hub?: unknown }).hub ?? '');
+  if (hub !== 'Thera' && hub !== 'Turnur') {
+    res.status(400).json({ error: 'hub must be Thera or Turnur' });
+    return;
+  }
+
+  // Cleanup covers the whole map, which can contain exits from both hubs.
+  // Check the complete feed so copying one hub cannot expire the other's rows.
+  const live = (await getScoutConnections()).map((c) => c.id);
+
+  // Anything still listed had its clock reset by the copy itself; this covers
+  // rows on systems the copy skipped this time round.
+  await db.query(
+    `UPDATE map_signatures s SET scout_last_seen = NOW()
+       FROM map_systems ms
+      WHERE s.system_id = ms.id AND ms.map_id = $1
+        AND s.scout_connection_id = ANY($2::text[])`,
+    [mapId, live],
+  );
+
+  // Delete only rows that are ALL of: ours to begin with, absent from the
+  // feed, absent for long enough that a glitchy read cannot be the cause, and
+  // untouched since we wrote them.
+  //
+  // "Untouched" is name and notes still empty and the type still wormhole --
+  // the fields a person fills in. It is deliberately conservative: a row
+  // somebody has annotated stays, even if its hole really is gone, because
+  // leaving a dead hole on a map costs a scout one delete and removing a live
+  // note costs them work they cannot get back.
+  const { rows: removed } = await db.query<{ id: string; scout_connection_id: string }>(
+    `DELETE FROM map_signatures s
+       USING map_systems ms
+      WHERE s.system_id = ms.id AND ms.map_id = $1
+        AND s.scout_connection_id IS NOT NULL
+        AND NOT (s.scout_connection_id = ANY($2::text[]))
+        AND s.scout_last_seen < NOW() - ($3 || ' minutes')::interval
+        AND s.name = '' AND s.notes = '' AND s.sig_type = 'wormhole'
+      RETURNING s.id, s.scout_connection_id`,
+    [mapId, live, SCOUT_GRACE_MINUTES],
+  );
+
+  // The connection is severed, not deleted -- same treatment any wormhole gets
+  // when its backing signature goes, so a collapsed Thera exit reads like a
+  // collapsed hole rather than vanishing out of the chain.
+  const goneIds = [...new Set(removed.map((r) => r.scout_connection_id))];
+  const { rowCount: broken } = goneIds.length === 0
+    ? { rowCount: 0 }
+    : await db.query(
+        `UPDATE map_connections SET broken = TRUE, broken_at = NOW()
+          WHERE map_id = $1 AND scout_connection_id = ANY($2::text[]) AND broken = FALSE`,
+        [mapId, goneIds],
+      );
+
+  if (removed.length > 0 || (broken ?? 0) > 0) {
+    await touchMap(mapId);
+    // The caller only uses the response for a toast; it needs this resync too.
+    publishToMap(mapId, { type: 'map.resync', actor: null });
+    recordMapAudit(req, mapId, {
+      action: 'map.scoutCleanup', subject: hub,
+      details: { values: { signatures: removed.length, connections: broken ?? 0 } },
+    });
+  }
+  res.json({ removed: removed.length, broken: broken ?? 0 });
+});
+
 mapsRouter.get('/:mapId/signatures', async (req, res) => {
   const { mapId } = req.params;
   const access = await getMapAccess(mapId, req);
@@ -4241,7 +4482,7 @@ mapsRouter.post('/:mapId/systems/:systemId/anomalies', async (req, res) => {
   if (!(await verifySystemInMap(res, systemId, mapId))) return;
   const { anomId = '', anomType = 'unknown', name = '', notes = '' } = req.body as Record<string, string>;
   const row = await createAnomaly(mapId, systemId, { anomId, anomType, name, notes },
-    { userId: authUser(req).userId, clientId: req.get('x-client-id') ?? null });
+    { userId: authUser(req).userId, clientId: req.get('x-client-id') ?? null, audit: auditActor(req) });
   res.status(201).json(row);
 });
 
@@ -4253,7 +4494,7 @@ mapsRouter.patch('/:mapId/systems/:systemId/anomalies/:anomId', async (req, res)
 
   const updates = req.body as Record<string, unknown>;
   await updateAnomaly(mapId, systemId, anomId, updates,
-    { userId: authUser(req).userId, clientId: req.get('x-client-id') ?? null });
+    { userId: authUser(req).userId, clientId: req.get('x-client-id') ?? null, audit: auditActor(req) });
   res.json({ ok: true });
 });
 
@@ -4262,7 +4503,7 @@ mapsRouter.delete('/:mapId/systems/:systemId/anomalies/:anomId', async (req, res
   const access = await requireMapContentWrite(res, mapId, req);
   if (!access) return;
   if (!(await verifySystemInMap(res, systemId, mapId))) return;
-  await deleteAnomaly(mapId, systemId, anomId, { userId: authUser(req).userId, clientId: req.get('x-client-id') ?? null });
+  await deleteAnomaly(mapId, systemId, anomId, { userId: authUser(req).userId, clientId: req.get('x-client-id') ?? null, audit: auditActor(req) });
   res.json({ ok: true });
 });
 
@@ -4292,7 +4533,7 @@ mapsRouter.post('/:mapId/systems/:systemId/structures', async (req, res) => {
 
   const row = await createStructure(mapId, systemId,
     { name, structureType, ownerCorp, notes, eveId: eveIdNum, ownerCorpId },
-    { userId: me.userId, clientId: req.get('x-client-id') ?? null });
+    { userId: me.userId, clientId: req.get('x-client-id') ?? null, audit: auditActor(req) });
   res.status(201).json(row);
 });
 
@@ -4304,7 +4545,7 @@ mapsRouter.patch('/:mapId/systems/:systemId/structures/:structureId', async (req
 
   const updates = req.body as Record<string, unknown>;
   await updateStructure(mapId, systemId, structureId, updates,
-    { userId: authUser(req).userId, clientId: req.get('x-client-id') ?? null });
+    { userId: authUser(req).userId, clientId: req.get('x-client-id') ?? null, audit: auditActor(req) });
   res.json({ ok: true });
 });
 
@@ -4313,7 +4554,7 @@ mapsRouter.delete('/:mapId/systems/:systemId/structures/:structureId', async (re
   const access = await requireMapContentWrite(res, mapId, req);
   if (!access) return;
   if (!(await verifySystemInMap(res, systemId, mapId))) return;
-  await deleteStructure(mapId, systemId, structureId, { userId: authUser(req).userId, clientId: req.get('x-client-id') ?? null });
+  await deleteStructure(mapId, systemId, structureId, { userId: authUser(req).userId, clientId: req.get('x-client-id') ?? null, audit: auditActor(req) });
   res.json({ ok: true });
 });
 
@@ -4323,8 +4564,18 @@ mapsRouter.delete('/:mapId/systems/:systemId/structures/:structureId', async (re
 // modify a corp map, but only an admin can hand out a public read-only link.
 // Personal maps still belong to their owner — only they can share.
 async function requireShareAdmin(res: Response, mapId: string, req: Request): Promise<MapMeta | null> {
+  return requireMapAdmin(res, mapId, req, 'share');
+}
+
+// The map's administrators: its owner for a personal map, the corp admins for a
+// corp map, the alliance admins for an alliance map. Shared with sharing and the
+// audit log, which both answer to the same people.
+async function requireMapAdmin(
+  res: Response, mapId: string, req: Request, purpose: 'share' | 'audit',
+): Promise<MapMeta | null> {
   const access = await getMapAccess(mapId, req);
   if (!access) { res.status(404).json({ error: 'Map not found' }); return null; }
+  const verb = purpose === 'share' ? 'share' : 'view the audit log of';
 
   const role = req.session.role ?? 'readonly';
   const userId = req.session.userId!;
@@ -4336,12 +4587,12 @@ async function requireShareAdmin(res: Response, mapId: string, req: Request): Pr
 
   if (isAllianceMap) {
     if (!isAllianceAdmin(role)) {
-      res.status(403).json({ error: 'Only an alliance admin can share an alliance map' });
+      res.status(403).json({ error: `Only an alliance admin can ${verb} an alliance map` });
       return null;
     }
   } else if (isCorpMap) {
     if (!isAdmin(role)) {
-      res.status(403).json({ error: 'Only an admin can share a corp map' });
+      res.status(403).json({ error: `Only an admin can ${verb} a corp map` });
       return null;
     }
   } else if (access.accessKind !== 'owner') {
@@ -4350,11 +4601,41 @@ async function requireShareAdmin(res: Response, mapId: string, req: Request): Pr
     // comparing the map's CREATING character against the session lost that:
     // a map made by one of your characters could not be shared while logged in
     // as another, even though you could edit and see it perfectly well.
-    res.status(403).json({ error: 'Only the owner can share this map' });
+    res.status(403).json({ error: `Only the owner can ${verb} this map` });
     return null;
   }
   return access;
 }
+
+// GET /api/maps/:mapId/audit — the map's audit log, newest first. Pages with
+// ?before=<entry id>; ?kind=system|connection|signature|anomaly|structure|chain|map|share
+// narrows it to one kind of change.
+const AUDIT_KINDS = new Set(['system', 'connection', 'signature', 'anomaly', 'structure', 'chain', 'map', 'share']);
+const AUDIT_PAGE = 100;
+
+mapsRouter.get('/:mapId/audit', async (req, res) => {
+  const { mapId } = req.params;
+  if (!(await requireMapAdmin(res, mapId, req, 'audit'))) return;
+
+  const before = Number(req.query.before);
+  const kind   = typeof req.query.kind === 'string' && AUDIT_KINDS.has(req.query.kind) ? req.query.kind : null;
+  const { rows } = await db.query(
+    `SELECT id::text AS id, created_at AS "createdAt", action, subject, details,
+            character_id::float8 AS "characterId", character_name AS "characterName", via_api AS "viaApi"
+       FROM map_audit
+      WHERE map_id = $1
+        AND ($2::bigint IS NULL OR id < $2)
+        AND ($3::text   IS NULL OR action LIKE $3 || '.%')
+      ORDER BY map_audit.id DESC   -- the table's bigint, not the text alias
+      LIMIT $4`,
+    [mapId, Number.isSafeInteger(before) && before > 0 ? before : null, kind, AUDIT_PAGE + 1],
+  );
+  res.json({
+    entries:   rows.slice(0, AUDIT_PAGE),
+    more:      rows.length > AUDIT_PAGE,
+    retentionDays: MAP_AUDIT_RETENTION_DAYS,
+  });
+});
 
 // Allowed expiry windows for share links (in hours). Anything outside
 // the allowlist falls back to the default — a user can't extend a link
@@ -4403,6 +4684,10 @@ mapsRouter.post('/:mapId/share', async (req, res) => {
       RETURNING share_expires_at AS "expiresAt"`,
     [token, mapId, includeSigs, includeBridges, expiryHours, includeNotes, includeStructures],
   );
+  recordMapAudit(req, mapId, {
+    action: 'share.link.create', targetId: mapId,
+    details: { values: { expiryHours, includeSigs, includeBridges, includeNotes, includeStructures } },
+  });
   const origin = (process.env.FRONTEND_URL ?? '').replace(/\/+$/, '');
   res.json({
     token,
@@ -4442,10 +4727,17 @@ mapsRouter.patch('/:mapId/share', async (req, res) => {
   }
   if (sets.length === 0) { res.json({ ok: true }); return; }
 
-  await db.query(
+  const { rowCount: linkUpdated } = await db.query(
     `UPDATE maps SET ${sets.join(', ')} WHERE id = $1 AND share_token IS NOT NULL`,
     values,
   );
+  if (linkUpdated) {
+    const changed = Object.keys(COLS).filter((k) => typeof req.body?.[k] === 'boolean');
+    recordMapAudit(req, mapId, {
+      action: 'share.link.update', targetId: mapId,
+      details: { fields: changed, values: Object.fromEntries(changed.map((k) => [k, req.body[k]])) },
+    });
+  }
   res.json({ ok: true });
 });
 
@@ -4453,10 +4745,11 @@ mapsRouter.patch('/:mapId/share', async (req, res) => {
 mapsRouter.delete('/:mapId/share', async (req, res) => {
   const { mapId } = req.params;
   if (!(await requireShareAdmin(res, mapId, req))) return;
-  await db.query(
-    `UPDATE maps SET share_token = NULL, share_expires_at = NULL WHERE id = $1`,
+  const { rowCount: revoked } = await db.query(
+    `UPDATE maps SET share_token = NULL, share_expires_at = NULL WHERE id = $1 AND share_token IS NOT NULL`,
     [mapId],
   );
+  if (revoked) recordMapAudit(req, mapId, { action: 'share.link.revoke', targetId: mapId });
   res.json({ ok: true });
 });
 
@@ -4503,7 +4796,17 @@ mapsRouter.get('/:mapId/shares', async (req, res) => {
     .filter((x): x is number => x != null);
   const names = await resolveEntityNames(ids);
 
+  // How many accounts have taken this map off their own list. Only meaningful
+  // for an org grant — a personal one is left by deleting the grant, so there
+  // would be no row here to count. Reported so the owner can tell "nobody is
+  // using this" from "nobody can see it".
+  const { rows: outRows } = await db.query<{ n: string }>(
+    `SELECT count(*)::text AS n FROM map_share_optouts WHERE map_id = $1`, [mapId],
+  );
+  const optedOut = Number(outRows[0]?.n ?? 0);
+
   res.json({
+    optedOut,
     shares: rows.map((r) => {
       const kind = r.targetCharacterId != null ? 'character' : r.targetCorpId != null ? 'corp' : 'alliance';
       const targetId = (r.targetCharacterId ?? r.targetCorpId ?? r.targetAllianceId)!;
@@ -4622,6 +4925,10 @@ mapsRouter.post('/:mapId/shares', async (req, res) => {
 
     // Best-effort name resolve so the client can render immediately.
     const names = await resolveEntityNames([idNum]);
+    recordMapAudit(req, mapId, {
+      action: 'share.add', targetId: rows[0].id, subject: names.get(idNum)?.name ?? String(idNum),
+      details: { values: { kind, canWrite: grantCanWrite } },
+    });
     res.status(201).json({
       id:        rows[0].id,
       kind,
@@ -4669,7 +4976,46 @@ mapsRouter.delete('/:mapId/shares/mine', async (req, res) => {
     `DELETE FROM map_shares WHERE map_id = $1 AND target_character_id = $2`,
     [mapId, callerChar],
   );
-  if (!rowCount) { res.status(404).json({ error: 'No personal share to leave' }); return; }
+  if (rowCount) { res.json({ ok: true, kind: 'share-removed' }); return; }
+
+  // No personal grant. The map may still reach them through a corp or alliance
+  // grant, which is ONE row meaning everyone in the org — there is nothing
+  // individual to delete, and deleting it would take the map from every
+  // member. Record the opt-out instead, so leaving means the same thing to the
+  // person either way and the owner can see it happened.
+  //
+  // Confirm they can actually see the map first, via the same access check
+  // every other read uses, so this can't be used to probe for map ids or to
+  // accumulate rows against maps the caller has nothing to do with.
+  const access = await getMapAccess(mapId, req);
+  if (!access || access.accessKind !== 'shared') {
+    res.status(404).json({ error: 'No share to leave' }); return;
+  }
+  const ownerId = await resolveOwnerId(req);
+  if (ownerId == null) { res.status(400).json({ error: 'No account owner' }); return; }
+  await db.query(
+    `INSERT INTO map_share_optouts (map_id, owner_id) VALUES ($1, $2)
+     ON CONFLICT (map_id, owner_id) DO NOTHING`,
+    [mapId, ownerId],
+  );
+  res.json({ ok: true, kind: 'opted-out' });
+});
+
+// POST /api/maps/:mapId/shares/mine/restore — undo the opt-out above, putting
+// an org-shared map back in this account's list. Only ever deletes this
+// account's own row, so it cannot affect anyone else; a no-op if they never
+// opted out. There is deliberately no counterpart for a PERSONAL share: that
+// one deleted the grant itself, and only the owner can give it back.
+mapsRouter.post('/:mapId/shares/mine/restore', async (req, res) => {
+  const { mapId } = req.params;
+  if (!UUID_RE.test(mapId)) { res.status(404).json({ error: 'Map not found' }); return; }
+  if (!req.session.userId) { res.status(401).json({ error: 'Not authenticated' }); return; }
+  const ownerId = await resolveOwnerId(req);
+  if (ownerId == null) { res.status(400).json({ error: 'No account owner' }); return; }
+  await db.query(
+    `DELETE FROM map_share_optouts WHERE map_id = $1 AND owner_id = $2`,
+    [mapId, ownerId],
+  );
   res.json({ ok: true });
 });
 
@@ -4681,11 +5027,23 @@ mapsRouter.delete('/:mapId/shares/:shareId', async (req, res) => {
   const access = await requireShareAdmin(res, mapId, req);
   if (!access) return;
 
-  const { rowCount } = await db.query(
-    `DELETE FROM map_shares WHERE id = $1 AND map_id = $2`,
+  const { rows: revokedShare } = await db.query<{ kind: string; targetId: number }>(
+    `DELETE FROM map_shares WHERE id = $1 AND map_id = $2
+     RETURNING CASE WHEN target_character_id IS NOT NULL THEN 'character'
+                    WHEN target_corp_id      IS NOT NULL THEN 'corp'
+                    ELSE 'alliance' END AS kind,
+               COALESCE(target_character_id, target_corp_id, target_alliance_id) AS "targetId"`,
     [shareId, mapId],
   );
-  if (!rowCount) { res.status(404).json({ error: 'Share not found' }); return; }
+  if (!revokedShare.length) { res.status(404).json({ error: 'Share not found' }); return; }
+  const { kind: revokedKind, targetId: revokedTarget } = revokedShare[0];
+  resolveEntityNames([Number(revokedTarget)])
+    .then((names) => recordMapAudit(req, mapId, {
+      action: 'share.remove', targetId: shareId,
+      subject: names.get(Number(revokedTarget))?.name ?? String(revokedTarget),
+      details: { values: { kind: revokedKind } },
+    }))
+    .catch(console.error);
   res.json({ ok: true });
 });
 

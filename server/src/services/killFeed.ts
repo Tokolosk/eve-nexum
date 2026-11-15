@@ -3,8 +3,12 @@ import { db } from '../db.js';
 import { createLogger } from '../utils/logger.js';
 import { activeMapIds, publishToMap } from './mapEvents.js';
 import { resolveEntityNames } from './entityNames.js';
-import { notifyDiscord, killEmbed } from './discord.js';
+import { notifyDiscord, killEmbed, specialKillEmbed } from './discord.js';
 import { recordKill, recordLiveKill, type BufferedKill } from './killBuffer.js';
+import { recordPvpKill, flushPvpKills } from './pvpHistory.js';
+import { storeKill } from './killStore.js';
+import { tagsFor, loadGroups, attackerTypeIds, specialKinds, type SpecialKind } from './killTags.js';
+import { getSetting, setSetting } from './appSettings.js';
 
 // A single decorated kill, shared by the live SSE `kill.recent` event and the
 // REST backfill (routes/maps.ts). Every display name is resolved by US from a
@@ -24,6 +28,8 @@ export interface KillRow {
   victimCorporationId: number | null;
   victimCorpName:      string | null;
   npc:                 boolean;
+  /** Why it's a special kill (capital, 1B+, dictor, smartbomb); empty if not. */
+  special:             SpecialKind[];
   finalBlow: {
     characterId:   number | null;
     name:          string | null;
@@ -87,6 +93,7 @@ export async function buildKillRow(k: BufferedKill): Promise<KillRow> {
     victimCorporationId: k.victimCorporationId,
     victimCorpName: k.victimCorporationId ? names.get(k.victimCorporationId)?.name ?? null : null,
     npc: k.npc,
+    special: k.special ?? [],
     finalBlow: hasFinalBlow ? {
       characterId:   k.finalBlowCharacterId,
       name:          k.finalBlowCharacterId ? names.get(k.finalBlowCharacterId)?.name ?? null : null,
@@ -129,13 +136,14 @@ interface EsiKillmail {
   killmail_id?:     number;
   killmail_time?:   string;
   solar_system_id?: number;
-  victim?:          { ship_type_id?: number; character_id?: number; corporation_id?: number };
-  attackers?:       Array<{ character_id?: number; corporation_id?: number; ship_type_id?: number; final_blow?: boolean }>;
+  victim?:          { ship_type_id?: number; character_id?: number; corporation_id?: number; alliance_id?: number };
+  attackers?:       Array<{ character_id?: number; corporation_id?: number; alliance_id?: number; ship_type_id?: number; weapon_type_id?: number; final_blow?: boolean }>;
 }
 interface EphemeralKill {
   killmail_id?: number;
   esi?:         EsiKillmail;       // the raw ESI killmail (R2Z2 nests it under `esi`)
-  zkb?:         { totalValue?: number; npc?: boolean };
+  zkb?:         { totalValue?: number; npc?: boolean; solo?: boolean; awox?: boolean; locationID?: number; labels?: unknown };
+  uploaded_at?: number;            // unix seconds R2Z2 published it
 }
 
 // Bounded FIFO of recently-seen killmail ids — drops repeats across reconnects
@@ -173,7 +181,12 @@ async function getJson(url: string): Promise<{ status: number; body: unknown }> 
 
 // Process one ephemeral killmail: buffer it, then (if a map is watching its
 // system) decorate + publish + Discord.
-async function processKill(body: EphemeralKill): Promise<void> {
+//
+// `replayed` marks a killmail a previous run of this server already handled
+// (the boot-time replay re-reads the last few hours to refill the in-memory
+// buffers): it goes into the buffers and the live tally, but isn't counted into
+// the PvP history again, and doesn't flash a node or post to Discord twice.
+export async function processKill(body: EphemeralKill, replayed = false): Promise<void> {
   const km = body.esi ?? {};
   const killmailId    = Number(body.killmail_id ?? km.killmail_id);
   const solarSystemId = Number(km.solar_system_id);
@@ -192,12 +205,13 @@ async function processKill(body: EphemeralKill): Promise<void> {
     const victimShip = Number(km.victim?.ship_type_id) || 0;
     const bucket = body.zkb?.npc ? 'npc' : (victimShip === 670 || victimShip === 33328 ? 'pod' : 'ship');
     const kmTime = km.killmail_time ? Date.parse(km.killmail_time) : NaN;
-    recordLiveKill(solarSystemId, Number.isFinite(kmTime) ? kmTime : Date.now(), bucket);
+    const at = Number.isFinite(kmTime) ? kmTime : Date.now();
+    recordLiveKill(solarSystemId, at, bucket);
+    // Player kills only (pods included) for the PvP forecast.
+    if (bucket !== 'npc' && !replayed) recordPvpKill(solarSystemId, at);
   }
 
   const totalValue = Number(body.zkb?.totalValue ?? 0);
-  if (!(totalValue >= config.killFeed.minValueIsk)) return;
-  stats.overMin++;
 
   // Numeric ids only from the (untrusted) killmail. character_id is absent for
   // structure/NPC-only losses -> null. `Number(x) || null` maps 0/NaN to null;
@@ -216,14 +230,49 @@ async function processKill(body: EphemeralKill): Promise<void> {
   const finalBlowShipTypeId    = Number(fb?.ship_type_id) || 0;
   const npc = !!body.zkb?.npc;
 
-  // Record into the rolling buffer UNCONDITIONALLY (even with no map open) so the
-  // kill-log backfill can be served from memory — no zKillboard REST scraping.
+  // Record EVERY kill into the rolling buffer, whatever its value and whether or
+  // not a map is open: the killboard pane shows the cheap ones too, so it can
+  // run ahead of zKill's hour-cached REST list; the kill log applies the ISK
+  // floor when it reads.
   const buffered: BufferedKill = {
     killmailId, atMs, eveSystemId: solarSystemId,
     shipTypeId, totalValue, victimCharacterId, victimCorporationId,
-    finalBlowCharacterId, finalBlowCorporationId, finalBlowShipTypeId, npc,
+    victimAllianceId: Number(km.victim?.alliance_id) || null,
+    finalBlowCharacterId, finalBlowCorporationId,
+    finalBlowAllianceId: Number(fb?.alliance_id) || null,
+    finalBlowShipTypeId,
+    attackerCount: Array.isArray(km.attackers) ? km.attackers.length : 0,
+    solo: !!body.zkb?.solo,
+    npc,
   };
+  const typeIds = attackerTypeIds(km.attackers);
+  // The victim's hull too, to spot a capital.
+  const groupOf = await loadGroups([...typeIds, shipTypeId]);
+  buffered.tags = tagsFor(
+    { locationId: Number(body.zkb?.locationID) || null, solo: buffered.solo, npc, awox: !!body.zkb?.awox, labels: body.zkb?.labels, typeIds },
+    groupOf,
+  );
+  buffered.special = specialKinds(buffered, groupOf);
   recordKill(buffered);
+  // The week-long store behind the killboard's windows and whole-map view; the
+  // killmail id is its key, so a replayed kill is a no-op there.
+  storeKill({ ...buffered, tags: buffered.tags });
+
+  // A special kill goes out whatever its value: a dictor kill on a gate is
+  // often cheap, and it's exactly what the special-kill alerts are for.
+  const overMin = totalValue >= config.killFeed.minValueIsk;
+  if (!overMin && !buffered.special.length) return;
+  stats.overMin++;
+  // Already flashed and posted by the run that first saw it.
+  if (replayed) return;
+
+  // A killmail arriving long after the kill (e.g. a feed catch-up replaying a
+  // backlog) is history, not news: keep it in the buffer for the kill log, but
+  // don't flash nodes or post to Discord as if it just happened.
+  if (Date.now() - atMs > config.killFeed.maxLagSeconds * 1000) {
+    stats.stale++;
+    return;
+  }
 
   // Two independent outputs:
   //  - SSE flash + log: only for maps a client is CURRENTLY watching (no point
@@ -243,18 +292,21 @@ async function processKill(body: EphemeralKill): Promise<void> {
       )).rows.map((r) => r.mapId)
     : [];
 
-  // Corp/alliance maps containing this system that have a kill webhook — viewers
-  // irrelevant. Deduped to distinct (webhook, min-ISK) pairs.
+  // Corp/alliance maps containing this system that have a kill or special-kill
+  // webhook — viewers irrelevant. Deduped to distinct settings.
   const hooks = anyHooks
-    ? (await db.query<{ killWebhook: string; killMinIsk: string }>(
+    ? (await db.query<KillHookRow>(
         `SELECT DISTINCT COALESCE(cds.kill_webhook, ads.kill_webhook)    AS "killWebhook",
-                COALESCE(cds.kill_min_isk, ads.kill_min_isk, 0) AS "killMinIsk"
+                COALESCE(cds.kill_min_isk, ads.kill_min_isk, 0) AS "killMinIsk",
+                COALESCE(cds.special_kill_webhook, ads.special_kill_webhook) AS "specialWebhook",
+                COALESCE(cds.special_kill_kinds, ads.special_kill_kinds, '{}'::text[]) AS "specialKinds"
            FROM map_systems ms
            JOIN maps m ON m.id = ms.map_id
            LEFT JOIN corp_discord_settings     cds ON cds.corp_id     = m.corp_id
            LEFT JOIN alliance_discord_settings ads ON ads.alliance_id = m.alliance_id
           WHERE ms.eve_system_id = $1
-            AND COALESCE(cds.kill_webhook, ads.kill_webhook) IS NOT NULL`,
+            AND (COALESCE(cds.kill_webhook, ads.kill_webhook) IS NOT NULL
+              OR COALESCE(cds.special_kill_webhook, ads.special_kill_webhook) IS NOT NULL)`,
         [solarSystemId],
       )).rows
     : [];
@@ -271,20 +323,38 @@ async function processKill(body: EphemeralKill): Promise<void> {
     log.info(`forwarded kill in ${killRow.systemName} (${Math.round(totalValue / 1e6)}M ISK) -> ${liveMaps.length} map(s)`);
   }
 
-  dispatchDiscord(hooks, killRow);
+  dispatchDiscord(hooks, killRow, overMin);
 }
 
-// Send a Discord kill alert to the webhook of each matched corp/alliance map
-// that has one configured and whose per-org min-ISK the kill clears. Dedupes by
-// URL so two maps sharing a webhook get a single message. Best-effort — a webhook
-// lookup failure is logged and swallowed, never breaking the poll loop.
-function dispatchDiscord(hooks: { killWebhook: string; killMinIsk: string }[], kill: KillRow): void {
+interface KillHookRow {
+  killWebhook: string | null; killMinIsk: string;
+  specialWebhook: string | null; specialKinds: string[];
+}
+
+// Send Discord kill alerts for each matched corp/alliance map's settings:
+//  - a special-kill alert when the kill is one of the kinds the org asked for,
+//    whatever its value;
+//  - otherwise the ordinary kill alert, when the kill clears both the feed's
+//    floor and the org's own minimum.
+// Special alerts go first so that, where both point at the same webhook, the
+// channel gets the special one. Dedupes by URL so two maps sharing a webhook get
+// a single message.
+export function dispatchDiscord(hooks: KillHookRow[], kill: KillRow, overFeedMin: boolean): void {
   const sent = new Set<string>();
   for (const h of hooks) {
-    if (sent.has(h.killWebhook)) continue;
-    if (kill.totalValue < Number(h.killMinIsk)) continue;
-    sent.add(h.killWebhook);
-    notifyDiscord(h.killWebhook, killEmbed(kill)); // SSRF-guarded + queued inside
+    if (!h.specialWebhook || sent.has(h.specialWebhook)) continue;
+    const kinds = kill.special.filter((k) => h.specialKinds.includes(k));
+    if (!kinds.length) continue;
+    sent.add(h.specialWebhook);
+    notifyDiscord(h.specialWebhook, specialKillEmbed(kill, kinds)); // SSRF-guarded + queued inside
+  }
+  if (overFeedMin) {
+    for (const h of hooks) {
+      if (!h.killWebhook || sent.has(h.killWebhook)) continue;
+      if (kill.totalValue < Number(h.killMinIsk)) continue;
+      sent.add(h.killWebhook);
+      notifyDiscord(h.killWebhook, killEmbed(kill));
+    }
   }
   if (sent.size) log.info(`kill Discord: dispatched to ${sent.size} webhook(s) for ${kill.systemName}`);
 }
@@ -299,8 +369,8 @@ async function anyKillWebhooks(): Promise<boolean> {
   if (now - hooksCheckedAt < 60_000) return hooksPresent;
   try {
     const { rows } = await db.query<{ present: boolean }>(
-      `SELECT (EXISTS(SELECT 1 FROM corp_discord_settings     WHERE kill_webhook IS NOT NULL)
-            OR EXISTS(SELECT 1 FROM alliance_discord_settings WHERE kill_webhook IS NOT NULL)) AS present`,
+      `SELECT (EXISTS(SELECT 1 FROM corp_discord_settings     WHERE kill_webhook IS NOT NULL OR special_kill_webhook IS NOT NULL)
+            OR EXISTS(SELECT 1 FROM alliance_discord_settings WHERE kill_webhook IS NOT NULL OR special_kill_webhook IS NOT NULL)) AS present`,
     );
     hooksPresent = !!rows[0]?.present;
     hooksCheckedAt = now;
@@ -314,24 +384,110 @@ let running = false;
 
 // Rolling counters for the heartbeat log, so "is the feed actually working?" is
 // observable: `seen` = killmails pulled from the firehose, `overMin` = those at
-// or above the ISK floor, `forwarded` = those in a currently-viewed map's
-// systems (the ones that flash a node). seen climbing with forwarded stuck at 0
+// or above the ISK floor, `stale` = of those, arrived too late to flash,
+// `forwarded` = those in a currently-viewed map's systems (the ones that flash
+// a node). seen climbing with forwarded stuck at 0
 // just means no big kill has happened in a mapped system yet — not a fault.
-const stats = { seen: 0, overMin: 0, forwarded: 0 };
+const stats = { seen: 0, overMin: 0, stale: 0, forwarded: 0 };
 const HEARTBEAT_MS = 120_000;
+
+// Where the feed has got to, kept across restarts in app_settings. Every
+// sequence at or below it has been fully handled (buffered, counted, flashed),
+// so a restart resumes after it instead of jumping to the newest killmail and
+// silently dropping whatever happened while the server was down.
+const CURSOR_KEY = 'killfeed_sequence';
+const CURSOR_SAVE_MS = 60_000;
+// Never replay more than this many killmails on boot (~a day at New Eden's
+// usual rate); after a longer outage, start from the backfill window instead.
+const MAX_REPLAY = 30_000;
+
+const feed = {
+  seq:        null as number | null, // next sequence to fetch
+  processed:  null as number | null, // last sequence fully handled
+  replayUntil: -1,                   // sequences <= this were handled by an earlier run
+  lastUploadedMs: 0,                 // when R2Z2 published the last killmail we handled
+};
+
+export interface StartPlan { start: number; replayUntil: number }
+
+/**
+ * Where to start reading after a boot.
+ *
+ * The in-memory buffers (kill log, killboard pane) want the last
+ * backfillSeconds of kills, so start at least that far back (`windowStart`).
+ * When a previous run left a cursor, also start no later than just after it, so
+ * nothing that happened while the server was down is skipped -- but never more
+ * than MAX_REPLAY back. Everything up to the cursor is a replay; with no cursor
+ * (first run) everything before the current head is.
+ */
+export function planStart(head: number, windowStart: number, saved: number | null): StartPlan {
+  const floor = head - MAX_REPLAY;
+  let start = Math.min(windowStart, head);
+  if (saved != null && saved < head) start = Math.min(start, saved + 1);
+  start = Math.max(start, floor, 1);
+  const replayUntil = saved != null && saved < head ? saved : head - 1;
+  return { start, replayUntil };
+}
+
+/** The first sequence R2Z2 published at or after `targetMs`, by binary search
+ *  on uploaded_at. Falls back to an estimate if R2Z2 misbehaves. */
+async function sequenceAt(targetMs: number, head: number): Promise<number> {
+  let lo = Math.max(1, head - MAX_REPLAY);
+  let hi = head;
+  try {
+    while (hi - lo > 1) {
+      const mid = Math.floor((lo + hi) / 2);
+      const { status, body } = await getJson(r2z2KillUrl(mid));
+      await sleep(REQ_SPACING_MS);
+      // A 404 below the head is a killmail R2Z2 no longer keeps: too old.
+      const up = status === 200 ? Number((body as EphemeralKill).uploaded_at) * 1000 : -Infinity;
+      if (up < targetMs) lo = mid; else hi = mid;
+    }
+    return hi;
+  } catch (err) {
+    log.warn('R2Z2 backfill search failed, estimating:', err instanceof Error ? err.message : err);
+    return Math.max(1, head - Math.ceil(config.killFeed.backfillSeconds / 3600) * 1_500);
+  }
+}
+
+async function loadCursor(): Promise<number | null> {
+  try {
+    const v = Number(await getSetting(CURSOR_KEY));
+    return Number.isInteger(v) && v > 0 ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+// Save the cursor only after the PvP counts up to it are flushed, so a crash
+// can lose a minute of counts but never count a killmail twice.
+async function saveCursor(): Promise<void> {
+  const upTo = feed.processed;
+  if (upTo == null) return;
+  await flushPvpKills();
+  await setSetting(CURSOR_KEY, String(upTo), null);
+}
+
+async function boot(): Promise<number> {
+  const { body } = await getJson(R2Z2_SEQUENCE_URL);
+  const head = Number((body as { sequence?: number } | null)?.sequence);
+  if (!Number.isFinite(head)) throw new Error('R2Z2 sequence.json: missing sequence');
+  const saved = await loadCursor();
+  const windowStart = await sequenceAt(Date.now() - config.killFeed.backfillSeconds * 1000, head);
+  const plan = planStart(head, windowStart, saved);
+  feed.replayUntil = plan.replayUntil;
+  log.info(`starting at sequence ${plan.start} (head ${head}, ${head - plan.start} to catch up` +
+    `${saved != null ? `, resuming after ${saved}` : ', no saved position'})`);
+  return plan.start;
+}
 
 async function loop(): Promise<void> {
   let backoff = 1_000;
-  let seq: number | null = null;
   while (running) {
     try {
-      // Obtain a starting sequence once (and again after a hard error resets it).
-      if (seq === null) {
-        const { body } = await getJson(R2Z2_SEQUENCE_URL);
-        const n = Number((body as { sequence?: number } | null)?.sequence);
-        if (!Number.isFinite(n)) throw new Error('R2Z2 sequence.json: missing sequence');
-        seq = n;
-      }
+      // Work out a starting sequence once (and again after a hard error resets it).
+      if (feed.seq === null) feed.seq = await boot();
+      const seq = feed.seq;
       const { status, body } = await getJson(r2z2KillUrl(seq));
       if (status === 404) {
         // Caught up — no killmail at this sequence yet. Wait (>= the 6s R2Z2
@@ -340,8 +496,12 @@ async function loop(): Promise<void> {
         backoff = 1_000;
         continue;
       }
-      await processKill(body as EphemeralKill);
-      seq += 1;                     // advance past the processed killmail
+      const kill = body as EphemeralKill;
+      await processKill(kill, seq <= feed.replayUntil);
+      feed.processed = seq;
+      const up = Number(kill.uploaded_at) * 1000;
+      if (Number.isFinite(up)) feed.lastUploadedMs = up;
+      feed.seq = seq + 1;           // advance past the processed killmail
       backoff = 1_000;
       await sleep(REQ_SPACING_MS);  // pace catch-up bursts under the 15 req/s cap
     } catch (err) {
@@ -366,8 +526,13 @@ export function startKillFeed(): void {
     // `watched` = maps with a live SSE client right now. If this is 0, no kill
     // can ever forward regardless of the feed — the browser's event stream isn't
     // registering (nothing to match against).
-    log.info(`heartbeat: ${stats.seen} seen, ${stats.overMin} >= min ISK, ${stats.forwarded} forwarded; ${activeMapIds().length} map(s) watched now`);
+    const behind = feed.lastUploadedMs ? Math.round((Date.now() - feed.lastUploadedMs) / 1000) : null;
+    log.info(`heartbeat: ${stats.seen} seen, ${stats.overMin} >= min ISK, ${stats.stale} too late to flash, ${stats.forwarded} forwarded; ${activeMapIds().length} map(s) watched now; at sequence ${feed.processed ?? '-'}${behind != null ? `, ${behind}s behind R2Z2` : ''}`);
   }, HEARTBEAT_MS);
   hb.unref?.();
+  const cursor = setInterval(() => {
+    saveCursor().catch((err) => log.warn('saving feed position failed:', err instanceof Error ? err.message : err));
+  }, CURSOR_SAVE_MS);
+  cursor.unref?.();
   void loop();
 }

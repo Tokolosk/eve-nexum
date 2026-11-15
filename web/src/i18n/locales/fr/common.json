@@ -12,6 +12,11 @@
   "account": {
     "switchCharacter": "Changer de personnage",
     "addCharacter": "Ajouter un personnage",
+    "shareSettings": "Partager les paramètres entre personnages",
+    "shareSettingsHint": "Si activé, tous les personnages de ce compte utilisent les mêmes paramètres, sauf les compétences de saut. L'activation copie les paramètres du personnage modifié le plus récemment vers les autres.",
+    "shareSettingsFailed": "Impossible de modifier le partage des paramètres",
+    "installApp": "Installer comme application",
+    "installAppHint": "Ouvrir Nexum dans sa propre fenêtre, avec sa propre icône dans le Dock ou la barre des tâches.",
     "blocked": "bloqué",
     "characterAdded": "{{name}} ajouté",
     "switchTo": "Basculer vers {{name}}",
@@ -45,6 +50,28 @@
     "allHidden": "Tous les graphiques sont masqués. Activez-les dans Options de carte → Activité.",
     "loading": "Chargement de l'activité…",
     "peak": "pic {{value}}"
+  },
+  "pvp": {
+    "loading": "Chargement de l'activité PvP…",
+    "loadFailed": "Impossible de charger l'activité PvP.",
+    "noHistory": "Pas encore d'historique PvP. Les kills de joueurs ici sont enregistrés à partir de maintenant.",
+    "noneInDays_one": "Aucun kill ici au cours du dernier jour.",
+    "noneInDays_other": "Aucun kill ici ces {{count}} derniers jours.",
+    "busiestNow": "Pic d'activité maintenant ({{time}})",
+    "busiestNext": "Pic d'activité à {{time}}, dans {{n}} h",
+    "quietAhead": "Calme pour les 24 prochaines heures",
+    "killsInDays": "{{n}} en {{days}} j",
+    "recent": "Flux en direct : {{n}} ces dernières 24 h",
+    "chartLabel": "Kills de joueurs par heure de la journée pour les 24 prochaines heures",
+    "barTitle": "{{day}} {{time}} : {{n}}",
+    "now": "maint.",
+    "noteZkill": "Kills par jour de la semaine et heure sur les 90 derniers jours de zKillboard, affichés en {{zone}}. Les barres plus chaudes sont généralement plus actives.",
+    "noteLive": "zKillboard est injoignable, ceci utilise donc les kills enregistrés ici jusqu'à présent.",
+    "timesIn": "Heures en",
+    "zoneAuto": "Locale ({{zone}})",
+    "zoneUtc": "Heure EVE (UTC)",
+    "zoneSearch": "Rechercher un fuseau horaire",
+    "zoneNoMatches": "Aucun fuseau horaire correspondant"
   },
   "addSystem": {
     "title": "Ajouter un système",
@@ -225,11 +252,16 @@
         "24h": "Dernières 24 heures",
         "week": "Semaine passée",
         "month": "Mois passé",
+        "quarter": "Trimestre passé",
         "year": "Année passée"
       },
       "userFilters": {
         "all": "Tous les utilisateurs",
-        "logins": "Connexions",
+        "active": "Actifs",
+        "inactive": "Inactifs",
+        "new": "Nouveaux utilisateurs",
+        "systemsAdded": "Systèmes ajoutés",
+        "systemsDeleted": "Systèmes supprimés",
         "signatures": "Signatures",
         "structures": "Structures"
       },
@@ -270,6 +302,7 @@
           "hour24": "Signatures par heure (dernières 24 heures)",
           "dayWeek": "Signatures par jour (semaine passée)",
           "dayMonth": "Signatures par jour (mois passé)",
+          "weekQuarter": "Signatures par semaine (trimestre passé)",
           "monthYear": "Signatures par mois (année passée)",
           "monthAll": "Signatures par mois (tout le temps)"
         },
@@ -317,6 +350,10 @@
       "broadcastK162Hint": "Lorsque cette option est active, une signature identifiée comme K162 est publiée sur Discord dès que sa destination est connue. Désactivé par défaut.",
       "broadcastExits": "Signaler les sorties vers le k-space",
       "broadcastExitsHint": "Lorsque cette option est active, une connexion révélant une sortie vers le k-space au niveau de sécurité choisi ci-dessous ou au-delà publie un résumé d’itinéraire : la sortie, le chemin pour s’y rendre et le hub commercial le plus proche. Désactivé par défaut ; la connexion elle-même est annoncée dans tous les cas.",
+      "broadcastEol": "Annoncer les trous en fin de vie",
+      "broadcastEolHint": "Si activé, un pilote qui marque un trou de ver en fin de vie (moins de 4 heures ou moins d’1 heure) déclenche une publication sur le webhook des connexions. Désactivé par défaut.",
+      "broadcastThera": "Annoncer les trous vers Thera et Turnur",
+      "broadcastTheraHint": "Si activé, un nouveau trou vers Thera ou Turnur est publié sur le webhook des connexions comme alerte Thera/Turnur, même si les filtres de trous de ver ci-dessus l’excluraient. Désactivé par défaut.",
       "webhooks": "Webhooks",
       "webhooksHint": "Où les notifications sont publiées. Collez une URL de webhook Discord pour chaque canal ; laissez un champ vide pour désactiver ce type.",
       "connectionsWebhook": "Connexions (K162 + nouvelles connexions)",
@@ -337,7 +374,13 @@
       "colMap": "Carte",
       "colExclude": "Exclure",
       "killWebhook": "Webhook des kills",
-      "killMinIsk": "ISK minimum"
+      "killMinIsk": "ISK minimum",
+      "specialWebhook": "Webhook des kills spéciaux",
+      "specialWebhookHint": "Les kills qui méritent une alerte, publiés quelle que soit leur valeur — par ex. dans un salon avec notifications. Choisissez lesquels comptent :",
+      "specialCapital": "Capitaux",
+      "specialBillion": "1 Md+ ISK",
+      "specialDictor": "Dictor / HIC",
+      "specialSmartbomb": "Smartbomb"
     },
     "roles": {
       "button": "Rôles ?",
@@ -474,10 +517,141 @@
     "revokeFailed": "Impossible de révoquer la clé. Veuillez réessayer.",
     "disabled": "Clés API désactivées"
   },
+  "audit": {
+    "title": "Journal des modifications",
+    "titleFor": "Journal des modifications — {{name}}",
+    "hint": "Modifications des {{days}} derniers jours. Le déplacement des systèmes et le nettoyage automatique ne sont pas enregistrés.",
+    "sidebarHint": "Qui a ajouté, supprimé ou modifié quoi sur cette carte.",
+    "open": "Ouvrir le journal",
+    "filter": "Afficher",
+    "empty": "Rien d’enregistré pour l’instant.",
+    "loading": "Chargement…",
+    "loadMore": "Charger les plus anciennes",
+    "unknownPilot": "Pilote inconnu",
+    "viaApi": "API",
+    "on": "activé",
+    "off": "désactivé",
+    "cleared": "effacé",
+    "kind": {
+      "all": "Toutes les modifications",
+      "system": "Systèmes",
+      "connection": "Connexions",
+      "signature": "Signatures",
+      "anomaly": "Anomalies",
+      "structure": "Structures",
+      "chain": "Chaînes",
+      "map": "Paramètres de la carte",
+      "share": "Partage"
+    },
+    "action": {
+      "system": {
+        "add": "a ajouté {{subject}}",
+        "update": "a modifié {{subject}}",
+        "remove": "a supprimé {{subject}}"
+      },
+      "connection": {
+        "add": "a connecté {{subject}}",
+        "update": "a modifié {{subject}}",
+        "remove": "a déconnecté {{subject}}"
+      },
+      "signature": {
+        "add": "a ajouté la signature {{subject}}",
+        "update": "a modifié la signature {{subject}}",
+        "remove": "a supprimé la signature {{subject}}"
+      },
+      "anomaly": {
+        "add": "a ajouté l’anomalie {{subject}}",
+        "update": "a modifié l’anomalie {{subject}}",
+        "remove": "a supprimé l’anomalie {{subject}}"
+      },
+      "structure": {
+        "add": "a ajouté la structure {{subject}}",
+        "update": "a modifié la structure {{subject}}",
+        "remove": "a supprimé la structure {{subject}}"
+      },
+      "chain": {
+        "add": "a enregistré la chaîne {{subject}}",
+        "update": "a modifié la chaîne {{subject}}",
+        "remove": "a supprimé la chaîne {{subject}}"
+      },
+      "map": {
+        "update": "a modifié les paramètres de la carte",
+        "merge": "a fusionné {{subject}}",
+        "scoutCleanup": "a nettoyé les trous de {{subject}}"
+      },
+      "share": {
+        "add": "a partagé la carte avec {{subject}}",
+        "remove": "ne partage plus avec {{subject}}",
+        "link": {
+          "create": "a créé un lien de diffusion",
+          "update": "a modifié le lien de diffusion",
+          "revoke": "a révoqué le lien de diffusion"
+        }
+      }
+    },
+    "field": {
+      "name": "Nom",
+      "alias": "Alias",
+      "notes": "Notes",
+      "status": "Statut",
+      "isHome": "Base",
+      "locked": "Verrouillé",
+      "intel": "Renseignement",
+      "tag": "Marqueur",
+      "labels": "Étiquettes",
+      "customLabels": "Étiquettes perso",
+      "connectionType": "Type de saut",
+      "massStatus": "Masse",
+      "timeStatus": "Durée de vie",
+      "size": "Taille",
+      "type": "Type de trou",
+      "massUsed": "Masse utilisée",
+      "eolAt": "Heure EOL",
+      "lifetimeExpiresAt": "Expiration",
+      "broken": "Rompu",
+      "flagIcon": "Icône du drapeau",
+      "flagNote": "Note du drapeau",
+      "flagBlink": "Drapeau clignotant",
+      "flagColor": "Couleur du drapeau",
+      "sourceSignatureId": "Signature d’origine",
+      "targetSignatureId": "Signature de destination",
+      "sigId": "ID de signature",
+      "sigType": "Groupe",
+      "whType": "Type de trou",
+      "whLeadsTo": "Mène à",
+      "ghostType": "Site fantôme",
+      "anomId": "ID d’anomalie",
+      "anomType": "Type",
+      "structureType": "Type de structure",
+      "ownerCorp": "Propriétaire",
+      "eveId": "ID EVE",
+      "systemIds": "Systèmes",
+      "connectionIds": "Connexions",
+      "allowAsMergeSource": "Source de fusion",
+      "allowAsMergeDestination": "Destination de fusion",
+      "lazyRemoveWormholes": "Suppression différée des trous",
+      "collapseGraceHours": "Délai d’effondrement (heures)",
+      "bookmarkFormat": "Format des signets",
+      "siteBookmarkFormat": "Format des signets de sites",
+      "skipKspace": "Ignorer le k-space",
+      "crossMapSync": "Synchronisation entre cartes",
+      "expiryHours": "Expiration (heures)",
+      "includeSigs": "Signatures",
+      "includeBridges": "Ponts",
+      "includeNotes": "Notes",
+      "includeStructures": "Structures",
+      "kind": "Partagé avec",
+      "canWrite": "Peut modifier",
+      "systems": "Systèmes",
+      "connections": "Connexions",
+      "signatures": "Signatures",
+      "structures": "Structures"
+    }
+  },
   "chainExits": {
     "title": "Sorties de la chaîne",
     "noExits": "Aucune sortie K-space dans cette chaîne.",
-    "hint": "Systèmes K-space actuellement sur la carte, par classe de sécurité. L'itinéraire vers Jita passe uniquement par les portails — les raccourcis par trou de ver ne sont pas comptés.",
+    "hint": "Systèmes K-space reliés par un trou de ver sur la carte, par classe de sécurité. L'itinéraire vers Jita passe uniquement par les portails — les raccourcis par trou de ver ne sont pas comptés.",
     "allExits": "Toutes les sorties K-space",
     "noFavourites": "Aucun système favori — ajoutez-en dans le panneau Systèmes proches.",
     "noRoute": "aucun itinéraire",
@@ -530,7 +704,9 @@
     "signIn": "Connectez-vous et arrimez en K-space pour voir les sauts vers les hubs, ou activez les options de raccourcis d'itinéraire pour calculer un itinéraire depuis un trou de ver ou Thera.",
     "searchPlaceholder": "Rechercher un nom de système…",
     "onList": "dans la liste",
-    "noMatch": "Aucun système ne correspond à « {{query}} »"
+    "noMatch": "Aucun système ne correspond à « {{query}} »",
+    "allMaps": "Calculer sur toutes mes cartes",
+    "allMapsHint": "Les distances peuvent emprunter les chaînes de trous de ver de toutes les cartes que vous pouvez voir, pas seulement celle ouverte. Désactivez ceci pour ne router que par la carte à l'écran."
   },
   "commandPalette": {
     "placeholder": "Rechercher systèmes et cartes…",
@@ -617,8 +793,10 @@
     "collapseConfirmStrand": " Votre roller serait bloqué du côté opposé.",
     "collapseConfirmHome": " Votre roller finit du côté origine.",
     "rollIt": "Effectuer le passage",
-    "removeConnection": "Retirer la connexion",
+    "removeConnection": "Retirer seulement la connexion",
+    "removeConnectionAndSigs": "Retirer la connexion et les signatures",
     "brokenNotice": "Connexion rompue — la sig de trou de ver qui la soutenait a été supprimée. Conservée sur la carte mais mise en quarantaine du routage.",
+    "brokenNoticeRolled": "Connexion effondrée — le calculateur de roll a enregistré assez de masse pour la fermer. Conservée sur la carte mais mise en quarantaine du routage. Annulez le dernier passage si c'était une erreur.",
     "flagLabel": "Marqueur",
     "flagAdd": "Ajouter un marqueur",
     "flagNotePlaceholder": "ex. NE PAS ROULER – flotte en approche",
@@ -639,7 +817,9 @@
     "matchCount_other": "{{count}} systèmes correspondent",
     "clear": "Effacer le filtre",
     "holes": "Trous de ver",
-    "undivedWh": "Inexploré"
+    "undivedWh": "Inexploré",
+    "wormholeTip": "Systèmes avec une signature de trou de ver, scannée ou non, franchie ou non",
+    "undivedWhTip": "Systèmes avec un trou que personne n'a encore franchi"
   },
   "copyMap": {
     "title": "Copier la carte",
@@ -740,8 +920,11 @@
     "optimizeConnections": "Optimiser les connexions",
     "spreadNodes": "Espacer les nœuds",
     "removeOrphans": "Supprimer les systèmes orphelins ({{count}})",
-    "removeOrphansConfirm": "Supprimer {{count}} système(s) orphelin(s) ? Ils n'ont aucune connexion valide (aucune, ou uniquement rompues). Les systèmes d'origine et verrouillés sont conservés. Cette action est réversible.",
+    "removeOrphansConfirm": "Supprimer {{count}} système(s) orphelin(s) ? Ils n'ont aucune connexion valide (aucune, ou uniquement rompues), ou sont coupés du système d'origine par une connexion rompue. Les systèmes d'origine et verrouillés sont conservés. Cette action peut être annulée.",
+    "keyDeleteConfirmOne": "Supprimer {{name}} ? Cette action est réversible.",
+    "keyDeleteConfirmMany": "Supprimer {{count}} systèmes ? Cette action est réversible.",
     "removeStranded": "Supprimer les systèmes coupés du foyer ({{count}})",
+    "removeStrandedNoHome": "Supprimer les systèmes coupés du foyer (définissez d'abord un foyer)",
     "removeStrandedConfirm": "Supprimer {{count}} système(s) sans itinéraire de retour vers {{home}} ? Le système foyer et les systèmes verrouillés sont conservés. Il s’agit d’une suppression en masse : l’annulation les restaure un par un, et seules les 50 dernières suppressions sont conservées.",
     "labels": "Labels",
     "customLabel": "Label personnalisé",
@@ -772,6 +955,65 @@
     "signInMore": "Connectez-vous pour voir les kills, signatures, structures, l'activité, la souveraineté et plus encore.",
     "addSystemHere": "Ajouter un système ici",
     "addSystemLimit": "Ajouter un système (limite de {{max}} atteinte)"
+  },
+  "dscan": {
+    "title": "Analyseur de d-scan",
+    "landingLink": "Analyseur de d-scan",
+    "intro": "Collez un scan directionnel ou une liste de pilotes du local. Vous obtenez une répartition et un lien que tout le monde peut ouvrir pendant 24 heures.",
+    "placeholder": "Collez ici un d-scan ou le local",
+    "analyse": "Analyser",
+    "analysing": "Analyse en cours...",
+    "attachTo": "Rattacher à {{system}}",
+    "newScan": "Nouveau scan",
+    "loading": "Chargement du scan...",
+    "backToMap": "Retour à la carte",
+    "home": "Accueil",
+    "shareLink": "Lien vers ce scan",
+    "copyLink": "Copier le lien",
+    "linkCopied": "Lien copié",
+    "copyFailed": "Impossible de copier le lien",
+    "openInNewTab": "Ouvrir dans un nouvel onglet",
+    "kindDscan": "Scan directionnel",
+    "kindLocal": "Local",
+    "scanned": "Scanné {{ago}}",
+    "filterLabel": "Afficher",
+    "filterAll": "Tout",
+    "filterOnGrid": "Sur la grille",
+    "filterOffGrid": "Hors grille",
+    "onGridHint": "Sur la grille signifie à moins de {{km}} km.",
+    "hullMass": "Masse de coque",
+    "noMassData": "Sans données de masse : {{n}}",
+    "total": "Total",
+    "nothingInRange": "Rien dans cette zone.",
+    "unknownGroup": "Inconnu",
+    "pilots": "Pilotes",
+    "alliances": "Alliances",
+    "corps": "Corporations",
+    "notFound": "Introuvables",
+    "notFoundHint": "Noms introuvables",
+    "noAlliance": "Sans alliance",
+    "systemSection": "D-scans",
+    "systemNone": "Aucun scan ces dernières 24 heures.",
+    "summaryDscan": "Vaisseaux : {{ships}} / objets : {{total}}",
+    "summaryLocal": "Local : {{n}} pilotes",
+    "sections": {
+      "ships": "Vaisseaux",
+      "structures": "Structures",
+      "deployables": "Déployables",
+      "drones": "Drones et chasseurs",
+      "other": "Autres"
+    },
+    "errors": {
+      "empty": "Rien à analyser. Collez d'abord un d-scan ou une liste du local.",
+      "unrecognised": "Cela ne ressemble ni à un d-scan ni à une liste du local.",
+      "tooMany": "Ce texte est trop long.",
+      "lookupFailed": "Impossible de rechercher ces pilotes pour le moment. Réessayez dans une minute.",
+      "rateLimited": "Trop de scans. Patientez un instant et réessayez.",
+      "failed": "Impossible d'analyser ce texte.",
+      "notFound": "Ce scan n'existe pas.",
+      "expired": "Ce scan a expiré. Les scans sont conservés 24 heures.",
+      "loadFailed": "Impossible de charger ce scan."
+    }
   },
   "duration": {
     "seconds": "{{value}}s",
@@ -916,7 +1158,39 @@
     "noKillsOnRecord": "Aucun kill enregistré.",
     "noKillsNpc": "Aucun kill ces dernières 24 h — {{count}} PNJ uniquement masqués.",
     "showThem": "Les afficher",
-    "loadMore": "Charger plus ({{count}} restants)"
+    "loadMore": "Charger plus ({{count}} restants)",
+    "scopeLabel": "Afficher les kills pour",
+    "scopeSystem": "Ce système",
+    "scopeMap": "Toute la carte",
+    "windowLabel": "Période",
+    "window": {
+      "1h": "1 h",
+      "24h": "24 h",
+      "7d": "7 j"
+    },
+    "showingOf": "{{shown}} sur {{total}} kills",
+    "tags": {
+      "gate": "Portail",
+      "hic": "HIC",
+      "dic": "Dictor",
+      "sb": "SB",
+      "npc": "PNJ",
+      "solo": "Solo",
+      "ganked": "Ganké",
+      "awox": "Awox",
+      "padding": "Padding"
+    },
+    "tagTips": {
+      "gate": "Tué sur un portail stellaire",
+      "hic": "Un heavy interdictor figurait sur le killmail",
+      "dic": "Un interdictor figurait sur le killmail",
+      "sb": "Tué par une smartbomb",
+      "npc": "Uniquement des PNJ sur le killmail",
+      "solo": "Un seul attaquant",
+      "ganked": "Tué par un gank : CONCORD figurait sur le killmail",
+      "awox": "Tué par sa propre corporation ou alliance",
+      "padding": "zKillboard le marque comme padding : un kill sans valeur pour gonfler les statistiques"
+    }
   },
   "labelsDialog": {
     "title": "Labels personnalisés",
@@ -963,7 +1237,7 @@
     "features": {
       "interactiveMap": {
         "title": "Carte interactive",
-        "desc": "Glissez les systèmes, tracez des connexions, définissez la classe / le type / le statut du trou de ver par connexion. Alignement sur la grille et mini-carte optionnelle."
+        "desc": "Faites glisser les systèmes, tracez des connexions, définissez la classe / le type / le statut du trou de ver par connexion. Alignement sur la grille et minicarte optionnelle."
       },
       "seedRegion": {
         "title": "Générer une carte depuis une région",
@@ -983,7 +1257,7 @@
       },
       "multiSelect": {
         "title": "Opérations groupées par sélection multiple",
-        "desc": "Maj+clic pour sélectionner plusieurs systèmes ou signatures, puis attribuez un type, supprimez ou renommez en une seule action."
+        "desc": "Maj ou Cmd / Ctrl+clic pour sélectionner plusieurs systèmes ou signatures, puis attribuez un type, supprimez ou renommez en une seule action."
       },
       "pngExport": {
         "title": "Export PNG",
@@ -1023,7 +1297,7 @@
       },
       "crossMapSync": {
         "title": "Synchronisation entre cartes",
-        "desc": "Le même système sur plusieurs cartes ? Activez l'option et, en le scannant sur une carte, ses signatures et anomalies sont copiées vers le même système sur vos autres cartes — les cartes personnelles se synchronisent avec vos autres cartes personnelles, celles de corpo avec celles de la corpo. Non destructif : seules les entrées manquantes sont ajoutées et les blancs comblés, sans jamais écraser ce que vous avez déjà saisi ni rien supprimer."
+        "desc": "Le même système sur plusieurs cartes ? Activez l'option et, en le scannant sur une carte, ses signatures et anomalies sont copiées vers le même système sur vos autres cartes. Les cartes personnelles se synchronisent avec vos autres cartes personnelles (y compris celles de vos alts), et les cartes de corpo ou d'alliance avec les autres cartes du même type où la synchronisation est activée. Seules les entrées manquantes sont ajoutées et les blancs comblés, sans jamais rien écraser ni supprimer."
       },
       "realtime": {
         "title": "Collaboration en temps réel",
@@ -1035,15 +1309,15 @@
       },
       "rbac": {
         "title": "Accès basé sur les rôles",
-        "desc": "Quatre niveaux — readonly, edit, full, admin — encadrant les actions sur les cartes de corp. Les cartes personnelles restent les vôtres quel que soit le rôle."
+        "desc": "Lecture seule, contributeur, modification, complet et admin, plus admin d'alliance sur les installations d'alliance. Un contributeur tient à jour signatures, anomalies et structures et cartographie la chaîne en la parcourant, mais ne peut pas la remanier à la main. Les cartes personnelles restent les vôtres quel que soit le rôle."
       },
       "systemPanel": {
         "title": "Panneau de système",
-        "desc": "Des tuiles par système pour les signatures, structures, stations PNJ, notes, killboard et graphiques d'activité. Les tuiles sont réorganisables par glisser-déposer et persistent par utilisateur."
+        "desc": "Des cartes par système pour les signatures, anomalies, structures, stations PNJ, notes, killboard, activité PvP, d-scans et graphiques d'activité, avec des liens Dotlan, zKillboard et anoik.is. Les cartes se réorganisent par glisser-déposer et l'ordre est conservé par utilisateur."
       },
       "sigMgmt": {
         "title": "Gestion des signatures",
-        "desc": "Collez directement depuis le scanner de sondes. Suit l'âge de création / mise à jour par signature, supprime automatiquement les sigs absentes d'un nouveau collage, et prend en charge l'attribution de type groupée pour la sélection multiple."
+        "desc": "Collez directement depuis le scanner de sondes. Indique qui a scanné chaque signature et depuis combien de temps, peut retirer après un délai de grâce les sigs absentes d'un nouveau collage, et ne duplique jamais une signature quand deux pilotes collent en même temps. Copiez depuis n'importe quelle ligne un nom de signet prêt à coller, dans votre propre format ou celui de la carte."
       },
       "structImport": {
         "title": "Import de structures",
@@ -1055,15 +1329,15 @@
       },
       "activityCharts": {
         "title": "Graphiques d'activité",
-        "desc": "Historique glissant sur 24 h des sauts, des kills de vaisseaux / capsules et des kills PNJ par système, interrogé depuis l'ESI toutes les heures. Le collecteur conserve les données de chaque système K-space — pas seulement ceux que quelqu'un a ouverts — pour que les graphiques se remplissent dès que vous consultez un nouveau système."
+        "desc": "Historique glissant sur 24 heures des sauts, des kills de vaisseaux / pods et des kills PNJ par système, interrogé toutes les heures auprès d'ESI pour chaque système K-space. Affichez-les empilés dans votre propre ordre, ou combinés sur un même jeu d'axes avec les valeurs exactes au survol."
       },
       "sovStation": {
-        "title": "Données de souveraineté & de station",
-        "desc": "Infos sov en direct alliance / corp / faction et services de station PNJ, avec actions de point de cheminement et de destination en jeu."
+        "title": "Souveraineté et données de station",
+        "desc": "Souveraineté en direct d'alliance / corpo / faction avec l'ADM du hub et sa prochaine fenêtre de vulnérabilité, plus les services des stations PNJ, avec des actions de point de passage et de destination en jeu."
       },
       "killboard": {
         "title": "Volet killboard",
-        "desc": "Activité zKillboard récente par système, avec les kills PNJ uniquement masqués par défaut (à basculer). Les lignes se teintent en rouge quand un acteur hostile est dans la chaîne ou qu'un ami se fait tuer ; en bleu quand un ami marque ou qu'un hostile meurt. Les kills récents ressortent aussi en surbrillance sur la carte."
+        "desc": "Kills récents de zKillboard et du flux en direct pour un système ou toute votre carte, sur la dernière heure, le dernier jour ou la dernière semaine. Chaque kill est signalé s'il a eu lieu sur un portail ou impliquait un HIC, un dictor ou une smartbomb. Les kills PNJ sont masqués par défaut. Les lignes se teintent en rouge quand un hostile est impliqué ou qu'un blue meurt, et en bleu quand un ami marque."
       },
       "effectDigest": {
         "title": "Synthèse des effets de la chaîne",
@@ -1074,8 +1348,8 @@
         "desc": "Votre liste de contacts EVE (perso, corp et alliance — récupérée via l'ESI à la connexion et réactualisable à la demande) alimente une couche visuelle sur toute la chaîne. Les détenteurs de sov affichent des pastilles de standing P/C/A en ligne ; les structures résolues via leur ID de structure EVE se teintent selon le standing de la corp propriétaire ; les nœuds des systèmes détenteurs de sov reçoivent un halo coloré pour que le territoire hostile ressorte sur la carte."
       },
       "scout": {
-        "title": "Connexions scout",
-        "desc": "Les connexions publiques Eve-Scout de Thera et Turnur apparaissent dans la barre latérale pour sauter directement vers les trous connus."
+        "title": "Connexions Thera et Turnur",
+        "desc": "Les connexions publiques Thera et Turnur d'Eve-Scout avec les deux IDs de signature et l'itinéraire par le hub. Copiez-les sur votre carte en un clic (les trous qu'eve-scout ne liste plus sont nettoyés), et signalez-en un comme effondré pour que le calcul d'itinéraire cesse de l'utiliser."
       },
       "a0": {
         "title": "Détection des soleils A0",
@@ -1099,11 +1373,11 @@
       },
       "discordNotif": {
         "title": "Notifications Discord",
-        "desc": "Poussez le renseignement de chaîne de la corp vers un canal Discord pour que les alertes arrivent même quand personne ne regarde l'onglet. Se déclenche côté serveur à l'arrivée d'un K162 ou d'une nouvelle connexion de trou de ver, limité aux cartes de corp. Les admins filtrent quelles régions et cartes notifient depuis le panneau d'administration. Au mieux et respectueux des limites de débit ; les opérations groupées comme le seeding de région ne spamment jamais le canal."
+        "desc": "Envoyez l'intel de la chaîne vers un salon Discord pour que les alertes arrivent même quand personne ne regarde l'onglet : nouvelles connexions et K162, nouvelles sorties K-space avec leur itinéraire, kills sur la chaîne et kills spéciaux, trous qui passent en fin de vie, et nouveaux trous Thera et Turnur. Les admins choisissent quelles cartes et régions publient."
       },
       "routePlanner": {
         "title": "Planificateur d'itinéraire",
-        "desc": "BFS côté serveur sur les portails plus votre chaîne en direct, pour qu'un itinéraire passant par un saut de trou de ver soit un seul clic."
+        "desc": "Choisissez deux systèmes quelconques et obtenez un itinéraire via les portails, vos chaînes de trous de ver, Thera, Turnur et les ponts Ansiblex. Trouvez les systèmes par l'alias que vous leur avez donné, et enregistrez les itinéraires que vous empruntez souvent."
       },
       "locationTracking": {
         "title": "Suivi de position",
@@ -1126,8 +1400,8 @@
         "desc": "Appuyez sur H pour ramener la vue à votre système d'origine depuis n'importe quel panneau. Clic droit sur un système pour définir ou changer lequel est l'origine."
       },
       "killHighlights": {
-        "title": "Surbrillance des kills récents",
-        "desc": "Les systèmes avec des kills dans la dernière heure reçoivent un halo coloré pour repérer d'un coup d'œil l'activité fraîche sur toute la chaîne."
+        "title": "Mise en avant des kills récents",
+        "desc": "Les systèmes avec des kills reçoivent une épée sur la carte avec leur nombre de kills sur 24 heures, vive quand il y a eu des combats dans l'heure, et un halo coloré pour l'activité récente sur toute la chaîne."
       },
       "userStats": {
         "title": "Fenêtre de statistiques utilisateur",
@@ -1142,8 +1416,8 @@
         "desc": "La page d'accueil intègre une carte de démo non modifiable pour que les visiteurs voient ce que fait l'outil avant de se connecter."
       },
       "sidebar": {
-        "title": "Barre latérale repliable",
-        "desc": "Options de carte, Connexions, Alertes de proximité, Atténuation des systèmes obsolètes et Raccourcis se déplient ou se replient indépendamment. L'état par section persiste par navigateur via localStorage."
+        "title": "Choisissez vos panneaux",
+        "desc": "Chaque section de la barre latérale et chaque panneau de système peut être replié, réorganisé ou entièrement désactivé. Vos choix sont enregistrés dans votre compte et vous suivent sur une autre machine."
       },
       "colorVision": {
         "title": "Modes daltoniens",
@@ -1167,7 +1441,91 @@
       },
       "jumpPlanner": {
         "title": "Planificateur de saut",
-        "desc": "Tracez une route de saut capital multi-étapes entre deux systèmes low/null. Choisissez une classe de vaisseau et vos compétences, optez pour le moins de sauts ou le moins de carburant, et voyez la route cartographiée avec les années-lumière par saut et une estimation en isotopes. Enregistrez et rechargez vos routes."
+        "desc": "Tracez une route de saut capital multi-étapes entre deux systèmes low/null. Choisissez une classe de vaisseau et vos compétences, optez pour le moins de sauts ou le moins de carburant, et voyez la route avec les années-lumière par saut, une estimation en isotopes, la fatigue de saut et le délai de réactivation. Évitez des systèmes, ajoutez des points de passage, utilisez les portails régionaux et enregistrez vos routes."
+      },
+      "addConnect": {
+        "title": "Ajouter et connecter en une étape",
+        "desc": "Clic droit sur un système pour ajouter un système connecté d'un seul coup, ou choisissez Connecter à un système et cliquez sur l'autre extrémité. Le système où vous vous trouvez est proposé en premier quand vous en ajoutez un, et un repère Inconnu marque un trou que vous n'avez pas encore identifié."
+      },
+      "mapGlance": {
+        "title": "La carte d'un coup d'œil",
+        "desc": "Les connexions affichent leur état sur la ligne elle-même : les trous pour frégates sont en pointillés, les trous réduits et critiques ont un cœur coloré, et la taille de vaisseau figure à côté du type. Chaque système indique la part déjà scannée, les statics restent visibles en mode compact, et le survol d'un système K-space indique à combien de sauts de portail il se trouve de vous."
+      },
+      "regionBorders": {
+        "title": "Frontières de région",
+        "desc": "Les systèmes dotés d'un portail vers une autre région reçoivent une petite étiquette qui la nomme, pour voir où une chaîne vous permet de passer dans Providence ou Curse sans ajouter le système voisin. Désactivé par défaut ; activez-le dans Options de système."
+      },
+      "layoutTools": {
+        "title": "Outils de disposition",
+        "desc": "Ranger la disposition organise les systèmes selon la forme de leurs régions réelles. Démêler regroupe les systèmes liés en lignes et colonnes bien ordonnées. Reclasser les portes transforme les lignes de trou de ver qui sont en fait des portails en connexions de portail. Les systèmes verrouillés restent là où vous les avez placés."
+      },
+      "flagPresets": {
+        "title": "Modèles de marqueur de connexion",
+        "desc": "Enregistrez une icône, une couleur et un nom comme modèle et appliquez-le à une connexion en un clic. Les corpos et alliances peuvent publier un jeu standard pour tout le monde."
+      },
+      "mapBackup": {
+        "title": "Import et sauvegardes complètes",
+        "desc": "Importez une carte depuis Pathfinder (alias, marqueurs d'intel, masse et fin de vie inclus) ou depuis Tripwire (expérimental, avec signatures et notes de système). Exportez une sauvegarde JSON complète avec signatures, anomalies, structures et la masse et la durée de vie de chaque trou, et réimportez-la en copie exacte qui vous appartient."
+      },
+      "jumpConfirm": {
+        "title": "Les sauts complètent le trou",
+        "desc": "Quand vous sautez, nexum détermine par quelle signature vous êtes passé et renseigne sa destination, en ne vous demandant que si plusieurs peuvent correspondre. Le nom de signet mis à jour du trou arrive dans votre presse-papiers, prêt à coller en jeu. Les sauts de clone et les morts en pod ne tracent pas de fausses connexions."
+      },
+      "sharing": {
+        "title": "Partage de cartes",
+        "desc": "Partagez une carte avec d'autres personnages, votre corpo ou votre alliance, ou créez un lien en lecture seule que n'importe qui peut ouvrir sans compte, avec une date d'expiration et un choix de ce que voient les invités. Les cartes partagées indiquent leur propriétaire, et vous pouvez quitter ou masquer celles que vous n'utilisez pas."
+      },
+      "mapHistory": {
+        "title": "Historique de la carte",
+        "desc": "Chaque modification de la structure d'une carte est enregistrée avec son auteur : systèmes, connexions, signatures, chaînes, paramètres, partages et fusions. Conservé 30 jours et consultable par le propriétaire et les admins de la carte depuis la barre latérale de la carte."
+      },
+      "dscan": {
+        "title": "Analyseur de d-scan et de local",
+        "desc": "Collez un scan directionnel pour obtenir les vaisseaux groupés par classe et coque, un filtre on-grid / off-grid, les structures avec leur distance et la masse totale du scan. Collez le chat local pour obtenir les pilotes groupés par alliance et corpo. Chaque scan reçoit un lien que tout le monde peut ouvrir pendant 24 heures, et les scans rattachés à un système apparaissent dans son panneau. Aucune connexion requise."
+      },
+      "pvpForecast": {
+        "title": "Prévision d'activité PvP",
+        "desc": "Pour n'importe quel système, 24 barres indiquant l'activité habituelle de chaque heure à venir pour ce jour de la semaine, d'après les 90 derniers jours de zKillboard, avec l'heure la plus chargée indiquée et un décompte en direct des dernières 24 heures. Les heures s'affichent dans votre propre fuseau horaire. Fonctionne aussi en espace wormhole."
+      },
+      "holeState": {
+        "title": "Masse et durée de vie pendant le scan",
+        "desc": "Indiquez la masse d'un trou (pleine, moins de 50 %, moins de 10 %) et sa durée de vie (jusqu'à expiré) directement depuis la liste des signatures, avant que quiconque l'ait traversé. Réglez-le d'un côté, et l'autre côté ainsi que la ligne sur la carte suivent."
+      },
+      "siteDetails": {
+        "title": "Détails des sites d'un coup d'œil",
+        "desc": "Les lignes relic et data indiquent si le site fait apparaître des PNJ de combat, les sites data d'événement affichent une coche de warp sans risque, les ghost sites sont un type à part avec leur niveau lu depuis le scan, et les trous Drifter renseignent eux-mêmes leur destination."
+      },
+      "chainExits": {
+        "title": "Sorties de la chaîne",
+        "desc": "Une liste dans la barre d'outils de chaque système K-space ayant un trou de ver ouvert sur votre chaîne, avec l'itinéraire vers chacun et vers vos systèmes favoris par la sortie que vous prendriez. Recevez une alerte dans l'application ou sur Discord quand une nouvelle sortie apparaît : high-sec seulement, low-sec et mieux, ou tout K-space."
+      },
+      "closestSystems": {
+        "title": "Systèmes les plus proches",
+        "desc": "Un panneau latéral indiquant la distance des hubs commerciaux et de votre propre liste de systèmes, en comptant les portails, vos chaînes de trous de ver, Thera et Turnur. Il peut utiliser toutes les cartes que vous voyez ou seulement celle ouverte, et chaque étape par trou de ver indique la carte dont elle provient."
+      },
+      "clones": {
+        "title": "Panneau des clones",
+        "desc": "Votre clone médical et vos clones de saut avec le système où se trouve chacun, leurs implants, et des boutons pour définir la destination ou ajouter un point de passage. Nécessite le scope des clones."
+      },
+      "pilotsOnline": {
+        "title": "Pilotes en ligne",
+        "desc": "Sur les installations de corpo et d'alliance, voyez qui dans votre organisation a été actif ces dernières minutes, ce qu'il pilote et où. Chacun peut masquer sa propre présence."
+      },
+      "announcer": {
+        "title": "Annonces vocales",
+        "desc": "Des alertes parlées pendant que vous volez, par une voix qui fonctionne sur votre propre appareil : low-sec et null-sec à portée, incursions, kills récents à proximité, personnages qui se connectent et nouvelles chaînes ajoutées par d'autres. Expérimental, en anglais uniquement."
+      },
+      "desktopAlerts": {
+        "title": "Alertes de bureau et sonores",
+        "desc": "Notifications de bureau et sons pour les kills sur votre chaîne, les trous qui passent en fin de vie, les nouvelles sorties K-space, les correspondances de liste de surveillance et les menaces proches, chacun activable séparément avec un seul réglage de volume. Seules les nouveautés déclenchent une alerte, jamais deux fois le même élément."
+      },
+      "multiDestination": {
+        "title": "Destination pour tous vos personnages",
+        "desc": "Définissez une destination ou ajoutez un point de passage pour tous les personnages en ligne de votre compte à la fois. Chacun trace son propre itinéraire depuis l'endroit où il se trouve, et vous voyez le résultat pour chaque personnage."
+      },
+      "panelLayout": {
+        "title": "Dispositions des panneaux",
+        "desc": "Placez les panneaux sous la carte ou à côté, répartissez-les sur jusqu'à trois colonnes redimensionnables, et choisissez un espacement Confortable, Compacte ou Dense. Masquez les panneaux que vous n'utilisez pas, détachez-les en fenêtres, et votre disposition suit votre compte sur n'importe quel appareil."
       }
     },
     "corpFeatures": {
@@ -1185,7 +1543,7 @@
       },
       "adminDash": {
         "title": "Tableau de bord d'administration",
-        "desc": "Une page /admin dédiée avec quatre onglets : Utilisateurs, Cartes, Rapports et Journal d'audit. Les admins y accèdent via le bouton Administration de la barre d'outils."
+        "desc": "Une page /admin dédiée avec des onglets Utilisateurs, Accès, Cartes, Rapports, Journal d'audit, Discord, Modèles de marqueur et Disposition par défaut. Les admins y accèdent via le bouton Administration de la barre d'outils."
       },
       "userMgmt": {
         "title": "Gestion des utilisateurs",
@@ -1222,11 +1580,27 @@
       "accessControl": {
         "title": "Contrôle d'accès des utilisateurs",
         "desc": "Décidez qui peut se connecter au-delà de votre noyau .env : une liste d'autorisation en base (initialisée depuis CORP_ID/ALLIANCE_ID) gérée dans l'admin, l'admission automatique optionnelle des corpos/alliances amies selon le standing (+5/+10), et un visualiseur de standings groupés par palier. Les sessions sont revérifiées en direct — révoquer un accès, ou un pilote quittant une corpo admise, le déconnecte."
+      },
+      "invites": {
+        "title": "Invitations avec un rôle",
+        "desc": "Ajoutez un pilote à la liste d'autorisation avant même sa première connexion et choisissez le rôle avec lequel il arrive. Le bouton Envoyer l'invitation ouvre un EVE mail déjà rédigé dans votre propre client. DEFAULT_USER_ROLE définit le rôle de départ de tous les autres."
+      },
+      "orgDefaults": {
+        "title": "Réglages par défaut de l'organisation",
+        "desc": "Enregistrez votre propre agencement de panneaux comme disposition de départ dont héritent les nouveaux membres, et publiez un jeu standard de modèles de marqueur de connexion pour tout le monde."
+      },
+      "orgBranding": {
+        "title": "Votre logo",
+        "desc": "Une instance gérée pour une corpo ou une alliance affiche son logo au-dessus du bouton de connexion sur la page d'accueil, et à côté du logo nexum dans la barre d'outils."
+      },
+      "prebuiltImages": {
+        "title": "Images prêtes à l'emploi",
+        "desc": "Chaque version est publiée sous forme d'images prêtes à lancer sur GitHub Container Registry, donc une mise à jour se résume à un docker compose pull. Les scripts de sauvegarde et de restauration gèrent plusieurs instances sur un même hôte."
       }
     },
     "forCorpsBody": "Faites tourner Nexum en déploiement partagé pour votre corp ou alliance. Les membres obtiennent des cartes de chaîne visibles par la corp et des cartes personnelles privées dans un seul outil, avec des permissions basées sur les rôles, des outils d'administration et des rapports d'activité par personnage.",
     "compareBody": "Découvrez comment Nexum se compare à Pathfinder, Tripwire et Wanderer — fonctionnalités, hébergement et coût, côte à côte.",
-    "languagesBody": "Nexum est entièrement traduit en neuf langues — et détecte automatiquement la vôtre depuis votre navigateur lors de votre première visite. Vous en préférez une autre ? Changez à tout moment depuis le sélecteur de langue dans la barre d'outils.",
+    "languagesBody": "Nexum est entièrement traduit en dix langues — et détecte automatiquement la vôtre depuis votre navigateur lors de votre première visite. Vous en préférez une autre ? Changez à tout moment depuis le sélecteur de langue dans la barre d'outils.",
     "compareLink": "Comparer Nexum vs Pathfinder, Tripwire & Wanderer →",
     "helpLink": "Nouveau ? Lisez le guide →",
     "guidesLink": "Guides & tutoriels sur les trous de ver →",
@@ -1290,6 +1664,33 @@
     "lessThan1h": "< 1 h",
     "broken": "Connexion rompue — la sig de trou de ver a été supprimée (trou effondré)"
   },
+  "mapKey": {
+    "title": "Légende de la carte",
+    "close": "Fermer la légende",
+    "lifetime": "Durée de vie",
+    "fresh": "Trou de ver avec plus d'un jour restant, ou dont la durée de vie est inconnue.",
+    "lessThan24h": "Moins d'un jour restant.",
+    "lessThan4h": "Moins de 4 heures restantes, avec compte à rebours.",
+    "lessThan1h": "Moins d'une heure restante, avec compte à rebours.",
+    "expired": "Son temps est écoulé selon l'horloge de nexum. L'horloge démarre quand le trou est cartographié et suppose la durée de vie complète du type : un trou trouvé tard peut mourir plus tôt qu'affiché.",
+    "expiredKept": "Sur cette carte, il reste jusqu'à ce que quelqu'un supprime sa signature (« Supprimer auto les trous de ver expirés » est désactivé).",
+    "expiredCutNow": "Sur cette carte, il est coupé immédiatement et ses signatures supprimées.",
+    "expiredCutAfter": "Sur cette carte, il est coupé {{time}} plus tard et ses signatures supprimées (délai avant rupture).",
+    "broken": "Coupé : sa signature a été supprimée, ou le trou est arrivé en fin de vie. Conservé pour que la chaîne reste lisible, mais exclu des itinéraires. Il revient si une signature le justifie à nouveau ou si quelqu'un le saute. « Supprimer les systèmes orphelins » retire les systèmes qui n'ont plus que ce type de lien.",
+    "massSize": "Type, taille et masse",
+    "type": "Type de trou et plus gros vaisseau accepté. S et M sont mis en évidence, car ils limitent ce que vous pouvez emmener.",
+    "frigate": "Tirets courts : trou réservé aux frégates.",
+    "massStable": "Masse signalée au-dessus de la moitié.",
+    "massHalf": "Moins de la moitié de la masse restante (cœur orange).",
+    "massCritical": "Moins de 10 % de la masse restante (cœur rouge).",
+    "other": "Autres liens",
+    "gate": "Portail stellaire.",
+    "jumpgate": "Pont de saut Ansiblex.",
+    "cyno": "Itinéraire de saut cyno, avec sa distance. Les points indiquent les classes de vaisseaux qui peuvent le faire avec votre Jump Drive Calibration.",
+    "watch": "Halo : correspond à votre liste de surveillance.",
+    "flag": "Marqué par votre corpo ou alliance. Survolez pour lire la note.",
+    "highlight": "Liens du système survolé ou sélectionné."
+  },
   "mapNode": {
     "a0Sun": "Soleil A0",
     "altLastKnown": "(dernière connue)",
@@ -1307,7 +1708,9 @@
     "jumps_one": "{{count}} saut",
     "jumps_other": "{{count}} sauts",
     "killsTooltip": "{{ships}} vaisseau · {{pods}} capsule détruits cette heure",
-    "killsTooltipHint": "Décompte horaire CCP · le killmail peut ne pas encore être sur zKillboard",
+    "kills24h_one": "{{count}} kill de joueur ces dernières 24 h",
+    "kills24h_other": "{{count}} kills de joueurs ces dernières 24 h",
+    "killsTooltipHint": "D'après le flux de kills en direct et les chiffres horaires de CCP",
     "recentKill": "Kill il y a {{ago}} min ({{value}} ISK)",
     "scanned": "{{scanned}} signatures sur {{total}} scannées",
     "scoutConnectionsMulti": "Connexions {{names}}",
@@ -1322,6 +1725,7 @@
     "suppressed": "Supprimé",
     "undivedUnknown": "inconnu",
     "undivedWhTitle": "Trou de ver inexploré",
+    "regionBorderTitle": "Portail vers une autre région : {{regions}}",
     "unknown": "Inconnu"
   },
   "mapShares": {
@@ -1365,7 +1769,8 @@
     "shareCount": "Partager avec {{count}}",
     "batchShared": "Carte partagée avec {{count}}.",
     "batchPartial": "Partagé avec {{shared}} ; {{skipped}} ignoré(s).",
-    "batchNone": "Impossible de partager — {{count}} ignoré(s)."
+    "batchNone": "Impossible de partager — {{count}} ignoré(s).",
+    "optedOut": "{{count}} ont masqué cette carte de leur propre liste. Ils y ont toujours accès — un partage de corporation ou d'alliance ne peut pas être quitté individuellement."
   },
   "mapSidebar": {
     "activityHint": "Afficher les graphiques pour :",
@@ -1416,6 +1821,8 @@
     "compact": "Compact",
     "connectionStyle": "Style de connexion",
     "connectionThickness": "Épaisseur des connexions",
+    "linkSigIds": "ID de sig sur les liens",
+    "confirmKeyDelete": "Confirmer la suppression par Suppr/Retour arrière",
     "copyFailed": "Échec de la copie — sélectionnez et copiez manuellement",
     "copyLink": "Copier le lien",
     "corpSkipKspace": "Ne pas suivre le K-space (corpo/alliance)",
@@ -1423,7 +1830,10 @@
     "createShareFailed": "Échec de la création du lien de partage",
     "createShareLink": "Créer un lien de partage",
     "crossMapSync": "Synchroniser les données système entre mes cartes",
-    "crossMapSyncHelp": "Lorsque vous ajoutez ou modifiez des signatures et anomalies sur un système, elles sont copiées vers le même système sur vos autres cartes (les cartes personnelles avec vos autres cartes personnelles ; les cartes de corpo avec les autres cartes de la corpo). Non destructif : il ne remplit que les entrées manquantes ou vides — il n'écrase jamais les données déjà saisies et ne supprime rien.",
+    "crossMapSyncHelp": "Lorsque vous ajoutez ou modifiez des signatures et des anomalies dans un système, elles sont copiées dans le même système sur vos autres cartes personnelles, y compris celles de vos autres personnages. Les cartes de corporation et d'alliance ont leur propre option. Non destructif : seules les entrées manquantes ou vides sont complétées — les données déjà saisies ne sont jamais écrasées ni supprimées.",
+    "crossMapSyncOrg": "Synchroniser les données système avec d'autres cartes",
+    "crossMapSyncCorpHelp": "Les signatures et anomalies ajoutées ou modifiées ici sont copiées dans le même système sur les autres cartes de la corporation où cette option est aussi activée. Non destructif : seules les entrées manquantes ou vides sont complétées. Seuls le propriétaire et les admins peuvent modifier ceci.",
+    "crossMapSyncAllianceHelp": "Les signatures et anomalies ajoutées ou modifiées ici sont copiées dans le même système sur les autres cartes de l'alliance où cette option est aussi activée. Non destructif : seules les entrées manquantes ou vides sont complétées. Seuls les admins d'alliance peuvent modifier ceci.",
     "easyConnect": "Connexion facile",
     "edgeStyle": {
       "bezier": "Standard",
@@ -1513,12 +1923,19 @@
     "notifProximity": "Menaces de proximité",
     "notifWatchlist": "Correspondance de liste de surveillance",
     "notifExits": "Sorties vers le k-space",
+    "notifKills": "Kills sur la carte",
+    "notifEol": "Trous en fin de vie",
     "notifExitsMinSec": "Alerter pour les sorties de",
     "notifExitsOff": "Désactivé — ne jamais alerter",
     "notifExitsHiSec": "Haute sécurité uniquement",
     "notifExitsLowSec": "Basse sécurité ou mieux",
     "notifExitsAny": "Tout k-space",
     "notifExitsHint": "Alerte une fois lorsqu’une sortie d’au moins cette sécurité apparaît dans la chaîne. Désactivé par défaut.",
+    "notifKillsWhich": "Quels kills",
+    "notifKillsSpecial": "Kills spéciaux uniquement",
+    "notifKillsBillion": "1 Md+ ISK",
+    "notifKillsAll": "Chaque kill signalé sur la carte",
+    "notifKillsHint": "Spécial signifie un capital perdu, 1 Md+ ISK, ou un dictor, HIC ou smartbomb sur le killmail. Les alertes de fin de vie se déclenchent quand quelqu’un d’autre marque un trou de cette carte à moins de 4 heures ou moins d’1 heure.",
     "notifVolume": "Volume des alertes et des annonces — {{pct}} %",
     "openOptions": "Options de carte",
     "optimizeConnections": "⟳ Optimiser les connexions",
@@ -1563,6 +1980,14 @@
     "routePreference": "Préférence d'itinéraire",
     "routeSecure": "Sécurisé",
     "routeShortcutNote": "Les itinéraires passant par un trou de ver, Thera, Turnur ou une porte de saut ne peuvent pas être définis comme destination ou point de passage en jeu — faites un clic droit sur un système k-space de l’itinéraire pour vous y rendre.",
+    "routeAvoid": "Systèmes à éviter",
+    "routeAvoidAdd": "Ajouter un système à éviter",
+    "routeAvoidRemove": "Retirer {{name}}",
+    "routeAvoidHint": "Les itinéraires de nexum (systèmes les plus proches, planificateur d'itinéraire, nombre de sauts) ne passent jamais par ces systèmes. Le pilote automatique d'EVE garde sa propre liste d'évitement en jeu.",
+    "waypointSendTo": "La destination va à",
+    "waypointSendToMe": "Ce personnage",
+    "waypointSendToAllOnline": "Tous les personnages connectés",
+    "waypointSendToHint": "S’applique partout à « Définir la destination » et « Ajouter un point de passage ». Chaque personnage calcule son propre trajet depuis sa position ; ceux qui ne sont pas connectés sont ignorés.",
     "routeShortest": "Le plus court",
     "sections": {
       "mapOptions": "Options de carte",
@@ -1584,6 +2009,7 @@
       "mergeMaps": "Fusionner les cartes",
       "liveSharing": "Diffusion de carte en direct",
       "shareMap": "Partager la carte",
+      "auditLog": "Journal des modifications",
       "shortcuts": "Raccourcis",
       "notifications": "Notifications",
       "announcer": "Annonces vocales",
@@ -1609,12 +2035,22 @@
     "showPatchNotes": "Voir les notes de version",
     "showStaticWhs": "Afficher les WH statiques",
     "showUndivedWhs": "Afficher les TdV non explorés",
+    "showRegionBorders": "Afficher les frontières de région",
+    "showRegionBordersTooltip": "Signale les systèmes dont les portails mènent vers une autre région, avec le nom de cette région. Le système voisin n'est pas ajouté à la carte.",
     "sigBookmark": "Signet de trou de ver",
+    "k162Bookmark": "Signet sortant (K162 uniquement)",
+    "k162BookmarkPlaceholder": "Vide : utilise le format de signet de trou de ver",
+    "k162BookmarkHelp": "Utilisé à la place du format de trou de ver ci-dessus, mais uniquement pour les K162, chaque fois qu'un nom de signet est copié (par l'icône de copie ou après un saut). Il accepte les mêmes variables. S'il est vide, les K162 utilisent le format de signet de trou de ver. Si la carte a son propre format de trou de ver, celui-ci s'applique à chaque trou, K162 compris.",
     "siteBookmark": "Signet de site (relic / data / gas)",
     "siteBookmarkHelp": "Sur une ligne de signature relic, data ou gas, cliquez sur l'icône de copie pour un nom de signet prêt à coller. Construisez-le avec ces jetons :",
+    "copyBookmarkOnJump": "Copier le nom du signet après un saut",
+    "copyBookmarkOnJumpHelp": "Quand un saut renseigne la destination d'un trou, son nom de signet (au format ci-dessus) est placé dans votre presse-papiers. Si vous êtes en jeu à ce moment, il est copié dès que vous recliquez dans nexum.",
     "skipKspace": "Ne pas suivre le K-space",
     "skipKspaceHint": "Si activé, n'enregistre que le premier système K-space où vous entrez depuis le J-space et le dernier avant de repartir en J-space — tout ce qui est traversé entre les deux est ignoré. HS/LS/NS uniquement ; le Pochven est toujours suivi.",
     "snapToGrid": "Aligner sur la grille",
+    "gridStyle": "Style de grille",
+    "gridStyleLines": "Lignes",
+    "gridStyleDots": "Points",
     "spreadNodes": "⊞ Espacer les nœuds",
     "spreadNodesTooltip": "Ajuster les nœuds de système pour éviter les chevauchements",
     "staleHint": "Atténue visuellement les systèmes non mis à jour depuis l'intervalle choisi, pour repérer d'un coup d'œil les résidus de chaîne.",
@@ -1643,7 +2079,17 @@
     "wandererImported": "Importé depuis Wanderer : {{systems}} systèmes, {{connections}} connexions ({{skipped}} ignorés).",
     "working": "En cours…",
     "panelColumns": "Colonnes de panneaux",
-    "panelColumnsTooltip": "Répartit les volets du panneau en colonnes côte à côte, pour que les notes ou le killboard soient à côté des signatures plutôt qu'en dessous."
+    "panelColumnsTooltip": "Répartit les volets du panneau en colonnes côte à côte, pour que les notes ou le killboard soient à côté des signatures plutôt qu'en dessous.",
+    "homeColor": "Couleur du système d’origine",
+    "hereColor": "Couleur « Vous êtes ici »",
+    "herePulse": "Pulsation « Vous êtes ici »",
+    "herePulseOptions": {
+      "off": "Désactivée (anneau fixe)",
+      "subtle": "Discrète",
+      "normal": "Normale",
+      "strong": "Forte"
+    },
+    "resetColor": "Réinitialiser"
   },
   "mass": {
     "billionKg": "{{value}} Md kg",
@@ -1707,7 +2153,8 @@
     "killboard": "zKillboard",
     "activity": "Activité",
     "undock": "Détacher dans une fenêtre flottante",
-    "redock": "Réancrer"
+    "redock": "Réancrer",
+    "pvp": "Activité PvP"
   },
   "panes": {
     "noEveSystem": "Aucun système EVE lié",
@@ -1738,12 +2185,25 @@
     "riskCritical": "Masse critique",
     "riskFrig": "Trou frégate",
     "jspaceNoWaypoint": "Les systèmes de trou de ver ne peuvent pas être définis comme destination du pilote automatique.",
-    "viaAnsiblex": "Porte de saut Ansiblex"
+    "viaAnsiblex": "Porte de saut Ansiblex",
+    "viaMap": "sur {{map}}"
   },
   "routeToast": {
     "destinationSet": "Destination définie sur {{system}}",
     "waypointAdded": "{{system}} ajouté aux points de passage avec succès.",
-    "failed": "Échec de la définition du point de cheminement — votre personnage est-il en ligne ?"
+    "failed": "Échec de la définition du point de cheminement — votre personnage est-il en ligne ?",
+    "destinationSetFor_one": "Destination {{system}} définie pour {{count}} personnage",
+    "destinationSetFor_other": "Destination {{system}} définie pour {{count}} personnages",
+    "waypointAddedFor_one": "{{system}} ajouté aux points de passage de {{count}} personnage",
+    "waypointAddedFor_other": "{{system}} ajouté aux points de passage de {{count}} personnages",
+    "notSentTo": "Non envoyé à : {{list}}",
+    "noneSent": "Impossible de la définir pour un personnage : {{list}}",
+    "reason": {
+      "offline": "non connecté",
+      "no_scope": "reconnectez-vous pour autoriser les points de passage",
+      "token_expired": "reconnectez-vous",
+      "esi_error": "EVE n’a pas répondu"
+    }
   },
   "scout": {
     "noConnections": "Aucune connexion {{system}}.",
@@ -1757,11 +2217,21 @@
     "inSigHint": "Identifiant de signature dans {{system}} — l'autre extrémité du trou",
     "outSigHint": "Identifiant de signature dans {{system}} — l'extrémité vers laquelle tu warpes d'ici",
     "markExpired": "Signaler ce trou comme effondré",
-    "unmarkExpired": "Finalement pas effondré"
+    "unmarkExpired": "Finalement pas effondré",
+    "copyAll": "Copier {{count}} vers la carte",
+    "copyAllHint": "Ajoute les signatures de chaque connexion {{system}} dont le système est sur la carte",
+    "copyOne": "Copier les signatures de cette connexion vers la carte",
+    "copyNothing": "Rien à copier : ces signatures sont déjà sur la carte",
+    "copyDone": "Signatures : {{added}} ajoutées, {{updated}} mises à jour",
+    "copyPartial": "{{added}} ajoutées, {{failed}} en échec",
+    "copyFailed": "Impossible de copier les signatures",
+    "copyDoneLinks": "Signatures : {{added}} ajoutées, {{updated}} mises à jour · {{links}} connexion(s) tracée(s)",
+    "copyDoneSwept": "Signatures : {{added}} ajoutées, {{updated}} mises à jour · {{removed}} trou(s) effondré(s) retirés"
   },
   "session": {
     "idleLogout": "Déconnecté pour inactivité.",
     "ended": "Votre session a pris fin — veuillez vous reconnecter.",
+    "reconnecting": "Impossible de joindre nexum pour le moment — nouvelle tentative en cours. Votre connexion est conservée.",
     "lockedTitle": "En pause",
     "lockedHint": "Vous étiez inactif, la carte a donc été mise en pause. Votre connexion est toujours active.",
     "resumeAs": "Continuer en tant que {{name}}",
@@ -1815,6 +2285,7 @@
     "pasteDifferentSystem": "Votre personnage est actuellement dans {{current}}, mais vous collez des signatures dans {{selected}}. Continuer ?",
     "loadFailed": "Échec du chargement des signatures",
     "saveFailed": "Échec de l'enregistrement de la signature",
+    "duplicateId": "La signature {{id}} existe déjà dans ce système",
     "deleteFailed": "Échec de la suppression de la signature",
     "deleteSelectedConfirm_one": "Supprimer {{count}} signature sélectionnée ?",
     "deleteSelectedConfirm_other": "Supprimer {{count}} signatures sélectionnées ?",
@@ -1828,6 +2299,9 @@
     "removeDelayInstant": "Immédiat",
     "filterLabel": "Filtrer par type",
     "filterClear": "Effacer",
+    "drifterHole": "Drifter",
+    "drifterHoles": "Drifter",
+    "drifterChipHint": "Trous Drifter (« Unidentified Wormhole » dans le scanner)",
     "noMatchFilter": "Aucune signature ne correspond au filtre",
     "setTypeAria": "Définir le type des signatures sélectionnées",
     "setType": "Définir le type ({{count}})…",
@@ -1851,6 +2325,7 @@
     "colAge": "Âge",
     "colUpdated": "Mis à jour",
     "columns": "Colonnes",
+    "groupIcons": "Groupe en icônes",
     "namePlaceholder": "Nom du site",
     "colSafe": "Sûr",
     "safeYes": "Sûr — pas de combat",
@@ -1944,6 +2419,11 @@
     "alliance": "Alliance",
     "corp": "Corp",
     "faction": "Faction",
+    "sovAdm": "ADM",
+    "sovAdmTip": "Activity Defense Multiplier (1–6) : plus il est élevé, plus un attaquant met de temps à capturer le hub de souveraineté.",
+    "sovVulnerability": "Vulnérable",
+    "sovVulnerableNow": "Maintenant, jusqu’à {{end}} EVE",
+    "sovVulnerableNext": "{{start}}–{{end}} EVE (dans {{in}})",
     "personal": "Personnel",
     "refreshStandings": "Actualiser les standings depuis l'ESI maintenant (contourne le TTL de 6 h)",
     "standingsRefreshed": "Standings actualisés — {{personal}} perso · {{corp}} corp · {{alliance}} contacts d'alliance",
@@ -1985,6 +2465,9 @@
     "discord": "Discord",
     "esiOffline": "ESI : Hors ligne",
     "esiOnline": "ESI : En ligne",
+    "latency": "{{ms}} ms",
+    "nexumOffline": "Nexum : Injoignable",
+    "nexumOnline": "Nexum : En ligne",
     "getMoreMaps": "+ Obtenir plus de cartes",
     "help": "Aide & guide",
     "lastKnownSystem": "Dernier système connu",
@@ -2031,7 +2514,12 @@
     "trackJumpsTooltipOn": "Suivi des sauts — de nouveaux systèmes sont ajoutés au fil de vos déplacements",
     "updateAvailable": "Mise à jour disponible",
     "updateAvailableVersion": "Mise à jour disponible : v{{version}}",
-    "userStats": "Statistiques utilisateur"
+    "userStats": "Statistiques utilisateur",
+    "hideThisMap": "Masquer de ma liste",
+    "hideThisMapHint": "Retire cette carte de votre sélecteur uniquement. Elle a été partagée avec votre corporation ou alliance : il n'y a donc aucun accès personnel à abandonner, et tous les autres la conservent. Vous pouvez la restaurer ici.",
+    "hiddenMaps": "Cartes masquées ({{count}})",
+    "unhideMap": "restaurer",
+    "unhideMapHint": "Réafficher cette carte dans votre liste"
   },
   "units": {
     "jumps_one": "{{count}} saut",
@@ -2098,7 +2586,13 @@
   },
   "waypoint": {
     "setDestination": "Définir la destination",
-    "addWaypoint": "Ajouter un point de cheminement"
+    "addWaypoint": "Ajouter un point de cheminement",
+    "sendTo": "Envoyer aux personnages…",
+    "sendToTitle": "Envoyer {{system}} à…",
+    "sendToHint": "Chaque personnage calcule son propre trajet depuis sa position. Seuls les personnages connectés peuvent la recevoir.",
+    "you": "vous",
+    "offline": "hors ligne",
+    "noneOnline": "Aucun de vos personnages n’est connecté."
   },
   "whChart": {
     "open": "⊟ Référence trous de ver",
@@ -2139,7 +2633,24 @@
   },
   "exits": {
     "notifTitle": "Sortie vers le k-space",
-    "appeared": "{{name}} ({{security}}) est dans la chaîne"
+    "appeared": "{{name}} ({{security}}) est dans la chaîne",
+    "appearedMany_one": "{{count}} nouvelle sortie k-space sur la chaîne",
+    "appearedMany_other": "{{count}} nouvelles sorties k-space sur la chaîne"
+  },
+  "alerts": {
+    "killTitle": "Kill dans {{system}}",
+    "killBody": "{{victim}} a perdu un {{ship}} ({{value}} ISK)",
+    "someone": "Quelqu’un",
+    "aShip": "vaisseau",
+    "special": {
+      "capital": "Capital",
+      "billion": "1 Md+ ISK",
+      "dictor": "Dictor/HIC",
+      "smartbomb": "Smartbomb"
+    },
+    "eolTitle": "Trou de ver en fin de vie",
+    "eolBody4h": "{{a}} ↔ {{b}} est en fin de vie (moins de 4 heures)",
+    "eolBody1h": "Il reste moins d’1 heure à {{a}} ↔ {{b}}"
   },
   "tripwire": {
     "title": "Importer depuis Tripwire (expérimental)",
@@ -2192,5 +2703,13 @@
     "max": "Jusqu'à {{count}} modèles",
     "orgGroup": "Organisation",
     "mineGroup": "Les miens"
+  },
+  "orgLogos": {
+    "alliance": "Logo de l'alliance",
+    "corp": "Logo de la corporation"
+  },
+  "update": {
+    "available": "Une nouvelle version de Nexum est disponible.",
+    "reload": "Recharger"
   }
 }

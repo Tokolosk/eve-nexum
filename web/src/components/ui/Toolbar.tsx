@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, type ReactNode, type CSSProperties } from 'react';
+import { useState, useEffect, useMemo, useRef, type ReactNode, type CSSProperties } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import { timeAgo, jumps } from '../../i18n/format';
@@ -24,6 +24,7 @@ import { ChainExitsMenu } from './ChainExitsMenu';
 import { WhTypeChartModal } from './WhTypeChartModal';
 import { KillLogPanel } from './KillLogPanel';
 import { JumpPlannerModal } from './JumpPlannerModal';
+import { DscanModal } from '../dscan/DscanModal';
 import { useProximityAlerts } from '../../hooks/useProximityAlerts';
 import { useClickOutside } from '../../hooks/useClickOutside';
 import { useUserSetting } from '../../hooks/useUserSetting';
@@ -48,6 +49,7 @@ import {
   LinkSimpleIcon,
   MapPinIcon,
   NavigationArrowIcon,
+  ScanIcon,
   PlanetIcon,
   QuestionIcon,
   ShieldStarIcon,
@@ -59,13 +61,70 @@ import {
 } from '../../icons';
 import type { Icon as PhosphorIcon } from '../../icons';
 import { UpdateIndicator } from './UpdateIndicator';
+import { OrgLogos } from './OrgLogos';
 import { charPortrait, typeIcon } from '../../utils/eveImages';
 import { DISCORD_INVITE_URL } from '../../data/links';
+import { countPersonalMaps } from '../../utils/personalMaps';
 
 interface EveStatus {
   players:    number;
   serverUp:   boolean; // 200 from status endpoint
   esiOnline:  boolean; // fetch reached ESI at all
+  nexumUp?:   boolean; // our own /api/ping answered
+  // Round trips in ms, each the median of the last few checks (see pushSample).
+  esiMs?:     number | null;
+  nexumMs?:   number | null;
+  esiSamples?:   number[];
+  nexumSamples?: number[];
+}
+
+// Latency shown is the median of the last few checks. A single reading jumps
+// around, and the first one after a quiet minute also pays for setting up the
+// connection again.
+const SAMPLES = 5;
+function pushSample(prev: number[] | undefined, ms: number | null): number[] {
+  return ms == null ? (prev ?? []) : [...(prev ?? []), Math.round(ms)].slice(-SAMPLES);
+}
+function median(xs: number[]): number | null {
+  if (xs.length === 0) return null;
+  const s = [...xs].sort((a, b) => a - b);
+  return Math.round(s[Math.floor(s.length / 2)]);
+}
+
+// Time one request. Null when it failed.
+//
+// Prefers the browser's own timing of the request: timing it ourselves also
+// counts however long the page took to get back to us, which on a busy page
+// (first load especially) can be more than the network. Same-origin requests
+// time request-sent to first byte, leaving out connection setup; ESI doesn't
+// allow that detail cross-origin, so it gets the whole fetch.
+// The body is read here because the browser only files its timing once the
+// response is complete.
+//
+// Only our own ping skips the cache. Safari turns a no-store fetch into extra
+// request headers, which makes the cross-origin ESI call need a CORS preflight;
+// ESI's status reply only lives 30s, so the minute poll never sees a stale one.
+async function timed(url: string): Promise<{ ok: boolean; body: string; ms: number } | null> {
+  const start = performance.now();
+  try {
+    const sameOrigin = url.startsWith('/');
+    const res = await fetch(url, {
+      cache: sameOrigin ? 'no-store' : 'default',
+      signal: AbortSignal.timeout(10_000),
+    });
+    const fallback = performance.now() - start;
+    const body = await res.text();
+    const abs = new URL(url, location.href).href;
+    const entry = (performance.getEntriesByName(abs, 'resource') as PerformanceResourceTiming[])
+      .filter((e) => e.startTime >= start).pop();
+    const ms = !entry ? fallback
+      : entry.responseStart > 0 && entry.requestStart > 0 ? entry.responseStart - entry.requestStart
+      : entry.duration > 0 ? entry.duration
+      : fallback;
+    return { ok: res.ok, body, ms };
+  } catch {
+    return null;
+  }
 }
 
 // Cross-tab cache: when one tab polls ESI, the result is written to localStorage
@@ -106,23 +165,29 @@ function useEveServerStatus(): EveStatus | null {
         if (!cancelled) setStatus(cached.value);
         return;
       }
-      let esiOnline = false;
       let serverUp  = false;
       let players   = 0;
-      try {
-        const res = await fetch('https://esi.evetech.net/latest/status/?datasource=tranquility', {
-          signal: AbortSignal.timeout(10_000),
-        });
-        esiOnline = true;
-        if (res.ok) {
-          const data = await res.json() as { players?: number };
+      const [esi, nexum] = await Promise.all([
+        timed('https://esi.evetech.net/latest/status/?datasource=tranquility'),
+        timed('/api/ping'),
+      ]);
+      const esiOnline = esi != null;
+      if (esi?.ok) {
+        try {
+          const data = JSON.parse(esi.body) as { players?: number };
           serverUp = true;
           players  = data.players ?? 0;
-        }
-      } catch {
-        // esiOnline stays false
+        } catch { /* garbled body: TQ state unknown, ESI still answered */ }
       }
-      const value: EveStatus = { players, serverUp, esiOnline };
+      const nexumUp = nexum != null && nexum.ok;
+      const esiSamples   = pushSample(cached?.value.esiSamples, esi?.ms ?? null);
+      const nexumSamples = pushSample(cached?.value.nexumSamples, nexumUp ? nexum.ms : null);
+      const value: EveStatus = {
+        players, serverUp, esiOnline, nexumUp,
+        esiMs: esiOnline ? median(esiSamples) : null,
+        nexumMs: nexumUp ? median(nexumSamples) : null,
+        esiSamples, nexumSamples,
+      };
       writeCache(value);
       if (!cancelled) setStatus(value);
     }
@@ -148,6 +213,11 @@ function useEveServerStatus(): EveStatus | null {
   }, []);
 
   return status;
+}
+
+// "ESI: Online · 84 ms" -- the round trip from this browser, when we have one.
+function withLatency(t: TFunction, status: string, ms: number | null | undefined): string {
+  return ms == null ? status : `${status} · ${t('toolbar.latency', { ms })}`;
 }
 
 // Build the tooltip for the online-status dot. When ESI reports online we
@@ -252,6 +322,7 @@ export function Toolbar() {
   const requestFitView  = useMapStore((s) => s.requestFitView);
   const deleteMap       = useMapStore((s) => s.deleteMap);
   const leaveShare      = useMapStore((s) => s.leaveShare);
+  const restoreShare    = useMapStore((s) => s.restoreShare);
   const mapOptionsOpen  = useMapStore((s) => s.mapOptionsOpen);
   const setMapOptionsOpen = useMapStore((s) => s.setMapOptionsOpen);
   const trackJumps      = useMapStore((s) => s.trackJumps);
@@ -261,7 +332,7 @@ export function Toolbar() {
   // them (sharedWithMe) has a different owner and doesn't count server-side, so
   // exclude it here too — otherwise received shares wrongly eat into the cap and
   // disable "+ New Map" / "Copy".
-  const atMapLimit      = maps.filter((m) => !m.isCorpMap && !m.isAllianceMap && !m.sharedWithMe).length >= maxMaps;
+  const atMapLimit      = countPersonalMaps(maps) >= maxMaps;
   const atCorpMapLimit  = corpMapCount >= maxCorpMaps;
   const { user, logout } = useAuth();
   const canEdit       = useCanEdit();
@@ -282,6 +353,25 @@ export function Toolbar() {
   // A map shared with this character specifically (not via corp/alliance) can be
   // dropped from their own list — gates the "Leave shared map" action below.
   const activeCanLeave = !!maps.find((m) => m.id === activeMapId)?.canLeaveShare;
+  // Leaving an org-shared map records an opt-out server-side rather than
+  // deleting the grant (which belongs to the whole corp). The map keeps coming
+  // back in the payload flagged hiddenByMe, which is what lets the switcher
+  // offer it back — and lets the owner see that someone left.
+  const [showHidden, setShowHidden] = useState(false);
+  // Only ever hide a map shared with you. Your own are deleted, and a personal
+  // grant is properly left instead, which frees it on the owner's list.
+  const activeCanHide = activeIsShared && !activeCanLeave
+    && !maps.find((m) => m.id === activeMapId)?.hiddenByMe;
+  // A hidden map that is somehow still active must stay listed, or the
+  // switcher would show nothing selected.
+  const visibleMaps = useMemo(
+    () => maps.filter((m) => !m.hiddenByMe || m.id === activeMapId),
+    [maps, activeMapId],
+  );
+  const hiddenMaps = useMemo(
+    () => maps.filter((m) => m.hiddenByMe && m.id !== activeMapId),
+    [maps, activeMapId],
+  );
   const canManageMaps = useCanCreateMaps();
   const canManageAllianceMaps = useCanManageAllianceMaps();
   // Corp maps exist under corp OR alliance mode (a corp inside the alliance).
@@ -331,6 +421,7 @@ export function Toolbar() {
   const [showWhChart, setShowWhChart] = useState(false);
   const [showKillLog, setShowKillLog] = useState(false);
   const [showJumpPlanner, setShowJumpPlanner] = useState(false);
+  const [showDscan, setShowDscan] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState(false);
   const [leaveConfirm, setLeaveConfirm] = useState(false);
   const mapSwitcherRef = useRef<HTMLDivElement>(null);
@@ -445,7 +536,7 @@ export function Toolbar() {
 
           {showMaps && (
             <div className="map-dropdown" onMouseLeave={() => setShowMaps(false)}>
-              {[...maps].sort((a, b) => {
+              {[...visibleMaps].sort((a, b) => {
                 // Tier ordering: own personal → corp → alliance → shared-with-me.
                 // Inside a tier, alphabetical by name.
                 const tier = (m: typeof a) => m.sharedWithMe ? 3 : m.isAllianceMap ? 2 : m.isCorpMap ? 1 : 0;
@@ -521,6 +612,37 @@ export function Toolbar() {
                 <button className="map-dropdown__item map-dropdown__item--danger" onClick={() => { setShowMaps(false); setLeaveConfirm(true); }}>
                   {t('toolbar.leaveThisMap')}
                 </button>
+              )}
+              {activeCanHide && (
+                <button
+                  className="map-dropdown__item map-dropdown__item--danger"
+                  data-tooltip={t('toolbar.hideThisMapHint')}
+                  onClick={() => { setShowMaps(false); void handleLeaveShare(); }}
+                >
+                  {t('toolbar.hideThisMap')}
+                </button>
+              )}
+              {hiddenMaps.length > 0 && (
+                <>
+                  <div className="map-dropdown__divider" />
+                  <button
+                    className="map-dropdown__item map-dropdown__item--action"
+                    onClick={() => setShowHidden((v) => !v)}
+                  >
+                    {t('toolbar.hiddenMaps', { count: hiddenMaps.length })}
+                  </button>
+                  {showHidden && hiddenMaps.map((m) => (
+                    <button
+                      key={m.id}
+                      className="map-dropdown__item map-dropdown__item--hidden"
+                      onClick={() => void restoreShare(m.id)}
+                      data-tooltip={t('toolbar.unhideMapHint')}
+                    >
+                      {m.name}
+                      <span className="map-dropdown__owner">{t('toolbar.unhideMap')}</span>
+                    </button>
+                  ))}
+                </>
               )}
             </div>
           )}
@@ -600,6 +722,15 @@ export function Toolbar() {
           <NavigationArrowIcon size={18} weight="regular" />
         </button>
 
+        <button
+          className="toolbar__toggle toolbar__toggle--icon toolbar__toggle--prominent"
+          onClick={() => setShowDscan(true)}
+          data-tooltip={t('dscan.title')}
+          aria-label={t('dscan.title')}
+        >
+          <ScanIcon size={18} weight="regular" />
+        </button>
+
         {/* Layout switch. Lives here rather than in the sidebar's display
             options: those are set once, whereas people flip this back and
             forth while deciding which layout suits them. */}
@@ -623,16 +754,18 @@ export function Toolbar() {
 
     server: (
       <div className="toolbar__server-status">
-        <div className="toolbar__server-row">
+        <div
+          className="toolbar__server-row"
+          data-tooltip={
+            eveStatus == null ? t('toolbar.checking') :
+            eveStatus.serverUp ? t('toolbar.tqOnline') : t('toolbar.tqOffline')
+          }
+        >
           <span
             className={`toolbar__status-dot${
               eveStatus == null ? '' :
               eveStatus.serverUp ? ' toolbar__status-dot--on' : ' toolbar__status-dot--off'
             }`}
-            data-tooltip={
-              eveStatus == null ? t('toolbar.checking') :
-              eveStatus.serverUp ? t('toolbar.tqOnline') : t('toolbar.tqOffline')
-            }
           />
           <span className="toolbar__server-label">TQ</span>
           {eveStatus?.serverUp && (
@@ -641,18 +774,35 @@ export function Toolbar() {
             </span>
           )}
         </div>
-        <div className="toolbar__server-row">
+        <div
+          className="toolbar__server-row"
+          data-tooltip={
+            eveStatus == null ? t('toolbar.checking') :
+            eveStatus.esiOnline ? withLatency(t, t('toolbar.esiOnline'), eveStatus.esiMs) : t('toolbar.esiOffline')
+          }
+        >
           <span
             className={`toolbar__status-dot${
               eveStatus == null ? '' :
               eveStatus.esiOnline ? ' toolbar__status-dot--on' : ' toolbar__status-dot--off'
             }`}
-            data-tooltip={
-              eveStatus == null ? t('toolbar.checking') :
-              eveStatus.esiOnline ? t('toolbar.esiOnline') : t('toolbar.esiOffline')
-            }
           />
           <span className="toolbar__server-label">ESI</span>
+        </div>
+        <div
+          className="toolbar__server-row"
+          data-tooltip={
+            eveStatus?.nexumUp == null ? t('toolbar.checking') :
+            eveStatus.nexumUp ? withLatency(t, t('toolbar.nexumOnline'), eveStatus.nexumMs) : t('toolbar.nexumOffline')
+          }
+        >
+          <span
+            className={`toolbar__status-dot${
+              eveStatus?.nexumUp == null ? '' :
+              eveStatus.nexumUp ? ' toolbar__status-dot--on' : ' toolbar__status-dot--off'
+            }`}
+          />
+          <span className="toolbar__server-label">Nexum</span>
         </div>
       </div>
     ),
@@ -818,6 +968,7 @@ export function Toolbar() {
       {/* Fixed brand anchor — always top-left, never draggable. */}
       <div className="toolbar__brand">
         <img className="toolbar__logo" src="/screen.png" alt="Nexum" />
+        <OrgLogos className="toolbar__org-logos" size={26} />
       </div>
 
       <DndContext sensors={dragSensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
@@ -850,6 +1001,7 @@ export function Toolbar() {
     {showWhChart && <WhTypeChartModal onClose={() => setShowWhChart(false)} />}
     {showKillLog && <KillLogPanel onClose={() => setShowKillLog(false)} />}
     {showJumpPlanner && <JumpPlannerModal onClose={() => setShowJumpPlanner(false)} />}
+    {showDscan && <DscanModal onClose={() => setShowDscan(false)} />}
     {deleteConfirm && (
       <ConfirmModal
         message={t('toolbar.deleteMapConfirm', { name: mapName })}

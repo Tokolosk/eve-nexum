@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Handle, Position, useConnection } from '@xyflow/react';
 import {
   HouseIcon, LockIcon, WarningIcon, SkullIcon, LightningIcon,
-  SunIcon, SnowflakeIcon, SwordIcon, SparkleIcon, DiamondsFourIcon,
+  SunIcon, SnowflakeIcon, SwordIcon, SparkleIcon, DiamondsFourIcon, SignOutIcon,
 } from '../../icons';
 import type { NodeProps } from '@xyflow/react';
 import type { MapSystem } from '../../types';
@@ -22,6 +22,7 @@ import { useFleet } from '../../hooks/useFleet';
 import { useAuth } from '../../context/AuthContext';
 import { useUserSetting } from '../../hooks/useUserSetting';
 import { useWormholeTypes } from '../../hooks/useWormholeTypes';
+import { useRegionBorders } from '../../hooks/useRegionBorders';
 import { holeDisplay, whDestClass } from '../../utils/whDest';
 import { useIncursions, findIncursion } from '../../hooks/useIncursions';
 import { useInsurgency, findInsurgency } from '../../hooks/useInsurgency';
@@ -154,6 +155,7 @@ export const SystemNode = memo(({ data, selected }: NodeProps) => {
   const allKills        = useCurrentHourKills();
   const myKills         = sys.eveSystemId !== null ? allKills.get(sys.eveSystemId) : undefined;
   const hotKills        = !!myKills && myKills.shipKills + myKills.podKills > 0;
+  const kills24h        = myKills?.kills24h ?? 0;
   // Live "a kill just happened here" flag from the zKill feed (ephemeral, SSE).
   const recentKill      = useSystemKill(sys.eveSystemId);
 
@@ -212,6 +214,11 @@ export const SystemNode = memo(({ data, selected }: NodeProps) => {
   const undivedHoles    = useMapStore((s) => s.undivedWhBySystem[sys.id]);
   const scan            = useMapStore((s) => s.scanBySystem[sys.id]);
   const [showUndivedWh] = useUserSetting<boolean>('nexum.map.showUndivedWh', true);
+  // Region border (opt-in): the other regions this system's stargates lead to,
+  // labelled on the node so the exit is visible without mapping the neighbour.
+  const [showRegionBorders] = useUserSetting<boolean>('nexum.map.showRegionBorders', false);
+  const regionBorders   = useRegionBorders(showRegionBorders && isKspace);
+  const borderRegions   = isKspace && sys.eveSystemId != null ? regionBorders[sys.eveSystemId] : undefined;
   // SDE-derived wormhole catalog (the single source of truth for destinations),
   // used to colour statics and undived-hole pills consistently with the rest of
   // the app rather than the drift-prone hardcoded map.
@@ -326,6 +333,7 @@ export const SystemNode = memo(({ data, selected }: NodeProps) => {
         selectSystem(sys.id);
       }}
     >
+      {showHome && <span className="system-node__home-shape" aria-hidden><span /></span>}
       {/* Label pills, anchored just above the node's top-left (absolutely
           positioned so they sit outside the node body). Predefined coloured
           pills first, then custom text / icon pills. */}
@@ -504,13 +512,21 @@ export const SystemNode = memo(({ data, selected }: NodeProps) => {
               </span>
             </span>
           )}
-          {hotKills && myKills && (
-            <span className="system-node__kill-icon">
+          {(hotKills || kills24h > 0) && myKills && (
+            // Sword + the last 24 hours' count; bright while there's been
+            // fighting this hour, dimmed when it's only earlier in the day.
+            <span className={`system-node__kill-icon${hotKills ? '' : ' system-node__kill-icon--quiet'}`}>
               <SwordIcon size={14} weight="regular" />
+              {kills24h > 0 && <span className="system-node__kill-count">{kills24h}</span>}
               <span className="system-node__kill-tooltip">
                 <span className="system-node__kill-tooltip-main">
-                  {t('mapNode.killsTooltip', { ships: myKills.shipKills, pods: myKills.podKills })}
+                  {t('mapNode.kills24h', { count: kills24h })}
                 </span>
+                {hotKills && (
+                  <span className="system-node__kill-tooltip-main">
+                    {t('mapNode.killsTooltip', { ships: myKills.shipKills, pods: myKills.podKills })}
+                  </span>
+                )}
                 <span className="system-node__kill-tooltip-hint">
                   {t('mapNode.killsTooltipHint')}
                 </span>
@@ -590,6 +606,16 @@ export const SystemNode = memo(({ data, selected }: NodeProps) => {
       {!compactMode && isKspace && sys.regionName && (
         <div className="system-node__npc-type">
           {sys.regionName}{sys.npcType ? ` - ${sys.npcType}` : ''}
+        </div>
+      )}
+
+      {borderRegions && borderRegions.length > 0 && (
+        <div
+          className="system-node__region-border"
+          title={t('mapNode.regionBorderTitle', { regions: borderRegions.join(', ') })}
+        >
+          <SignOutIcon size={12} weight="bold" />
+          <span className="system-node__region-border-names">{borderRegions.join(' · ')}</span>
         </div>
       )}
 

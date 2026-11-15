@@ -2,8 +2,9 @@ import { useEffect } from 'react';
 import { useMapStore } from '../store/mapStore';
 import { useCanEdit } from './useCanEdit';
 import { useWormholeTypes } from './useWormholeTypes';
-import { whDestClass, leadsToClasses } from '../utils/whDest';
-import type { MapSystem } from '../types';
+import { collapseState } from '../utils/rolling';
+import type { MapConnection, MapSystem } from '../types';
+import type { WhSig } from '../utils/undivedWormholes';
 
 /**
  * Mounted once (in MapCanvas). The missing mirror of the "quarantine orphaned
@@ -22,6 +23,60 @@ import type { MapSystem } from '../types';
  * whenever sigs/connections change, so it heals the whole map, not just the
  * system in view. Idempotent: a revived connection is no longer broken.
  */
+type WhTypeInfo = Record<string, { dest?: string; totalMass?: number } | undefined>;
+
+/** The broken standard connections that sigs on both ends say are alive. Pure,
+ *  so it can be tested without the store. */
+export function connectionsToRevive(
+  systems: MapSystem[],
+  connections: MapConnection[],
+  whSigsBySystem: Record<string, WhSig[]>,
+  whTypes: WhTypeInfo,
+): string[] {
+  const byId = new Map(systems.map((s) => [s.id, s]));
+
+  // Which connection each sig is linked to, so a sig already backing one hole
+  // can't also be counted as backing another.
+  const linkedTo = new Map<string, string>();
+  for (const c of connections) {
+    if (c.sourceSignatureId) linkedTo.set(c.sourceSignatureId, c.id);
+    if (c.targetSignatureId) linkedTo.set(c.targetSignatureId, c.id);
+  }
+
+  // Does `fromId` carry a wormhole sig tied to this connection -- linked to it,
+  // or pinned to `to` by name? A sig that only leads to `to`'s class doesn't
+  // count: matching by class revived holes that had really gone (home's
+  // H296 -> C5 to one C5 "backed" a dead link to a different C5, and an
+  // overwrite paste's new H296 -> C5 brought back the old ones it replaced).
+  const backs = (fromId: string, to: MapSystem, connId: string): boolean => {
+    const name = (to.name ?? '').trim().toUpperCase();
+    for (const sig of whSigsBySystem[fromId] ?? []) {
+      const linked = linkedTo.get(sig.id);
+      if (linked === connId) return true;
+      if (linked) continue;
+      if (name && sig.leadsTo.trim().toUpperCase() === name) return true;
+    }
+    return false;
+  };
+
+  const out: string[] = [];
+  for (const conn of connections) {
+    if (conn.connectionType !== 'standard' || !conn.broken) continue;
+    // Rolled shut: the calculator logged enough mass to collapse it. Its old
+    // sigs are still listed on both ends (nobody re-scans a hole they just
+    // rolled), which is exactly what this revive looks for, so without this
+    // it undid every roll the moment it broke. Undo pass / Reset lower the
+    // mass and restore the link themselves.
+    const total = conn.type ? whTypes[conn.type.toUpperCase()]?.totalMass ?? 0 : 0;
+    if (total > 0 && collapseState(total, conn.massUsed ?? 0) === 'collapsed') continue;
+    const a = byId.get(conn.sourceId);
+    const b = byId.get(conn.targetId);
+    if (!a || !b) continue;
+    if (backs(a.id, b, conn.id) && backs(b.id, a, conn.id)) out.push(conn.id);
+  }
+  return out;
+}
+
 export function useReviveBackedConnections() {
   const canEdit = useCanEdit();
   const systems = useMapStore((s) => s.map.systems);
@@ -32,29 +87,8 @@ export function useReviveBackedConnections() {
 
   useEffect(() => {
     if (!canEdit) return;
-    const byId = new Map(systems.map((s) => [s.id, s]));
-
-    // Does `fromId` carry a wormhole sig that plausibly leads to `to`? Matched by
-    // pinned system name first (exact), then destination class (the sig's
-    // leads-to token or its fixed-destination code) — mirrors the quarantine's
-    // leads-to matching elsewhere in the app.
-    const backs = (fromId: string, to: MapSystem): boolean => {
-      const name = (to.name ?? '').trim().toUpperCase();
-      for (const sig of whSigsBySystem[fromId] ?? []) {
-        const leads = (sig.leadsTo ?? '').trim().toUpperCase();
-        if (leads && name && leads === name) return true;
-        if (leadsToClasses(sig.leadsTo).includes(to.systemClass)) return true;
-        if (whDestClass(sig.whType, whTypes) === to.systemClass) return true;
-      }
-      return false;
-    };
-
-    for (const conn of connections) {
-      if (conn.connectionType !== 'standard' || !conn.broken) continue;
-      const a = byId.get(conn.sourceId);
-      const b = byId.get(conn.targetId);
-      if (!a || !b) continue;
-      if (backs(a.id, b) && backs(b.id, a)) updateConnection(conn.id, { broken: false });
+    for (const id of connectionsToRevive(systems, connections, whSigsBySystem, whTypes)) {
+      updateConnection(id, { broken: false });
     }
   }, [canEdit, systems, connections, whSigsBySystem, whTypes, updateConnection]);
 }

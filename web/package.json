@@ -1,7 +1,7 @@
 {
   "name": "nexum-web",
   "private": true,
-  "version": "5.0.4",
+  "version": "5.17.5",
   "license": "AGPL-3.0-or-later",
   "type": "module",
   "author": {
@@ -54,17 +54,19 @@
     "jsdom": "^29.1.1",
     "typescript": "~6.0.2",
     "typescript-eslint": "^8.58.2",
-    "vite": "^8.0.10",
-    "vitest": "^4.1.10"
+    "vite": "~8.1.6",
+    "vitest": "4.1.12"
   },
   "resolutions": {
     "@babel/core": "^7.29.6",
     "brace-expansion": "^5.0.12",
     "browserslist": "^4.28.7",
     "kokoro-js": "1.2.1",
+    "minimatch": "^11.0.1",
     "postcss": "^8.5.18",
     "sharp": "^0.35.5",
     "source-map-js": "^1.2.2",
-    "vite": "^8.0.10"
+    "undici": "7.30.1",
+    "vite": "~8.1.6"
   }
 }

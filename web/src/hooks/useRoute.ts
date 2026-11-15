@@ -4,6 +4,10 @@ import { useMapStore } from '../store/mapStore';
 import { useUserSetting } from './useUserSetting';
 import { useScoutFlagRevision } from './useScoutConnections';
 
+// The user's route avoidance list: systems no route of ours passes through.
+export const ROUTE_AVOID_KEY = 'nexum.route.avoid';
+export interface AvoidedSystem { id: number; name: string }
+
 // Metadata for a shortcut hop (wormhole chain link / Thera / Turnur scout
 // connection) — mirrors the server EdgeMeta, used to mark the gap between two
 // route squares and flag risky holes.
@@ -13,6 +17,9 @@ export interface EdgeMeta {
   critical?: boolean;
   frig?:     boolean;
   whType?:   string;
+  /** Which of the user's maps contributed this hop — the closest-systems pane
+   *  unions them all, so a hole can come from a map that isn't on screen. */
+  mapName?:  string;
 }
 
 export interface RoutePathNode {
@@ -28,6 +35,34 @@ export interface RouteEntry {
   path:        RoutePathNode[];
   usesSpecial: boolean;  // path traverses a wormhole/Thera/Turnur/Ansiblex hop (informational — the
                          // displayed route won't match EVE autopilot; a k-space destination is still settable)
+}
+
+// How long to wait after the map's links change before asking again. The
+// store changes first and the write reaches the server a moment later -- an
+// undone system delete puts the system back, then POSTs it and its links -- so
+// asking at once can read the chain from before the change and keep it.
+const CHAIN_SETTLE_MS = 1500;
+
+/**
+ * Changes, a moment after it settles, whenever the active map's links do. The
+ * server routes through the chain as it has it stored, which none of the
+ * request's inputs reflect, so without this a route kept whatever chain it
+ * first saw: a link added, cut or brought back by undo never reached it.
+ */
+function useChainRevision(enabled: boolean): string {
+  const chainKey = useMapStore((s) => (enabled
+    ? s.map.connections
+        .map((c) => `${c.id}:${c.connectionType}:${c.broken ? 1 : 0}:${c.massStatus ?? ''}:${c.timeStatus ?? ''}`)
+        .sort()
+        .join('|')
+    : ''));
+  const [settled, setSettled] = useState(chainKey);
+  useEffect(() => {
+    if (chainKey === settled) return;
+    const t = setTimeout(() => setSettled(chainKey), CHAIN_SETTLE_MS);
+    return () => clearTimeout(t);
+  }, [chainKey, settled]);
+  return settled;
 }
 
 /**
@@ -69,6 +104,9 @@ export function useRoute(
   const [inclTurnur]    = useUserSetting<boolean>('nexum.route.includeTurnur', false);
   const [inclWormholes] = useUserSetting<boolean>('nexum.route.includeWormholes', false);
   const [inclAnsiblex]  = useUserSetting<boolean>('nexum.route.includeAnsiblex', false);
+  const [avoided]       = useUserSetting<AvoidedSystem[]>(ROUTE_AVOID_KEY, []);
+  const avoidKey = (Array.isArray(avoided) ? avoided : [])
+    .map((a) => a.id).filter((n) => Number.isInteger(n) && n > 0).sort((a, b) => a - b).join(',');
   // Bumped when a scout connection is flagged/unflagged collapsed. The server
   // reads the flags, but they're invisible to this request's inputs, so without
   // this the stale route would stand.
@@ -85,6 +123,7 @@ export function useRoute(
   // required — the chains still apply when routing from another region's tab.
   const wantWh   = inclWormholes && (allScope || !!activeMapId);
   const wantAnsi = inclAnsiblex  && (allScope || !!activeMapId);
+  const chainRevision = useChainRevision(wantWh || wantAnsi);
 
   useEffect(() => {
     if (!from || !targetsKey) {
@@ -99,12 +138,13 @@ export function useRoute(
     if (wantTurnur) url += '&includeTurnur=true';
     if (wantWh)     url += '&includeWormholes=true';
     if (wantAnsi)   url += '&includeAnsiblex=true';
+    if (avoidKey)   url += `&avoid=${avoidKey}`;
     if (wantWh || wantAnsi) url += allScope ? '&whScope=all' : `&mapId=${activeMapId}`;
     api<Record<string, RouteEntry>>(url)
       .then(r => { if (!cancelled) setData(r); })
       .catch(() => { if (!cancelled) setData({}); });
     return () => { cancelled = true; };
-  }, [from, targetsKey, routeMode, wantThera, wantTurnur, wantWh, wantAnsi, allScope, activeMapId, flagRevision]);
+  }, [from, targetsKey, routeMode, wantThera, wantTurnur, wantWh, wantAnsi, allScope, activeMapId, flagRevision, avoidKey, chainRevision]);
 
   return data;
 }

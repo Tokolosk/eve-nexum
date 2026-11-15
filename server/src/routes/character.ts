@@ -1,4 +1,4 @@
-import { Router } from 'express';
+import { Router, type Response } from 'express';
 import { config } from '../config.js';
 import { esiFetch } from '../utils/esi.js';
 import { db } from '../db.js';
@@ -52,8 +52,11 @@ function isReallyOnline(data: EsiOnlineResponse): boolean {
 // grows. The side effects (jump events, last_known) still run per request.
 type EsiLoc =
   | { status: 'offline' }
-  | { status: 'online'; solarSystemId: number | null }
-  | { status: 'error' };
+  | { status: 'online'; solarSystemId: number | null; docked?: boolean; expiresAt?: number }
+  // A failed ESI read: says nothing about where the character is.
+  | { status: 'error' }
+  // No usable token (revoked / expired refresh): treated as offline.
+  | { status: 'noToken' };
 // itemId is the ship's unique item id, not its type. It's what tells a flight
 // apart from a teleport: fly a hole and it's the same hull, die or clone-jump
 // and you wake in a DIFFERENT one — including pod to pod, where the type alone
@@ -61,35 +64,60 @@ type EsiLoc =
 type ShipInfo = { itemId: number | null; typeId: number; typeName: string; shipName: string; mass: number | null };
 
 const esiLocCache = new TtlCache<number, EsiLoc>(5_000, 60_000);      // keyed by characterId
+// Online is checked before every location read but changes rarely, and ESI
+// itself caches it for 60s, so it's kept for 30s: logging off or on still shows
+// within half a minute, and each location read costs one ESI call, not two.
+const esiOnlineCache = new TtlCache<number, boolean>(30_000, 120_000);
 const esiLocInflight = new Map<number, Promise<EsiLoc>>();            // dedupe concurrent reads
 const esiShipCache = new TtlCache<number, ShipInfo | null>(5_000, 60_000);
 const esiShipInflight = new Map<number, Promise<ShipInfo | null>>();
 
 // Online + current system for a character. Real 'online'/'offline' outcomes are
-// cached; a transient token/ESI failure returns 'error' and is NOT cached, so
-// recovery is immediate. Never throws.
+// cached; a transient ESI failure returns 'error' and is NOT cached, so recovery
+// is immediate. A network failure rejects.
 async function readEsiLocation(userId: number, characterId: number): Promise<EsiLoc> {
   const hit = esiLocCache.get(characterId);
-  if (hit) return hit.value;
+  // Kept only until ESI's own copy expires, not a flat 5s on top of it: stacked,
+  // the two caches could hide a short visit to a system (jump in, jump back).
+  const expiresAt = hit?.meta?.expiresAt;
+  if (hit && !(typeof expiresAt === 'number' && expiresAt <= Date.now())) return hit.value;
   const existing = esiLocInflight.get(characterId);
   if (existing) return existing;
   const p = (async (): Promise<EsiLoc> => {
     let token: string;
-    try { token = await getValidToken(userId); } catch { return { status: 'error' }; }
-    const onlineRes = await esiFetch(`https://esi.evetech.net/latest/characters/${characterId}/online/`,
-      { headers: { Authorization: `Bearer ${token}` } });
-    if (!onlineRes.ok) return { status: 'error' };
-    if (!isReallyOnline(await onlineRes.json() as EsiOnlineResponse)) return { status: 'offline' };
+    try { token = await getValidToken(userId); } catch { return { status: 'noToken' }; }
+    let online = esiOnlineCache.get(characterId)?.value;
+    if (online === undefined) {
+      const onlineRes = await esiFetch(`https://esi.evetech.net/latest/characters/${characterId}/online/`,
+        { headers: { Authorization: `Bearer ${token}` } });
+      if (!onlineRes.ok) return { status: 'error' };
+      online = isReallyOnline(await onlineRes.json() as EsiOnlineResponse);
+      esiOnlineCache.set(characterId, online);
+    }
+    if (!online) return { status: 'offline' };
     const locRes = await esiFetch(`https://esi.evetech.net/latest/characters/${characterId}/location/`,
       { headers: { Authorization: `Bearer ${token}` } });
-    if (!locRes.ok) return { status: 'online', solarSystemId: null };
-    const { solar_system_id } = await locRes.json() as { solar_system_id: number };
-    return { status: 'online', solarSystemId: solar_system_id };
+    if (!locRes.ok) return { status: 'error' };
+    // station_id / structure_id are present only while docked. Kept because a
+    // clone jump needs a station or structure at BOTH ends, and you cannot
+    // traverse a wormhole docked — see the jump tracker, which uses this to
+    // tell a clone jump from a flown connection. No extra scope: read_location
+    // already returns them.
+    const { solar_system_id, station_id, structure_id } =
+      await locRes.json() as { solar_system_id: number; station_id?: number; structure_id?: number };
+    return {
+      status: 'online',
+      solarSystemId: solar_system_id,
+      docked: station_id != null || structure_id != null,
+      expiresAt: Date.parse(locRes.headers.get('expires') ?? ''),
+    };
   })();
   esiLocInflight.set(characterId, p);
   try {
     const val = await p;
-    if (val.status === 'offline' || (val.status === 'online' && val.solarSystemId != null)) esiLocCache.set(characterId, val);
+    if (val.status === 'offline' || (val.status === 'online' && val.solarSystemId != null)) {
+      esiLocCache.set(characterId, val, { expiresAt: val.status === 'online' ? val.expiresAt : undefined });
+    }
     return val;
   } finally {
     esiLocInflight.delete(characterId);
@@ -134,9 +162,19 @@ async function readEsiShip(userId: number, characterId: number): Promise<ShipInf
 // Read a character's live location (online + current system + ship) by Nexum
 // user id. Records a jump + persists last_known_system keyed by userId, so
 // reading any of an account's characters keeps its profile fresh.
+// Thrown when ESI couldn't be read. The routes answer 503 rather than
+// "offline": the jump tracker forgets the pilot's previous system on an offline
+// answer, so one failed read mid-trip used to drop the next jump (or, with
+// "don't track K-space", the whole K-space visit). On an error the client keeps
+// its last reading instead.
+class LocationUnavailable extends Error {}
+
 type LocationPayload =
   | { online: false }
-  | { online: true; system: Record<string, unknown> | null; ship: ShipInfo | null };
+  | { online: true; system: Record<string, unknown> | null; ship: ShipInfo | null;
+      /** Docked in a station or structure. A clone jump needs one at both
+       *  ends, so the jump tracker uses this to tell one from a flown hop. */
+      docked: boolean };
 
 async function getLocationPayload(userId: number): Promise<LocationPayload> {
   const { rows: userRows } = await db.query<{ character_id: number }>(
@@ -145,11 +183,12 @@ async function getLocationPayload(userId: number): Promise<LocationPayload> {
   const characterId = userRows[0].character_id;
 
   const loc = await readEsiLocation(userId, characterId);
-  if (loc.status === 'error') return { online: false };
+  if (loc.status === 'error') throw new LocationUnavailable('ESI location unavailable');
+  if (loc.status === 'noToken') return { online: false };
   if (loc.status === 'offline') { lastSeenSystem.delete(userId); return { online: false }; }
 
   const ship = await readEsiShip(userId, characterId);
-  if (loc.solarSystemId == null) return { online: true, system: null, ship };
+  if (loc.solarSystemId == null) return { online: true, system: null, ship, docked: loc.docked ?? false };
 
   // Jump event + last-known persistence, keyed per character.
   const prevSys = lastSeenSystem.get(userId);
@@ -157,13 +196,17 @@ async function getLocationPayload(userId: number): Promise<LocationPayload> {
     db.query(`INSERT INTO user_events (user_id, event_type) VALUES ($1, 'jump')`, [userId]).catch(console.error);
   }
   if (prevSys !== loc.solarSystemId) {
-    db.query(`UPDATE users SET last_known_system_id = $1, last_known_system_at = NOW() WHERE id = $2`,
+    // Awaited, not fire-and-forget: a contributor's tracked add is checked
+    // against last_known_system_id (contributorIsAtSystem), and the client
+    // posts that add as soon as this response says they moved. Answering first
+    // would race the write and get the add refused. Only runs on a move.
+    await db.query(`UPDATE users SET last_known_system_id = $1, last_known_system_at = NOW() WHERE id = $2`,
       [loc.solarSystemId, userId]).catch(console.error);
   }
   lastSeenSystem.set(userId, loc.solarSystemId);
 
   // Liveness + ship for the Pilots Online panel. Throttled to once a minute:
-  // this path runs every 10 s per active pilot, and the panel only needs to know
+  // this path runs every 5 s per active pilot, and the panel only needs to know
   // they were around recently, not to the second. Fire-and-forget — a failed
   // touch must never affect the location read that the map depends on.
   db.query(
@@ -186,16 +229,30 @@ async function getLocationPayload(userId: number): Promise<LocationPayload> {
      WHERE s.id = $1`,
     [loc.solarSystemId],
   );
-  return { online: true, system: rows.length ? rows[0] : null, ship };
+  return { online: true, system: rows.length ? rows[0] : null, ship, docked: loc.docked ?? false };
 }
 
 // GET /api/character/location — the active character's location.
+// ESI unreadable: an error answer, a network failure or a timeout.
+const isTransient = (err: unknown): boolean =>
+  err instanceof LocationUnavailable
+  || (err instanceof TypeError && err.message === 'fetch failed')
+  || (err instanceof Error && err.name === 'TimeoutError');
+
+function sendLocationError(res: Response, err: unknown, logMsg: string): void {
+  if (isTransient(err)) {
+    res.status(503).json({ error: 'Location unavailable' });
+    return;
+  }
+  log.error(logMsg, err);
+  res.status(500).json({ error: 'Failed to get location' });
+}
+
 characterRouter.get('/location', async (req, res) => {
   try {
     res.json(await getLocationPayload(req.session.userId!));
   } catch (err) {
-    log.error('Location check failed:', err);
-    res.status(500).json({ error: 'Failed to get location' });
+    sendLocationError(res, err, 'Location check failed:');
   }
 });
 
@@ -214,8 +271,7 @@ characterRouter.get('/:targetUserId/location', async (req, res) => {
     try {
       res.json(await getLocationPayload(targetUserId));
     } catch (err) {
-      log.error('Location check failed:', err);
-      res.status(500).json({ error: 'Failed to get location' });
+      sendLocationError(res, err, 'Location check failed:');
     }
     return;
   }
@@ -227,6 +283,7 @@ characterRouter.get('/:targetUserId/location', async (req, res) => {
   try {
     res.json(await getLocationPayload(targetUserId));
   } catch (err) {
+    if (isTransient(err)) { res.status(503).json({ error: 'Location unavailable' }); return; }
     log.error(`Location check failed for character ${targetUserId}:`, err);
     res.json({ online: false });
   }
@@ -483,10 +540,41 @@ characterRouter.get('/account-locations', async (req, res) => {
   res.json({ characters: characters.filter((c) => c.eveSystemId != null) });
 });
 
+// One autopilot call for one character. The outcome is the per-character
+// result the multi-character form reports.
+type WaypointOutcome = 'ok' | 'offline' | 'no_scope' | 'token_expired' | 'esi_error';
+
+async function sendWaypoint(
+  userId: number, params: URLSearchParams,
+): Promise<Exclude<WaypointOutcome, 'offline'>> {
+  let token: string;
+  try { token = await getValidToken(userId); } catch { return 'token_expired'; }
+  const esiRes = await esiFetch(
+    `https://esi.evetech.net/latest/ui/autopilot/waypoint/?${params}`,
+    { method: 'POST', headers: { Authorization: `Bearer ${token}` } },
+  );
+  if (esiRes.ok) return 'ok';
+  // 401: the token no longer works. 403: it works but was never granted the
+  // waypoint scope -- a character linked before it was added. Both are fixed
+  // by logging that character in again.
+  if (esiRes.status === 401 || esiRes.status === 403) return 'no_scope';
+  return 'esi_error';
+}
+
+// Most characters one request will act on. A multiboxer runs a handful; this
+// only stops a malformed request fanning out.
+const MAX_WAYPOINT_TARGETS = 50;
+
 // POST /api/character/waypoint
+//
+// Without `to`, sets the waypoint for the signed-in character, as it always has.
+// With `to` -- 'allOnline', or a list of users.id -- sets it for several of the
+// account's own characters at once, each plotting its own route from where it
+// is. Characters that aren't logged in are skipped (ESI only takes waypoints
+// for a character in game), and the answer says what happened to each.
 characterRouter.post('/waypoint', async (req, res) => {
-  const { destinationId, addToBeginning = false, clearOtherWaypoints = false } =
-    req.body as { destinationId?: unknown; addToBeginning?: boolean; clearOtherWaypoints?: boolean };
+  const { destinationId, addToBeginning = false, clearOtherWaypoints = false, to } =
+    req.body as { destinationId?: unknown; addToBeginning?: boolean; clearOtherWaypoints?: boolean; to?: unknown };
 
   // EVE destination IDs are positive 32-bit integers (solar systems, stations,
   // structures). Coerce + range-check to keep arbitrary strings out of the ESI
@@ -496,30 +584,70 @@ characterRouter.post('/waypoint', async (req, res) => {
     res.status(400).json({ error: 'destinationId must be a positive integer' });
     return;
   }
+  const params = new URLSearchParams({
+    add_to_beginning:     String(addToBeginning),
+    clear_other_waypoints: String(clearOtherWaypoints),
+    destination_id:       String(destNum),
+  });
 
-  const { rows } = await db.query<{ character_id: number }>(
-    `SELECT character_id FROM users WHERE id = $1`,
-    [req.session.userId],
-  );
-  if (!rows.length) { res.status(404).json({ error: 'User not found' }); return; }
-
-  try {
-    const token  = await getValidToken(req.session.userId!);
-    const params = new URLSearchParams({
-      add_to_beginning:     String(addToBeginning),
-      clear_other_waypoints: String(clearOtherWaypoints),
-      destination_id:       String(destNum),
-    });
-    const esiRes = await esiFetch(
-      `https://esi.evetech.net/latest/ui/autopilot/waypoint/?${params}`,
-      { method: 'POST', headers: { Authorization: `Bearer ${token}` } },
+  if (to === undefined) {
+    const { rows } = await db.query<{ character_id: number }>(
+      `SELECT character_id FROM users WHERE id = $1`,
+      [req.session.userId],
     );
-    if (!esiRes.ok) { res.status(502).json({ error: `ESI returned ${esiRes.status}` }); return; }
-    res.json({ ok: true });
-  } catch (err) {
-    log.error('Waypoint set failed:', err);
-    res.status(500).json({ error: 'Failed to set waypoint' });
+    if (!rows.length) { res.status(404).json({ error: 'User not found' }); return; }
+    try {
+      const outcome = await sendWaypoint(req.session.userId!, params);
+      if (outcome === 'token_expired') { res.status(500).json({ error: 'Failed to set waypoint' }); return; }
+      if (outcome !== 'ok') { res.status(502).json({ error: 'ESI rejected the waypoint' }); return; }
+      res.json({ ok: true });
+    } catch (err) {
+      log.error('Waypoint set failed:', err);
+      res.status(500).json({ error: 'Failed to set waypoint' });
+    }
+    return;
   }
+
+  const requested = to === 'allOnline' ? null
+    : Array.isArray(to) && to.length > 0 && to.length <= MAX_WAYPOINT_TARGETS
+      && to.every((n) => Number.isInteger(n) && n > 0) ? new Set(to as number[])
+    : undefined;
+  if (requested === undefined) {
+    res.status(400).json({ error: `to must be 'allOnline' or a list of up to ${MAX_WAYPOINT_TARGETS} character ids` });
+    return;
+  }
+
+  // The account's characters: every one sharing the caller's owner, or just the
+  // caller on a session that predates accounts. Never anyone else's.
+  const ownerId = await resolveOwnerId(req);
+  const { rows: account } = await db.query<{ id: number; characterId: number; characterName: string }>(
+    `SELECT id, character_id AS "characterId", character_name AS "characterName"
+       FROM users
+      WHERE (id = $1 OR ($2::int IS NOT NULL AND owner_id = $2)) AND blocked = FALSE
+      ORDER BY (id = $1) DESC, character_name`,
+    [req.session.userId, ownerId],
+  );
+  if (requested && [...requested].some((id) => !account.some((c) => c.id === id))) {
+    res.status(403).json({ error: 'You can only set waypoints for your own characters' });
+    return;
+  }
+  const targets = requested ? account.filter((c) => requested.has(c.id)) : account;
+
+  const results = await Promise.all(targets.map(async (c) => {
+    let outcome: WaypointOutcome;
+    try {
+      // An error from the online check (no read_online scope, say) isn't proof
+      // the character is offline, so the waypoint is tried anyway and its own
+      // answer reported.
+      const loc = await readEsiLocation(c.id, c.characterId);
+      outcome = loc.status === 'offline' ? 'offline' : await sendWaypoint(c.id, params);
+    } catch (err) {
+      log.warn(`Waypoint for ${c.characterName} failed:`, err);
+      outcome = 'esi_error';
+    }
+    return { charId: c.id, characterId: c.characterId, characterName: c.characterName, status: outcome };
+  }));
+  res.json({ results });
 });
 
 // GET /api/character/online

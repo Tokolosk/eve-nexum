@@ -3,8 +3,13 @@ import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import { useSovData } from '../../hooks/useSovData';
+import { useSovHub } from '../../hooks/useSovHub';
+import { useNow30s } from '../../hooks/useNow30s';
+import { hoursMins } from '../../i18n/format';
 import { useSystemInfo } from '../../hooks/useSystemInfo';
 import { setDestination, addWaypoint } from '../../api/waypoint';
+import { useSendToStore } from '../../store/sendToStore';
+import { useAccountLocations } from '../../hooks/useAccountLocations';
 import { DndContext, closestCenter, PointerSensor, useSensor, useSensors } from '@dnd-kit/core';
 import type { DragEndEvent } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
@@ -12,6 +17,7 @@ import { useMapStore } from '../../store/mapStore';
 import { CLASS_COLORS, CLASS_LABELS, EFFECT_LABELS, EFFECT_MODIFIERS } from '../../data/wormholes';
 import { useWormholeTypes } from '../../hooks/useWormholeTypes';
 import { whDestClass } from '../../utils/whDest';
+import { SIDE_KEY, clampSide, readSideWidth } from '../../utils/panelSideWidth';
 import { DraggableCard } from './DraggableCard';
 import { FloatingPanel, type PanelGeometry } from './FloatingPanel';
 import { useUserSetting } from '../../hooks/useUserSetting';
@@ -20,7 +26,7 @@ import {
   equalWeights, normaliseWeights, resizeWeights,
   type ColumnMap,
 } from '../../utils/panelColumns';
-import { SquaresFourIcon, XIcon, CopyIcon } from '../../icons';
+import { SquaresFourIcon, XIcon, CopyIcon, UsersThreeIcon } from '../../icons';
 import { PanelVisibilityModal } from './PanelVisibilityModal';
 import { SignaturePane } from './SignaturePane';
 import { AnomalyPane } from './AnomalyPane';
@@ -29,6 +35,7 @@ import { NpcStationsPane } from './NpcStationsPane';
 import { NotesEditor } from './NotesEditor';
 import { KillboardPane } from './KillboardPane';
 import { ActivityPane } from './ActivityPane';
+import { PvpPane } from './PvpPane';
 import { useStandings, type ContactKind } from '../../hooks/useStandings';
 import { toast } from '../../utils/toastStore';
 import { truesecColor } from '../../utils/truesec';
@@ -37,6 +44,7 @@ import { useIncursions, findIncursion } from '../../hooks/useIncursions';
 import { useInsurgency, findInsurgency } from '../../hooks/useInsurgency';
 import { useCanEditContent } from '../../hooks/useCanEditContent';
 import { useShareMode } from '../../context/ShareModeContext';
+import { DscanSystemList } from '../dscan/DscanSystemList';
 import { useCustomIntel } from '../../hooks/useCustomIntel';
 import { resolveIntelColor, resolveIntelLabel } from '../../utils/intelColors';
 import { WHTypeInfo } from './WHTypeInfo';
@@ -162,14 +170,6 @@ const WIDTH_KEY  = 'nexum.panelInfoWidth';
 const COLLAPSE_KEY = 'nexum.panelInfoCollapsed';
 const MIN_H      = 80;
 const DEFAULT_H  = 300;
-// Column mode keeps its own size. Sharing one number with row mode means
-// switching layouts hands you a 300px-wide panel because that was your height.
-const SIDE_KEY   = 'nexum.panelSideWidth';
-const DEFAULT_SW = 460;
-const MIN_SW     = 320;
-function clampSide(v: number) {
-  return Math.min(Math.floor(window.innerWidth * 0.7), Math.max(MIN_SW, v));
-}
 // System-info column width: the previous fixed 400px is the max; users can drag
 // it narrower down to a still-readable minimum, and the panel-stack fills the
 // space freed up (or the whole panel when the column is fully collapsed).
@@ -209,6 +209,7 @@ export function SystemPanel() {
     npcStations: t('panel.npcStations'),
     killboard:   t('panel.killboard'),
     activity:    t('panel.activity'),
+    pvp:         t('panel.pvp'),
   };
   const systems          = useMapStore((s) => s.map.systems);
   const connections      = useMapStore((s) => s.map.connections);
@@ -238,6 +239,7 @@ export function SystemPanel() {
   const setPanelOrder    = useMapStore((s) => s.setPanelOrder);
   const canEdit          = useCanEditContent();
   const { isShareMode }  = useShareMode();
+  const activeMapId      = useMapStore((s) => s.activeMapId);
   // Per-category share-mode flags. Defaults are FALSE so a missing field
   // (older share payload, or a pre-flags map state) errs on hiding.
   const shareIncludesSigs       = useMapStore((s) => s.map.shareIncludeSigs       === true);
@@ -272,10 +274,7 @@ export function SystemPanel() {
   const colsRef = useRef<HTMLDivElement | null>(null);
 
   const requestFitView = useMapStore((st) => st.requestFitView);
-  const [sideWidth, setSideWidth] = useState(() => {
-    const v = localStorage.getItem(SIDE_KEY);
-    return v ? clampSide(parseInt(v, 10)) : DEFAULT_SW;
-  });
+  const [sideWidth, setSideWidth] = useState(readSideWidth);
   const sideWidthRef = useRef(sideWidth);
 
   // React Flow keeps its old viewport when the container changes shape, so the
@@ -330,6 +329,9 @@ export function SystemPanel() {
     }
     return seen;
   }, [connections, selectedSystemId]);
+
+  // Shown only with more than one character on the account.
+  const hasAlts = useAccountLocations().byChar.size > 0;
 
   if (!sys) return null;
   const incursion  = findIncursion(incursions, sys.eveSystemId);
@@ -428,6 +430,7 @@ export function SystemPanel() {
     npcStations: <NpcStationsPane eveSystemId={sys.eveSystemId} />,
     killboard:   <KillboardPane eveSystemId={sys.eveSystemId} />,
     activity:    <ActivityPane eveSystemId={sys.eveSystemId} />,
+    pvp:         <PvpPane eveSystemId={sys.eveSystemId} />,
   };
 
   // Whether each pane still renders in share mode (guests only see the
@@ -597,6 +600,17 @@ export function SystemPanel() {
                   >
                     {t('systemPanel.addWaypointBtn')}
                   </button>
+                  {hasAlts && (
+                    <button
+                      type="button"
+                      className="sys-btn"
+                      onClick={() => useSendToStore.getState().open(sys.eveSystemId!, sys.name)}
+                      title={t('waypoint.sendTo')}
+                      aria-label={t('waypoint.sendTo')}
+                    >
+                      <UsersThreeIcon size={14} weight="regular" />
+                    </button>
+                  )}
                 </>
               )}
             </div>
@@ -875,7 +889,17 @@ export function SystemPanel() {
                     </div>
                   </div>
                 )}
+                {/* Only alliances hold sov hubs; faction warfare space has none. */}
+                {sov.alliance && <SovHubRows eveSystemId={sys.eveSystemId} />}
               </div>
+              </InfoSection>
+            )}
+
+            {/* Scans pinned here from the toolbar's d-scan analyser. Not in
+                share mode: listing them needs a session. */}
+            {sys.eveSystemId && activeMapId && !isShareMode && (
+              <InfoSection id="dscans" title={t('dscan.systemSection')}>
+                <DscanSystemList mapId={activeMapId} eveSystemId={sys.eveSystemId} />
               </InfoSection>
             )}
 
@@ -1061,6 +1085,53 @@ export function SystemPanel() {
       </FloatingPanel>
     ))}
     </>
+  );
+}
+
+// The system's sov hub: its ADM and the current or next vulnerability window.
+// Its own component so the 30s clock re-renders just these lines, and the
+// cluster-wide hub list is only fetched once a sov system is actually opened.
+function SovHubRows({ eveSystemId }: { eveSystemId: number | null }) {
+  const { t, i18n } = useTranslation();
+  const hub = useSovHub(eveSystemId);
+  const now = useNow30s();
+  if (!hub) return null;
+
+  // EVE time is UTC. Show the weekday only when the window isn't today.
+  const fmt = (d: Date, withDay: boolean) => new Intl.DateTimeFormat(i18n.language, {
+    ...(withDay ? { weekday: 'short' as const } : {}),
+    hour: '2-digit', minute: '2-digit', hourCycle: 'h23', timeZone: 'UTC',
+  }).format(d);
+  const today = new Date(now).toISOString().slice(0, 10);
+  const otherDay = (d: Date) => d.toISOString().slice(0, 10) !== today;
+
+  let vuln: string | null = null;
+  const { vulnerableStart: start, vulnerableEnd: end } = hub;
+  if (start && end && end.getTime() > now) {
+    vuln = start.getTime() <= now
+      ? t('systemPanel.sovVulnerableNow', { end: fmt(end, otherDay(end)) })
+      : t('systemPanel.sovVulnerableNext', {
+          start: fmt(start, otherDay(start)),
+          end:   fmt(end, false),
+          in:    hoursMins(start.getTime() - now),
+        });
+  }
+
+  return (
+    <div className={styles.sovHub}>
+      {hub.adm != null && (
+        <div className={styles.sovHubItem} data-tooltip={t('systemPanel.sovAdmTip')}>
+          <span className={styles.sovLabel}>{t('systemPanel.sovAdm')}</span>
+          <span className={styles.sovName}>{hub.adm.toFixed(1)}</span>
+        </div>
+      )}
+      {vuln && (
+        <div className={styles.sovHubItem}>
+          <span className={styles.sovLabel}>{t('systemPanel.sovVulnerability')}</span>
+          <span className={styles.sovName}>{vuln}</span>
+        </div>
+      )}
+    </div>
   );
 }
 
