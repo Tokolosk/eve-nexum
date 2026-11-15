@@ -10,6 +10,7 @@ vi.mock('./scout.js', () => ({ getScoutConnections: async () => feed.rows }));
 import { ensureIntegrationDb, truncateAll, seedUser } from '../test/integrationDb.js';
 import { db } from '../db.js';
 import { mapsRouter } from './maps.js';
+import { onMapEvent } from '../services/mapEvents.js';
 
 const dbReady = await ensureIntegrationDb();
 
@@ -79,6 +80,27 @@ describe.skipIf(!dbReady)('scout cleanup (integration)', () => {
     expect(await sigCount()).toBe(1);
   });
 
+  it.each(['Thera', 'Turnur'])('preserves both hubs\' live signatures when copying %s', async (hub) => {
+    await seedScoutSig(sysId, 'thera-live', 120, { sigId: 'THR-001' });
+    await seedScoutSig(sysId, 'turnur-live', 120, { sigId: 'TRN-001' });
+    await seedScoutSig(sysId, 'gone', 120, { sigId: 'OLD-001' });
+    feed.rows = [
+      { id: 'thera-live', outSystemName: 'Thera' },
+      { id: 'turnur-live', outSystemName: 'Turnur' },
+    ];
+
+    const r = await request(appFor(user)).post(`/api/maps/${mapId}/scout-cleanup`).send({ hub });
+    expect(r.status).toBe(200);
+    expect(r.body).toEqual({ removed: 1, broken: 0 });
+    const { rows } = await db.query<{ scout_connection_id: string; refreshed: boolean }>(
+      `SELECT scout_connection_id, scout_last_seen > NOW() - INTERVAL '1 minute' AS refreshed
+         FROM map_signatures WHERE system_id = $1 ORDER BY scout_connection_id`, [sysId]);
+    expect(rows).toEqual([
+      { scout_connection_id: 'thera-live', refreshed: true },
+      { scout_connection_id: 'turnur-live', refreshed: true },
+    ]);
+  });
+
   it('never touches a signature a person created', async () => {
     // No provenance marker => not ours => structurally unreachable.
     await db.query(
@@ -95,7 +117,7 @@ describe.skipIf(!dbReady)('scout cleanup (integration)', () => {
     expect(await sigCount()).toBe(2);
   });
 
-  it('severs the connection rather than deleting it', async () => {
+  it('severs the connection and stamps its quarantine time rather than deleting it', async () => {
     await seedScoutSig(sysId, 'gone-2', 120);
     const other = (await db.query<{ id: string }>(
       `INSERT INTO map_systems (id, map_id, name, system_class, position_x, position_y)
@@ -106,11 +128,27 @@ describe.skipIf(!dbReady)('scout cleanup (integration)', () => {
 
     const r = await sweep();
     expect(r.body.broken).toBe(1);
-    const { rows } = await db.query<{ broken: boolean }>(
-      'SELECT broken FROM map_connections WHERE map_id = $1', [mapId]);
+    const { rows } = await db.query<{ broken: boolean; broken_at: Date | null }>(
+      'SELECT broken, broken_at FROM map_connections WHERE map_id = $1', [mapId]);
     // Still there, so the chain stays traceable -- just quarantined.
     expect(rows).toHaveLength(1);
     expect(rows[0].broken).toBe(true);
+    expect(rows[0].broken_at).toBeInstanceOf(Date);
+  });
+
+  it('sends the cleanup resync to the initiating client too', async () => {
+    await seedScoutSig(sysId, 'gone', 120);
+    const listener = vi.fn();
+    const unsubscribe = onMapEvent(mapId, listener);
+    try {
+      const r = await request(appFor(user)).post(`/api/maps/${mapId}/scout-cleanup`)
+        .set('x-client-id', 'copying-pilot').send({ hub: 'Thera' });
+      expect(r.status).toBe(200);
+      expect(r.body.removed).toBe(1);
+      expect(listener).toHaveBeenCalledWith({ type: 'map.resync', actor: null });
+    } finally {
+      unsubscribe();
+    }
   });
 
   it('refuses a hub it does not recognise', async () => {

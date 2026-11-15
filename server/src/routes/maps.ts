@@ -4372,9 +4372,9 @@ mapsRouter.post('/:mapId/scout-cleanup', async (req, res) => {
     return;
   }
 
-  const live = (await getScoutConnections())
-    .filter((c) => c.outSystemName === hub)
-    .map((c) => c.id);
+  // Cleanup covers the whole map, which can contain exits from both hubs.
+  // Check the complete feed so copying one hub cannot expire the other's rows.
+  const live = (await getScoutConnections()).map((c) => c.id);
 
   // Anything still listed had its clock reset by the copy itself; this covers
   // rows on systems the copy skipped this time round.
@@ -4414,14 +4414,15 @@ mapsRouter.post('/:mapId/scout-cleanup', async (req, res) => {
   const { rowCount: broken } = goneIds.length === 0
     ? { rowCount: 0 }
     : await db.query(
-        `UPDATE map_connections SET broken = TRUE
+        `UPDATE map_connections SET broken = TRUE, broken_at = NOW()
           WHERE map_id = $1 AND scout_connection_id = ANY($2::text[]) AND broken = FALSE`,
         [mapId, goneIds],
       );
 
   if (removed.length > 0 || (broken ?? 0) > 0) {
     await touchMap(mapId);
-    publishToMap(mapId, { type: 'map.resync', actor: req.get('x-client-id') ?? null });
+    // The caller only uses the response for a toast; it needs this resync too.
+    publishToMap(mapId, { type: 'map.resync', actor: null });
     recordMapAudit(req, mapId, {
       action: 'map.scoutCleanup', subject: hub,
       details: { values: { signatures: removed.length, connections: broken ?? 0 } },
