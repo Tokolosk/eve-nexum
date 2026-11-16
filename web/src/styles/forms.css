@@ -23,13 +23,15 @@
   box-sizing: border-box;
 
   &:focus { border-color: var(--border-accent); }
+}
 
-  &--selected {
-    border-color: #2e5a3a;
-    background: var(--surface-well);
-    color: #6adba0;
-    cursor: default;
-  }
+/* Flat, not nested: `&--x` is Sass, not CSS nesting, so the browser dropped
+   these and they never applied. */
+.search-field__input--selected {
+  border-color: #2e5a3a;
+  background: var(--surface-well);
+  color: #6adba0;
+  cursor: default;
 }
 
 .search-field__clear {
@@ -102,14 +104,16 @@
   font-size: calc(13px * var(--font-scale, 1));
   color: var(--text-default);
   cursor: pointer;
+}
 
-  &:hover:not(&--disabled),
-  &--active { background: var(--border); color: var(--text-bright); }
+/* Flat, not nested: `&--active` is Sass, not CSS nesting, so the browser
+   dropped these and the hover / keyboard highlight never showed. */
+.search-results__item:hover:not(.search-results__item--disabled),
+.search-results__item--active { background: var(--border); color: var(--text-bright); }
 
-  &--disabled {
-    opacity: 0.4;
-    cursor: not-allowed;
-  }
+.search-results__item--disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 
 .search-results__class {
